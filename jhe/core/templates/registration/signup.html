@@ -1,0 +1,59 @@
+{% extends "partials/base_accounts_forms.html" %}
+
+{% block title %}Sign Up{% endblock %}
+
+{% block prompt %}JHE Sign Up{% endblock %}
+
+{% block form_fields %}
+
+<div class="alert alert-warning text-center" role="alert" id="errorAlert">
+  Invitation required for Sign Up
+</div>
+
+<div class="form-floating mb-3">
+  <input name="joincode" type="text" class="form-control" id="joincodeInput" placeholder="name@example.com">
+  <label for="floatingInput">Invite Code</label>
+</div>
+
+<div class="form-floating">
+  <input name="email" type="email" class="form-control" id="emailInput" placeholder="name@example.com">
+  <label for="floatingInput">E-mail address</label>
+</div>
+<div class="form-floating">
+  <input name="password" type="password" class="form-control" id="passwordInput" placeholder="Re-enter Password">
+  <label for="passwordInput">Password</label>
+</div>
+<div class="form-floating">
+  <input name="password2" type="password" class="form-control" id="passwordInput2" placeholder="Password">
+  <label for="passwordInput2">Re-enter Password</label>
+</div>
+
+<script>
+  function validateAndSubmit(form){
+    document.getElementById("clientErrors").replaceChildren();
+    const errors = [];
+    if(!validateEmail(document.getElementById('emailInput').value)){
+      errors.push("Check your E-mail address.");
+    } else if(!validatePassword(document.getElementById('passwordInput2').value)){
+      errors.push("Password must be at least: 8 characters long, contain a number, an upper case letter and a special character (#?!@$%^&*-).");
+    } else if(document.getElementById("passwordInput").value !== document.getElementById("passwordInput2").value){
+      errors.push("Passwords do not match, try re-entering again.");
+    }
+    if(errors.length>0){
+      document.getElementById("clientErrors").insertAdjacentHTML('afterbegin', // match Django error messages
+      `
+        <ul class="errorlist">
+          <li>${errors.join("</li><li>")}</li>
+        </ul>
+      `);
+    } else {
+      form.submit();
+    }
+  }
+</script>
+
+<button class="w-100 btn btn-lg btn-primary mt-3" type="button" onclick="validateAndSubmit(this.form)">Sign Up</button>
+<div class="mt-4"><a href="{% url 'login' %}">Log In</a></div>
+
+{% endblock %}
+

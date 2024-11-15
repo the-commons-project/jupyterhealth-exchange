@@ -1,0 +1,25 @@
+{% verbatim %}
+<script id="t-crudButton" type="text/template">
+  <button
+    type="button"
+    onclick="{{onclick}}"
+    class="ms-1 p-0 btn btn-sm"
+    data-recordid="{{recordId}}"
+    data-organizationid="{{organizationId}}"
+    data-studyid="{{studyId}}"
+  >
+    {{#if iconCreate }}
+      <i class="bi bi-file-earmark-plus"></i>
+    {{/if}}
+    {{#if iconRead }}
+      <i class="bi bi-eye"></i>
+    {{/if}}
+    {{#if iconUpdate }}
+      <i class="bi bi-pencil-square"></i>
+    {{/if}}
+    {{#if iconDelete }}
+      <i class="bi bi-trash"></i>
+    {{/if}}
+  </button>
+</script>
+{% endverbatim %}

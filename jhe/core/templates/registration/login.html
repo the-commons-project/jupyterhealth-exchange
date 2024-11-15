@@ -1,0 +1,27 @@
+{% extends "partials/base_accounts_forms.html" %}
+
+{% block title %}Login{% endblock %}
+
+{% block prompt %}JHE Log In{% endblock %}
+
+{% block form_fields %}
+
+<div class="form-floating">
+  <input name="username" type="email" class="form-control" id="floatingInput" placeholder="name@example.com">
+  <label for="floatingInput">Email address</label>
+</div>
+<div class="form-floating">
+  <input name="password" type="password" class="form-control" id="floatingPassword" placeholder="Password">
+  <label for="floatingPassword">Password</label>
+</div>
+
+<!-- div class="checkbox mb-3 mt-3">
+  <label>
+    <input type="checkbox" value="remember-me"> Remember me
+  </label>
+</div -->
+
+<button class="w-100 btn btn-lg btn-primary mt-5" type="submit">Login</button>
+<div class="mt-4"><!-- a href="{ url 'signup' }">Forgot Password</a> | --> <a href="{% url 'signup' %}">Sign Up</a></div>
+
+{% endblock %}

@@ -1,0 +1,201 @@
+{% verbatim %}
+<script id="t-dataSources" type="text/template">
+
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th scope="col"></th>
+        <th scope="col">ID</th>
+        <th scope="col">Name</th>
+        <th scope="col">Supported Scopes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#dataSources}}
+        <tr>
+          <td>
+            {{> crudButton iconRead=true recordId=id
+              onclick="nav('dataSources',{
+                id: this.dataset.recordid,
+                read: true
+              })"
+            }}
+
+            {{> crudButton iconUpdate=true recordId=id
+              onclick="nav('dataSources',{
+                id: this.dataset.recordid,
+                update: true
+              })"
+            }}
+
+            {{> crudButton iconDelete=true recordId=id
+              onclick="nav('dataSources',{
+                id: this.dataset.recordid,
+                delete: true
+              })"
+            }}
+          </td>
+          <td>{{id}}</td>
+          <td>{{name}}</td>
+          <td>
+            <ul>
+            {{#each supportedScopes}}
+              <li>{{text}}</li>
+            {{/each}}
+            </ul>
+          </td>
+        </tr>
+      {{/dataSources}}
+    </tbody>
+  </table>
+    <button type="button"
+          class="btn btn-sm btn-success"
+          onclick="nav('dataSources',{
+              create: true
+          })">
+    Add Data Source
+  </button>
+
+
+  <!-- MODAL -->
+  <div
+    class="modal fade"
+    id="dataSources-crudModal"
+    data-bs-backdrop="static"
+    data-bs-keyboard="false"
+    tabindex="-1"
+  >
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="staticBackdropLabel">
+            {{#if create}} Create Data Source {{/if}}
+            {{#if read}} View Data Source {{/if}}
+            {{#if update}} Update Data Source {{/if}}
+            {{#if delete}} Delete Data Source {{/if}}
+          </h1>
+          <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="modal"
+            aria-label="Close"
+          ></button>
+        </div>
+        <div class="modal-body">
+          <div class="container-fluid">
+            {{#if delete}}
+              <div class="alert alert-danger" role="alert">
+                Are you sure you want to delete this entire record?
+              </div>
+            {{/if}}
+            <form>
+              <fieldset {{#if read }} disabled {{/if}} {{#if delete }} disabled {{/if}}>
+                {{#unless create}}
+                  <div class="mb-3">
+                    <fieldset disabled>
+                      <label for="dataSourceId" class="form-label"
+                        >ID</label
+                      >
+                      <input
+                        type="text"
+                        class="form-control"
+                        id="dataSourceId"
+                        value="{{dataSourceRecord.id}}"
+                      />
+                    </fieldset>
+                  </div>
+                {{/unless}}
+                <div class="mb-3">
+                  <label for="dataSourceName" class="form-label"
+                    >Name</label
+                  >
+                  <input
+                    type="text"
+                    class="form-control"
+                    id="dataSourceName"
+                    value="{{dataSourceRecord.name}}"
+                  />
+                </div>
+                <div class="mb-3">
+                  <label for="dataSourceType" class="form-label"
+                    >Type</label
+                  >
+                  <select id="dataSourceType" class="form-select">
+                  {{#dataSourceRecord.typeSelect}}
+                    {{#if selected}}
+                      <option value="{{id}}" selected>{{label}}</option>
+                    {{else}}
+                      <option value="{{id}}">{{label}}</option>
+                    {{/if}}
+                  {{/dataSourceRecord.typeSelect}}
+                  </select>
+                </div>
+              </fieldset>
+            </form>
+            {{#if read}}
+                <p>
+                  Supported Scopes
+                  <button
+                    type="button"
+                    onclick="document.getElementById('dataSourcesAddScopeForm').style.setProperty('display','block')"
+                    class="m-0 p-0 btn btn-sm"
+                  >
+                    <i class="bi bi-file-earmark-plus"></i>
+                  </button>
+                </p>
+                <div id="dataSourcesAddScopeForm" class="mb-2" style="display: none">
+                  <select id="newStudyScope" style="display: inline-block; max-width: 300px" class="form-select align-middle" aria-label="Select Scope">
+                  {{#each allScopes}}
+                    <option value="{{id}}">{{text}}</option>
+                  {{/each}}
+                  </select>
+                  <button
+                    style="display: inline-block"
+                    type="button"
+                    onclick="addScopeToDataSource(document.getElementById('newStudyScope').value, {{dataSourceRecord.id}})"
+                    class="btn btn-sm btn-success ms-1 align-middle"
+                  >
+                    Add
+                  </button>
+                </div>
+                <ul>
+                  {{#each dataSourceRecord.supportedScopes}}
+                    <li>
+                      {{scopeCode.text}}
+                      <button
+                        type="button"
+                        onclick="removeScopeFromDataSource({{scopeCode.id}},{{@root.dataSourceRecord.id}})"
+                        class="m-0 p-0 btn btn-sm"
+                      >
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </li>
+                  {{/each}}
+                </ul>
+              </ul>
+              {{/if}}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            data-bs-dismiss="modal"
+          >
+            Close
+          </button>
+          {{#if create}} 
+            <button type="button" class="btn btn-primary" onclick="createDataSource()">Create</button>
+          {{/if}}
+          {{#if update}} 
+            <button type="button" class="btn btn-primary" onclick="updateDataSource({{dataSourceRecord.id}})">Update</button>
+          {{/if}}
+          {{#if delete}} 
+            <button type="button" class="btn btn-danger" onclick="deleteDataSource({{dataSourceRecord.id}})">Delete</button>
+          {{/if}} 
+        </div>
+      </div>
+    </div>
+  </div>
+</script>
+{% endverbatim %}

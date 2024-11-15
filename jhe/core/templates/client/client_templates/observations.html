@@ -1,0 +1,62 @@
+{% verbatim %}
+<script id="t-observations" type="text/template">
+
+  <table class="mb-3">
+    <tr>
+      <td class="pe-3">
+        <select
+          id="organizationForObservations"
+          class="form-control form-select"
+          onchange="nav('observations', null, {organizationId: this.value})"
+        >
+          {{#organizationForObservationsSelect}} {{#if selected}}
+            <option value="{{id}}" selected>{{name}}</option>
+          {{else}}
+            <option value="{{id}}">{{name}}</option>
+          {{/if}} {{/organizationForObservationsSelect}}
+        </select>
+      </td>
+      <td class="pe-3">
+        <select
+          id="studyForObservations"
+          class="form-control form-select"
+          onchange="this.value == 'all' ? nav('observations',{ organizationId: {{organizationId}} }) : nav('observations',{studyId: this.value, organizationId: {{organizationId}} })"
+        >
+            <option value="all">All Studies</option>
+          {{#studyForObservationsSelect}} {{#if selected}}
+            <option value="{{id}}" selected>{{name}}</option>
+          {{else}}
+            <option value="{{id}}">{{name}}</option>
+          {{/if}} {{/studyForObservationsSelect}}
+        </select>
+      </td>
+    </tr>
+  </table>
+
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th scope="col"></th>
+        <th scope="col">ID</th>
+        <th scope="col">Scope</th>
+        <th scope="col">Patient</th>
+        <th scope="col">Transaction Time</th>
+        <th scope="col">Data</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#observations}}
+        <tr>
+          <td>
+          </td>
+          <td>{{id}}</td>
+          <td>{{codingText}}</td>
+          <td>{{patientNameFamily}}, {{patientNameGiven}}</td>
+          <td>{{lastUpdated}}</td>
+          <td><pre>{{valueAttachmentData}}</pre></td>
+        </tr>
+      {{/observations}}
+    </tbody>
+  </table>
+</script>
+{% endverbatim %}

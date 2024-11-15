@@ -1,0 +1,279 @@
+{% verbatim %}
+<script id="t-studies" type="text/template">
+
+  {{#if addPatients}}
+    <div class="alert alert-success">{{patientCount}} Patient(s) selected, choose a Study to add them to.</div>
+  {{/if}}
+
+  <table class="mb-3">
+    <tr>
+      <td class="pe-3">
+        <select
+          id="organizationForStudies"
+          class="form-control form-select"
+          onchange="nav('studies', null, {organizationId: this.value})"
+          {{#if addPatients}}
+          disabled
+          {{/if}}
+        >
+          {{#organizationForStudiesSelect}} {{#if selected}}
+            <option value="{{id}}" selected>{{name}}</option>
+          {{else}}
+            <option value="{{id}}">{{name}}</option>
+          {{/if}} {{/organizationForStudiesSelect}}
+        </select>
+      </td>
+    </tr>
+  </table>
+
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th scope="col"></th>
+        <th scope="col">ID</th>
+        <th scope="col">Name</th>
+        <th scope="col">Description</th>
+        <th scope="col">Organization</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#studies}}
+        <tr>
+          <td>
+            {{> crudButton iconRead=true recordId=id organizationId=@root.organizationId
+              onclick="nav('studies',{
+                id: this.dataset.recordid,
+                read: true,
+                organizationId: this.dataset.organizationid
+              })"
+            }}
+
+            {{> crudButton iconUpdate=true recordId=id organizationId=@root.organizationId
+              onclick="nav('studies',{
+                id: this.dataset.recordid,
+                update: true,
+                organizationId: this.dataset.organizationid
+              })"
+            }}
+
+            {{> crudButton iconDelete=true recordId=id organizationId=@root.organizationId
+              onclick="nav('studies',{
+                id: this.dataset.recordid,
+                delete: true,
+                organizationId: this.dataset.organizationid
+              })"
+            }}
+          </td>
+          {{#if @root.addPatients}}
+            <td><button type="button" class="btn btn-sm btn-link" onclick="addPatientsToStudy({{id}},{{@root.organizationId}})">{{id}}</button></td>
+          {{else}}
+            <td>{{id}}</td>
+          {{/if}}
+          <td>{{name}}</td>
+          <td>{{description}}</td>
+          <td>{{organization.name}}</td>
+        </tr>
+      {{/studies}}
+    </tbody>
+  </table>
+  <div class="alert alert-info" role="alert">
+    <small>Note: New Studies are created from the <a href="organizations">Organizations</a> menu and patients are added from the <a href="patients">Patients</a> menu.</small>
+  </div>
+
+
+  <!-- MODAL -->
+  <div
+    class="modal fade"
+    id="studies-crudModal"
+    data-bs-backdrop="static"
+    data-bs-keyboard="false"
+    tabindex="-1"
+  >
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="staticBackdropLabel">
+            {{#if create}} Create Study {{/if}}
+            {{#if read}} View Study {{/if}}
+            {{#if update}} Update Study {{/if}}
+            {{#if delete}} Delete Study {{/if}}
+          </h1>
+          <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="modal"
+            aria-label="Close"
+          ></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning validationError" style="display: none" role="alert"></div>
+          <div class="container-fluid">
+            {{#if delete}}
+              <div class="alert alert-danger" role="alert">
+                Are you sure you want to delete this entire record?
+              </div>
+            {{/if}}
+            <form>
+              <fieldset {{#if read }} disabled {{/if}} {{#if delete }} disabled {{/if}}>
+                {{#unless create}}
+                  <div class="mb-3">
+                    <fieldset disabled>
+                      <label for="studyId" class="form-label"
+                        >ID</label
+                      >
+                      <input
+                        type="text"
+                        class="form-control"
+                        id="studyId"
+                        value="{{studyRecord.id}}"
+                      />
+                    </fieldset>
+                  </div>
+                {{/unless}}
+                <div class="mb-3">
+                  <label for="studyName" class="form-label"
+                    >Name*</label
+                  >
+                  <input
+                    type="text"
+                    class="form-control"
+                    id="studyName"
+                    value="{{studyRecord.name}}"
+                  />
+                </div>
+                <div class="mb-3">
+                  <label for="studyDescription" class="form-label"
+                    >Description*</label
+                  >
+                  <textarea
+                    class="form-control"
+                    id="studyDescription"
+                    rows="3"
+                  >{{studyRecord.description}}</textarea>
+                </div>
+                <div class="mb-3">
+                  <fieldset disabled>
+                    <label for="studyOrganizationName" class="form-label"
+                      >Organization Name</label
+                    >
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="studyOrganizationName"
+                      value="{{studyRecord.organization.name}}"
+                    />
+                    <input
+                      type="hidden"
+                      id="studyOrganizationId"
+                      value="{{studyRecord.organization.id}}"
+                    />
+                  </fieldset>
+                </div>
+              </fieldset>
+              {{#if read}}
+                <p>
+                  Data Sources
+                  <button
+                    type="button"
+                    onclick="document.getElementById('studiesAddDataSourceForm').style.setProperty('display','block')"
+                    class="m-0 p-0 btn btn-sm"
+                  >
+                    <i class="bi bi-file-earmark-plus"></i>
+                  </button>
+                </p>
+                <div id="studiesAddDataSourceForm" class="mb-2" style="display: none">
+                  <select id="newStudyDataSource" style="display: inline-block; max-width: 300px" class="form-select align-middle" aria-label="Select DataSource">
+                  {{#each allDataSources}}
+                    <option value="{{id}}">{{name}}</option>
+                  {{/each}}
+                  </select>
+                  <button
+                    style="display: inline-block"
+                    type="button"
+                    onclick="addDataSourceToStudy(document.getElementById('newStudyDataSource').value, {{studyRecord.id}})"
+                    class="btn btn-sm btn-success ms-1 align-middle"
+                  >
+                    Add
+                  </button>
+                </div>
+                <ul>
+                  {{#each studyRecord.dataSources}}
+                    <li>
+                      {{dataSource.name}}
+                      <button
+                        type="button"
+                        onclick="removeDataSourceFromStudy({{dataSource.id}},{{@root.studyRecord.id}})"
+                        class="m-0 p-0 btn btn-sm"
+                      >
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </li>
+                  {{/each}}
+                </ul>
+
+                <p>
+                  Scope Requests
+                  <button
+                    type="button"
+                    onclick="document.getElementById('studiesAddScopeForm').style.setProperty('display','block')"
+                    class="m-0 p-0 btn btn-sm"
+                  >
+                    <i class="bi bi-file-earmark-plus"></i>
+                  </button>
+                </p>
+                <div id="studiesAddScopeForm" class="mb-2" style="display: none">
+                  <select id="newStudyScope" style="display: inline-block; max-width: 300px" class="form-select align-middle" aria-label="Select Scope">
+                  {{#each allScopes}}
+                    <option value="{{id}}">{{text}}</option>
+                  {{/each}}
+                  </select>
+                  <button
+                    style="display: inline-block"
+                    type="button"
+                    onclick="addScopeRequestToStudy(document.getElementById('newStudyScope').value, {{studyRecord.id}})"
+                    class="btn btn-sm btn-success ms-1 align-middle"
+                  >
+                    Add
+                  </button>
+                </div>
+                <ul>
+                  {{#each studyRecord.scopesRequested}}
+                    <li>
+                      {{scopeCode.text}}
+                      <button
+                        type="button"
+                        onclick="removeScopeRequestFromStudy({{scopeCode.id}},{{@root.studyRecord.id}})"
+                        class="m-0 p-0 btn btn-sm"
+                      >
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </li>
+                  {{/each}}
+                </ul>
+              {{/if}}
+            </form>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            data-bs-dismiss="modal"
+          >
+            Close
+          </button>
+          {{#if create}} 
+            <button type="button" class="btn btn-primary" onclick="createStudy()">Create</button>
+          {{/if}}
+          {{#if update}} 
+            <button type="button" class="btn btn-primary" onclick="updateStudy({{studyRecord.id}})">Update</button>
+          {{/if}}
+          {{#if delete}} 
+            <button type="button" class="btn btn-danger" onclick="deleteStudy({{studyRecord.id}})">Delete</button>
+          {{/if}} 
+        </div>
+      </div>
+    </div>
+  </div>
+</script>
+{% endverbatim %}

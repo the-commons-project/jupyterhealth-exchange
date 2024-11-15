@@ -1,0 +1,30 @@
+{% extends "partials/base_home.html" %} {% block title %}Auth...{% endblock %}
+{% block body_content %}
+<div class="mt-5 w-100 text-center">
+  <h5 class="mb-3">Client logging in... </h5>
+  <div class="spinner-border text-primary" role="status">
+    <span class="sr-only"></span>
+  </div>
+</div>
+{% endblock %}
+{% block body_footer %}
+<script>
+  userManager
+    .signinPopupCallback()
+    .then(function () {
+      console.log("auth popup callback success");
+    })
+    .catch((error) => {
+      console.error(error);
+    });
+  userManager
+    .getUser()
+    .then((user) => {
+      console.log("got user", user);
+    })
+    .catch((err) => {
+      console.error(err);
+    });
+</script>
+{% endblock %}
+

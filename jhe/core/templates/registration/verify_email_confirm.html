@@ -1,0 +1,19 @@
+{% extends "partials/base_accounts.html" %}
+
+{% block title %}Verify Email{% endblock %}
+
+{% block prompt %}Verify Email{% endblock %}
+
+{% block main %}
+
+<div class="container">
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+</div>
+
+{% endblock %}

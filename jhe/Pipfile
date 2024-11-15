@@ -1,0 +1,26 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+django = "*"
+python-dotenv = "*"
+psycopg2 = "*"
+django-oauth-toolkit = "*"
+six = "*"
+requests = "*"
+pyjwt = "*"
+djangorestframework = "*"
+gunicorn = "*"
+whitenoise = "*"
+djangorestframework-camel-case = "*"
+"fhir.resources" = "*"
+pydantic = "*"
+pydantic-core = "*"
+pyhumps = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.11"

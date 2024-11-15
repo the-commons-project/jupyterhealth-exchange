@@ -1,0 +1,59 @@
+{% verbatim %}
+<script id="t-body" type="text/template">
+  <main>
+  <div class="row h-100 w-100">
+      <div
+        class="d-flex flex-column flex-shrink-0 p-3 bg-light"
+        style="width: 210px"
+      >
+        <div class="text-center align-items-center">
+        <a
+          href="/"
+          class="link-dark text-decoration-none"
+        >
+          <img src="/static/images/jupyter-logo.svg" width="40" class="ms-2 me-2 mb-2" alt="Jupyter Logo">
+          </a><br/>
+          <span style="font-size: 1.1rem">JupyterHealth<br/>Exchange</span>
+        </div>
+        <hr />
+        <ul class="nav nav-pills flex-column mb-auto">
+          {{#navItems}}
+          <li class="w-100">
+            <button style="text-align: left" onclick="nav('{{route}}')" class="w-100 text-left btn btn-link nav-link {{#if active}}nav-item active{{/if}} {{#unless active}}link-dark{{/unless}}" aria-current="page">
+              <i class="{{iconClass}}" style="font-size: 1.2rem;"></i>
+              <span class="ms-1">{{label}}</span>
+            </button>
+          </li>
+          {{/navItems}}
+        </ul>
+        <hr />
+        <div class="dropdown ms-2">
+          <a
+            href="#"
+            class="d-flex align-items-center link-dark text-decoration-none dropdown-toggle"
+            id="dropdownUser2"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+          >
+            <i class="bi-person-circle" style="font-size: 1.6rem;"></i>
+            <span class="ms-2" id="profileUsername"></span>
+          </a>
+          <ul
+            class="dropdown-menu text-small shadow"
+            aria-labelledby="dropdownUser2"
+          >
+            <!-- li><a class="dropdown-item" href="#">Settings</a></li>
+            <li><a class="dropdown-item" href="#">Profile</a></li>
+            <li><hr class="dropdown-divider" /></li -->
+            <li><a class="dropdown-item" href="#" onclick="signOut()">Sign out</a></li>
+          </ul>
+        </div>
+      </div>
+      <div id="mainContent" class="col p-3 overflow-auto h-100">
+        <div class="alert alert-danger text-center" role="alert" id="errorAlert" style="display: none"></div>
+        {{{mainContent}}}
+      </div>
+  </div>
+  </main>
+</script>
+{% endverbatim %}
