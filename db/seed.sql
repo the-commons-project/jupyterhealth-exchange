@@ -2,10 +2,10 @@
 
 INSERT INTO public.core_jheuser (id, password, last_login, is_superuser, first_name, last_name, is_staff, is_active, date_joined, email, email_is_verified, identifier)
 VALUES
-    (10001, 'pbkdf2_sha256$720000$fsDCvdUxnnESWfcYoIRZXV$BhZ4bbNYfs5Yz/X8c86TEg4JinbzlMGo36q9BuJYCRw=', NULL, true, 'JHE', 'Super', true, true, NOW(), 'super@example.com', false, 'fhir-111'),
-    (10002, 'pbkdf2_sha256$720000$qvIkCOHegCoyjRWqvEsxSu$T3fLz4Zdyhudv8w/pGBKWUrud8qkfxyKP+sqN4fdnAw=', NOW(), false, 'Anna', 'Pang', false, true, NOW(), 'anna@example.com', false, 'fhir-222'),
-    (10003, 'pbkdf2_sha256$720000$v35W8OVZpUzypX2sOSl0Fz$gzrmq149TlRUEzSNseX83DmTiS3F2bi6JJkynITWQaU=', NOW(), false, 'David', 'Dressler', false, true, NOW(), 'david@example.com', false, 'fhir-333'),
-    (10004, 'pbkdf2_sha256$720000$ZBG06dpjAXtT5M6rtnBu2t$Q1vLGvaeWj5qsVvRU/ryB3nxcm+2CB0DZ7sLltj4M7M=', NOW(), false, 'John', 'Chong', false, true, NOW(), 'john@example.com', false, 'fhir-444');
+    (10001, 'pbkdf2_sha256$870000$A1oqxU8FjILfREBJlD7OJj$drQcZtCdqHcthKOAlE+Ic8UxxpaEjtWro5lQQJTn7SI=', NULL, true, 'JHE', 'Super', true, true, NOW(), 'super@example.com', false, 'fhir-111'),
+    (10002, 'pbkdf2_sha256$870000$A1oqxU8FjILfREBJlD7OJj$drQcZtCdqHcthKOAlE+Ic8UxxpaEjtWro5lQQJTn7SI=', NOW(), false, 'Anna', 'Pang', false, true, NOW(), 'anna@example.com', false, 'fhir-222'),
+    (10003, 'pbkdf2_sha256$870000$A1oqxU8FjILfREBJlD7OJj$drQcZtCdqHcthKOAlE+Ic8UxxpaEjtWro5lQQJTn7SI=', NOW(), false, 'David', 'Dressler', false, true, NOW(), 'david@example.com', false, 'fhir-333'),
+    (10004, 'pbkdf2_sha256$870000$A1oqxU8FjILfREBJlD7OJj$drQcZtCdqHcthKOAlE+Ic8UxxpaEjtWro5lQQJTn7SI=', NOW(), false, 'John', 'Chong', false, true, NOW(), 'john@example.com', false, 'fhir-444');
 ALTER SEQUENCE core_jheuser_id_seq RESTART WITH 10005;
 
 

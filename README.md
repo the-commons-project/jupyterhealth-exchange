@@ -1,4 +1,6 @@
 # JupyterHealth Exchange
+==This doc is still a WIP==
+
 JupyterHealth Exchange is a Django web application that facilitates the sharing of user-consented medical data with authorized consumers through a web UI, REST and FHIR APIs.
 
 In the context of JupyterHealth, data producers are typically study participants (FHIR *Patients*) using the [CommonHealth Android App](https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr) and data consumers are typically researchers (FHIR *Practitioners*).
@@ -376,7 +378,7 @@ Django is a mature and well-supported web framework but was specifically chosen 
 
 There was a hard requirement not to use additional servers and frameworks (eg npm, react, etc) for the front end Web UI. Django supports traditional server-side templating but a modern Single Page App is better suited to this use case of interacting with the Admin REST API. For these reasons, a simple Vanilla JS SPA was developed that employs [handlebars](https://github.com/handlebars-lang/handlebars.js) to render client side views from static HTML served using Django templates. The only other additional dependencies are [oidc-clinet-ts](https://github.com/authts/oidc-client-ts) for auth and [bootstrap](https://github.com/twbs/bootstrap) for styling.
 
-### Data Model
+### Data Model - To be Updated
 
 ```mermaid
 erDiagram
@@ -479,3 +481,16 @@ erDiagram
     }
 ```
 
+## Deployment
+
+For deployment options and a comprehensive guide take a look at the official [Django Deployment docs](https://docs.djangoproject.com/en/5.1/howto/deployment/)
+
+### Deploying with the included Dockerfile
+
+An example Dockerfile is included to deploy the app using [gunicorn](https://gunicorn.org/) and [WhiteNoise](https://whitenoise.readthedocs.io/en/stable/django.html) for static files.
+
+1. Create a new empty Postgres database (>= v16 recommended)
+1. Seed the DB by running the SQL commands found in `db/seed.sql`
+1. Edit `jhe/.env` and update the DB config and the `SITE_URL`  (use `jhe/env_example.txt` as template)
+1. From the `jhe` directory, build the image `$ docker build .`
+1. Run the image `$ docker run -p 8000:8000 <image_id>`
