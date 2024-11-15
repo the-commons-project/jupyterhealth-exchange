@@ -1,0 +1,21 @@
+{% extends "partials/base_home.html" %} {% block title %}Auth Forwarding...{% endblock %}
+{% block body_content %}
+<div class="mt-5 w-100 text-center">
+  <h5 class="mb-3">Forwarding to log in... </h5>
+  <div class="spinner-border text-primary" role="status">
+    <span class="sr-only"></span>
+  </div>
+</div>
+{% endblock %}
+{% block body_footer %}
+<script>
+  userManager
+    .signinRedirect()
+    .then((user) => {
+      console.log("userManager user",JSON.stringify(user, null, 2));
+    })
+    .catch((err) => {
+      console.error(err);
+    });
+</script>
+{% endblock %}

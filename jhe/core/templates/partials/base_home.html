@@ -1,0 +1,62 @@
+{% extends "partials/base.html" %}
+
+{% load static %}
+
+{% block body_content %}
+
+<nav class="navbar navbar-expand-lg bg-body-white">
+  <div class="container-fluid">
+    <a class="navbar-brand me-5" href="#">
+      <img
+        src="{% static 'images/jupyterhealth-logo.jpg' %}"
+        width="140"
+        class="d-inline-block align-top me-1"
+        alt="JupyterHealth Logo"
+      />
+    </a>
+    <button
+      class="navbar-toggler"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#navbarSupportedContent"
+      aria-controls="navbarSupportedContent"
+      aria-expanded="false"
+      aria-label="Toggle navigation"
+    >
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <li class="nav-item dropdown">
+          <a
+            class="nav-link dropdown-toggle"
+            href="#"
+            role="button"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+          >
+            Documentation
+          </a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="#">README</a></li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+    <div class="ms-1 me-2">
+    {% if user.is_authenticated %}
+      <a href="/portal" class="btn btn-success">Data Portal</a>
+      <a href="{% url 'logout' %}" class="btn btn-primary">Log Out</a>
+    {% else %}
+      <a href="{% url 'signup' %}" class="btn btn-outline-success">Sign Up</a>
+      <a href="{% url 'login' %}" class="btn btn-primary">Log In</a>
+    {% endif %}
+    </div>
+  </div>
+</nav>
+<div class="p-3 bg-body-tertiary h-100">
+  {% block main %}
+  {% endblock %}
+</div>
+
+{% endblock %}

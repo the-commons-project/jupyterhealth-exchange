@@ -1,0 +1,24 @@
+{% extends "partials/base.html" %}
+
+{% block title %}Portal{% endblock %}
+
+{% block head %}
+  <link href="/static/client.css" rel="stylesheet">
+{% endblock %}
+
+{% block body_tag %}class="d-flex flex-column overflow-hidden vh-100"{% endblock %}
+
+{% block html_footer %}
+<!-- Rollup client templates -->
+{% include "client/client_templates/common.html" %}
+{% include "client/client_templates/body.html" %}
+{% include "client/client_templates/debug.html" %}
+{% include "client/client_templates/organizations.html" %}
+{% include "client/client_templates/patients.html" %}
+{% include "client/client_templates/studies.html" %}
+{% include "client/client_templates/observations.html" %}
+{% include "client/client_templates/data_sources.html" %}
+<script>
+  app()
+</script>
+{% endblock %}
