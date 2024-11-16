@@ -150,7 +150,7 @@ DATABASES = {
 
 # https://django-oauth-toolkit.readthedocs.io/en/latest/getting_started.html
 AUTH_USER_MODEL = 'core.JheUser'
-REGISTRATION_INVITE_CODE = 'jhe1234!'
+REGISTRATION_INVITE_CODE = 'jupyter2024'
 
 # LOGIN_URL = '/admin/login/' for staff accounts
 LOGIN_URL = '/accounts/login/'
