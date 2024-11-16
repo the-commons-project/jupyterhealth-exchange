@@ -7,7 +7,7 @@ In the context of JupyterHealth, data producers are typically study participants
 
 Features include:
 
-- OAuth 2.0, OIDC and SMART on FHIR Identity Provider using [django-oauth-toolkit](https://github.com/jazzband/django-oauth-toolkit)
+- OAuth 2.0, OIDC and SMART on FHIR Identity Provision using [django-oauth-toolkit](https://github.com/jazzband/django-oauth-toolkit)
 - FHIR R5 schema validation using [fhir.resources](https://github.com/glichtner/fhir.resources) 
 - REST APIs using [Django Rest Framework](https://github.com/encode/django-rest-framework)
 - Built-in, light-weight Vanilla JS SPA UI (npm not required) using [oidc-clinet-ts](https://github.com/authts/oidc-client-ts), [handlebars](https://github.com/handlebars-lang/handlebars.js) and [bootstrap](https://github.com/twbs/bootstrap)
