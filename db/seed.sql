@@ -22,8 +22,12 @@ INSERT INTO public.core_organization (id, name, part_of_id, type) VALUES
     (20007, 'Department of Epidemiology & Biostatistics', 20001, 'root'),
     (20008, 'Kristine Yaffe Lab', 20007, 'laboratory'),
     (20009, 'Queens Community Clinic', 0, 'prov'),
-    (20010, 'Providers', 20009, 'team');
-ALTER SEQUENCE core_organization_id_seq RESTART WITH 20011;
+    (20010, 'Providers', 20009, 'team'),
+    (20011, 'UC Berkeley', 0, 'edu'),
+    (20012, 'College of Computing, Data Science, and Society', 20011, 'edu'),
+    (20013, 'Berkeley Institute for Data Science (BIDS)', 20012, 'edu');
+
+ALTER SEQUENCE core_organization_id_seq RESTART WITH 20013;
 
 
 -- STUDIES
