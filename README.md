@@ -1,7 +1,7 @@
 # JupyterHealth Exchange
 JupyterHealth Exchange is a Django web application that facilitates the sharing of user-consented medical data with authorized consumers through a web UI, REST and FHIR APIs.
 
-In the context of JupyterHealth, data producers are typically study participants (FHIR *Patients*) using the [CommonHealth Android App](https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr) and data consumers are typically researchers (FHIR *Practitioners*).
+In the context of JupyterHealth, data producers are typically study participants (FHIR *Patients*) using the [CommonHealth Android App](https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr) linked to personal devices (eg Glucose Monitors) and data consumers are typically researchers (FHIR *Practitioners*).
 
 <img src="doc/jupyterhealth-exchange-overview.jpg" width="800">
 
@@ -258,6 +258,8 @@ This project is currently in a Proof of Concept stage with the following feature
 
 - The `FHIR Observation` endpoint returns a list of Observations as a FHIR Bundle
 - At least one of Study ID, passed as `patient._has:Group:member:_id` or Patient ID, passed as `patient` query parameters are required
+- `subject.reference` references a Patient ID
+- `device.reference` references a Data Source ID
 - `valueAttachment` is Base 64 Encoded Binary JSON
 
 ```json
@@ -374,9 +376,9 @@ Django is a mature and well-supported web framework but was specifically chosen 
 
 ### Single Page App (SPA) Web UI
 
-There was a hard requirement not to use additional servers and frameworks (eg npm, react, etc) for the front end Web UI. Django supports traditional server-side templating but a modern Single Page App is better suited to this use case of interacting with the Admin REST API. For these reasons, a simple Vanilla JS SPA was developed that employs [handlebars](https://github.com/handlebars-lang/handlebars.js) to render client side views from static HTML served using Django templates. The only other additional dependencies are [oidc-clinet-ts](https://github.com/authts/oidc-client-ts) for auth and [bootstrap](https://github.com/twbs/bootstrap) for styling.
+A hard requirement was to avoid additional servers and frameworks (eg npm, react, etc) for the front end Web UI. Django supports traditional server-side templating but a modern Single Page App is better suited to this use case of interacting with the Admin REST API. For these reasons, a simple Vanilla JS SPA has been developed using [handlebars](https://github.com/handlebars-lang/handlebars.js) to render client side views from static HTML served using Django templates. The only other additional dependencies are [oidc-clinet-ts](https://github.com/authts/oidc-client-ts) for auth and [bootstrap](https://github.com/twbs/bootstrap) for styling.
 
-### Data Model
+### Data Model - To be Updated
 
 ```mermaid
 erDiagram
@@ -384,11 +386,11 @@ erDiagram
     "users (FHIR Person)" ||--|{ "study_practitioners": ""
     "users (FHIR Person)" {
         int id
-        string identifier
-        string password
-        string name_family
-        string name_given
-        string telecom_email
+        jsonb identifer
+        varchar password
+        varchar name_family
+        varchar name_given
+        varchar telecom_email
     }
     "organizations (FHIR Organization)" ||--|{ "organizations (FHIR Organization)": ""
     "organizations (FHIR Organization)" ||--|{ "user_organizations": ""
@@ -396,20 +398,21 @@ erDiagram
     "organizations (FHIR Organization)" ||--|{ "studies (FHIR Group)": ""
     "organizations (FHIR Organization)" {
         int id
-        string name
+        jsonb identifer
+        varchar name
         enum type
         int part_of
     }
     "smart_client_configs" {
         int id
         int organization_id
-        string well_known_uri
-        string client_id
-        string scopes
+        varchar well_known_uri
+        varchar client_id
+        varchar scopes
     }
     "user_organizations" {
         int id
-        int practitioner_id
+        int user_id
         int organization_id
     }
     "patients (FHIR Patient)" ||--|| "users (FHIR Person)": ""
@@ -418,20 +421,23 @@ erDiagram
     "patients (FHIR Patient)" {
         int id
         int user_id
-        string identifier
-        string name_family
-        string name_given
+        int organization_id
+        varchar identifer
+        varchar name_family
+        varchar name_given
         date   birth_date
-        string telecom_phone
+        varchar telecom_cell
     }
     "studies (FHIR Group)" ||--|{ "study_patients": ""
     "studies (FHIR Group)" ||--|{ "study_practitioners": ""
     "studies (FHIR Group)" ||--|{ "study_scope_requests": ""
+    "studies (FHIR Group)" ||--|{ "study_data_sources": ""
     "studies (FHIR Group)" {
         int id
         int organization_id
-        string name
-        string description
+        jsonb identifer
+        varchar name
+        varchar description
     }
     "study_patients" ||--|{ "study_patient_scope_consents": ""
     "study_patients" {
@@ -454,19 +460,29 @@ erDiagram
     }
     
     "observations (FHIR Observation)" ||--|| "codeable_concepts (FHIR CodeableConcept)": ""
+    "observations (FHIR Observation)" ||--|{ "observation_identifiers": ""
+    "observations (FHIR Observation)" ||--|| "data_sources": ""
     "observations (FHIR Observation)" {
         int id
         int subject_patient_id
-        int code
-        int client_id
+        int codeable_concept_id
         jsonb value_attachment_data
         timestamp transaction_time
     }
+
+    "observation_identifiers" {
+        int id
+        int observation_id
+        varchar system
+        varchar value
+    }
+    
+    "studies (FHIR Group)" ||--|{ "study_patients": ""
     "codeable_concepts (FHIR CodeableConcept)" {
         int id
-        string coding_system
-        string coding_code
-        string text
+        varchar coding_system
+        varchar coding_code
+        varchar text
     }
     "study_patient_scope_consents" ||--|| "codeable_concepts (FHIR CodeableConcept)": ""
     "study_patient_scope_consents" {
@@ -475,7 +491,38 @@ erDiagram
         enum scope_action
         int scope_code_id
         bool consented
-        timestamp time
+        timestamp consented_time       
+    }
+    "data_sources" ||--|{ "data_source_supported_scopes": ""
+    "data_sources" ||--|{ "study_data_sources": ""
+    "data_sources" {
+        int id
+        varchar name
+        enum type
+    }
+    "data_source_supported_scopes" ||--|| "codeable_concepts (FHIR CodeableConcept)": ""
+    "data_source_supported_scopes" {
+        int id
+        int data_source_id
+        int scope_code_id
+    }
+    "study_data_sources" {
+        int id
+        int study_id
+        int data_source_id
     }
 ```
 
+## Deployment
+
+For deployment options and a comprehensive guide take a look at the official [Django Deployment docs](https://docs.djangoproject.com/en/5.1/howto/deployment/)
+
+### Deploying with the included Dockerfile
+
+An example Dockerfile is included to deploy the app using [gunicorn](https://gunicorn.org/) and [WhiteNoise](https://whitenoise.readthedocs.io/en/stable/django.html) for static files.
+
+1. Create a new empty Postgres database (>= v16 recommended)
+1. Seed the database by running the SQL commands found in `db/seed.sql`
+1. Edit `jhe/.env` and update the DB config and the `SITE_URL`  (use `jhe/env_example.txt` as template)
+1. From the `jhe` directory, build the image `$ docker build .`
+1. Run the image `$ docker run -p 8000:8000 <image_id>`
