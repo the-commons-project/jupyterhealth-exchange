@@ -16,21 +16,20 @@ Features include:
 
 This project is currently in a Proof of Concept stage with the following features on the roadmap:
 
-- RBAC - currently anyone can manage orgs
-- Paginate results using DB (not Django in-memory)
-- Paginate and filter UI data grids
-- Model non-patient users as FHIR Practitioners, allow user to be both Practitioner and Patient
-- Allow single patient to belong to multiple orgs
-- FHIR single observation/detail API endpoint
-- Support icon images for studies
-- Run permissions up and down organization hierachy
-- E-mail and or SMS for patient links and password reset
-- Add external collaborators (not in Organization) to Study
-- Swagger REST API docs
-- Dockerize and document deployment guide
-- Implement SMART launch as SMART Provider (SMART Client already demoed)
-- Refactor and tidy up SMART Client launch and support multiple providers
-- Write end to end and unit tests
+- [ ] RBAC - currently anyone can manage orgs
+- [ ] Paginate results using DB (not Django in-memory)
+- [ ] Paginate and filter UI data grids
+- [ ] Model non-patient users as FHIR Practitioners, allow user to be both Practitioner and Patient
+- [ ] Allow single patient to belong to multiple orgs
+- [ ] FHIR single observation/detail API endpoint
+- [ ] Support icon images for studies
+- [ ] Run permissions up and down organization hierachy
+- [ ] E-mail and or SMS for patient links and password reset
+- [ ] Add external collaborators (not in Organization) to Study
+- [ ] Swagger REST API docs
+- [ ] Implement SMART launch as SMART Provider (SMART Client already demoed)
+- [ ] Refactor and tidy up SMART Client launch and support multiple providers
+- [ ] Write end to end and unit tests
 
 ## Getting Started
 
