@@ -19,6 +19,7 @@ RUN pip install pipenv
 COPY Pipfile Pipfile.lock /code/
 RUN pipenv install --deploy --system
 COPY . /code
+RUN python manage.py collectstatic --no-input
 
 EXPOSE 8000
 
