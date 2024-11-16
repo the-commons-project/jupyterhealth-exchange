@@ -1,4 +1,5 @@
 SITE_TITLE=JupyterHealth Exchange Dev
+REGISTRATION_INVITE_CODE=helloworld
 
 SITE_URL=http://localhost:8000
 
