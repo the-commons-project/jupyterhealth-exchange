@@ -427,7 +427,8 @@ class Study(models.Model):
                 core_codeableconcept.coding_system as code_coding_system,
                 core_codeableconcept.coding_code as code_coding_code,
                 core_codeableconcept.text as code_text, 
-                core_studypatientscopeconsent.consented
+                core_studypatientscopeconsent.consented,
+                core_studypatientscopeconsent.consented_time
             FROM core_studyscoperequest
             JOIN core_codeableconcept ON core_codeableconcept.id=core_studyscoperequest.scope_code_id
             JOIN core_study ON core_study.id=core_studyscoperequest.study_id
@@ -453,7 +454,8 @@ class Study(models.Model):
                     'coding_code': study_with_scope.code_coding_code,
                     'text': study_with_scope.code_text,
                 },
-                'consented': study_with_scope.consented
+                'consented': study_with_scope.consented,
+                'consented_time': study_with_scope.consented_time
             }
             if pending:
                 study_id_studies_map[study_with_scope.id].pending_scope_consents.append(scope_consent)
