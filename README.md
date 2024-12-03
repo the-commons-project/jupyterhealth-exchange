@@ -508,7 +508,8 @@ For deployment options and a comprehensive guide take a look at the official [Dj
 An example Dockerfile is included to deploy the app using [gunicorn](https://gunicorn.org/) and [WhiteNoise](https://whitenoise.readthedocs.io/en/stable/django.html) for static files.
 
 1. Create a new empty Postgres database (>= v16 recommended)
-1. Seed the database by running the SQL commands found in `db/seed.sql`
 1. Edit `jhe/.env` and update the DB config and the `SITE_URL`  (use `jhe/env_example.txt` as template)
+1. Migrate the DB by running `python manage.py migrate`
+1. Seed the database by running the SQL commands found in `db/seed.sql`
 1. From the `jhe` directory, build the image `$ docker build .`
 1. Run the image `$ docker run -p 8000:8000 <image_id>`
