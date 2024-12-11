@@ -29,15 +29,7 @@ class StudyViewSet(ModelViewSet):
     def patients(self, request, pk):
 
         if request.method == 'GET': 
-            patients = Patient.objects.raw(
-            """
-            SELECT core_patient.*, core_jheuser.email as telecom_email FROM core_patient
-            JOIN core_jheuser ON core_patient.jhe_user_id=core_jheuser.id
-            JOIN core_studypatient ON core_patient.id=core_studypatient.patient_id
-            WHERE core_studypatient.study_id={study_id}
-            """.format(study_id=pk))
-
-            serializer = PatientSerializer(patients, many=True)
+            serializer = PatientSerializer(Patient.for_study(self.request.user.id, pk), many=True)
             return Response(serializer.data)
         else:
             responses = []

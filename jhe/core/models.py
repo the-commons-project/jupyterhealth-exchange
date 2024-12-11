@@ -180,10 +180,10 @@ class Organization(models.Model):
             SELECT core_organization.*
             FROM core_organization
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={practitioner_user_id}
-            """.format(practitioner_user_id=practitioner_user_id)
+            WHERE core_jheuserorganization.jhe_user_id=%(practitioner_user_id)s
+            """
         
-        return Organization.objects.raw(q)
+        return Organization.objects.raw(q, {'practitioner_user_id': practitioner_user_id})
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -217,25 +217,27 @@ class Patient(models.Model):
             JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.scope_code_id=core_codeableconcept.id
             JOIN core_studypatient ON core_studypatient.id=core_studypatientscopeconsent.study_patient_id
             WHERE core_studypatientscopeconsent.consented IS TRUE
-            AND core_studypatient.patient_id={patient_id}
-            """.format(patient_id=self.id)
+            AND core_studypatient.patient_id=%(patient_id)s
+            """
         
-        return CodeableConcept.objects.raw(q)
+        return CodeableConcept.objects.raw(q, {'patient_id': self.id})
     
     @staticmethod
     def for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None):
         
+
+        # Explicitly cast to ints so no injection vulnerability
         organization_sql_where = ''
         if organization_id:
-            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=organization_id)
+            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=int(organization_id))
 
         study_sql_where = ''
         if study_id:
-            study_sql_where = "AND core_study.id={study_id}".format(study_id=study_id)
+            study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
         
         patient_sql_where = ''
         if patient_id:
-            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=patient_id)
+            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
 
         
         q = """
@@ -245,25 +247,24 @@ class Patient(models.Model):
             LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
             JOIN core_organization ON core_organization.id=core_patient.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id}
+            WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
             {organization_sql_where}
             {study_sql_where}
             {patient_sql_where}
             """.format(
-                jhe_user_id=practitioner_user_id,
                 organization_sql_where=organization_sql_where,
                 study_sql_where=study_sql_where,
                 patient_sql_where=patient_sql_where,
             )
 
-        return Patient.objects.raw(q)
+        return Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id})
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, patient_id):
         if len(Patient.for_practitioner_organization_study(practitioner_user_id, None, None, patient_id))==0:
             return False
         return True
-    
+
     @staticmethod
     def for_study(practitioner_user_id, study_id):
 
@@ -274,9 +275,12 @@ class Patient(models.Model):
             JOIN core_study ON core_study.id=core_studypatient.study_id
             JOIN core_organization ON core_organization.id=core_study.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id} AND core_study.id={study_id}
-            """.format(jhe_user_id=practitioner_user_id, study_id=study_id)
-        return Patient.objects.raw(q)
+            WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s AND core_study.id=%(study_id)s
+            """
+        return Patient.objects.raw(q, {
+            "jhe_user_id": practitioner_user_id,
+            "study_id": study_id
+        })
 
     @staticmethod
     def from_jhe_user_id(jhe_user_id):
@@ -287,9 +291,10 @@ class Patient(models.Model):
     def fhir_search(practitioner_user_id, study_id=None):
         from core.serializers import FHIRPatientSerializer
 
+        # Explicitly cast to ints so no injection vulnerability
         study_sql_where = ''
         if study_id:
-            study_sql_where = "AND core_studypatient.study_id={study_id}".format(study_id=study_id)
+            study_sql_where = "AND core_studypatient.study_id={study_id}".format(study_id=int(study_id))
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # TBD: sub constants from config
@@ -337,12 +342,12 @@ class Patient(models.Model):
             JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
             JOIN core_organization ON core_organization.id=core_patient.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id}
+            WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
             {study_sql_where}
             ORDER BY core_patient.name_family;
-            """.format(SITE_URL=settings.SITE_URL, study_sql_where=study_sql_where, jhe_user_id=practitioner_user_id)
+            """.format(SITE_URL=settings.SITE_URL, study_sql_where=study_sql_where)
 
-        records = Patient.objects.raw(q)
+        records = Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id })
         
         for record in records:
             # jsonb in raw is not automagically cast
@@ -382,24 +387,29 @@ class Study(models.Model):
 
     @staticmethod
     def for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None):
+
+        # Explicitly cast to ints so no injection vulnerability
         study_sql_where = ''
         if study_id:
-            study_sql_where = "AND core_study.id={study_id}".format(study_id=study_id)
+            study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
 
         organization_sql_where = ''
         if organization_id:
-            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=organization_id)
+            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=int(organization_id))
 
         q = """
             SELECT DISTINCT(core_study.*), core_organization.*
             FROM core_study
             JOIN core_organization ON core_organization.id=core_study.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id} {study_sql_where} {organization_sql_where}
+            WHERE
+            core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
+            {study_sql_where}
+            {organization_sql_where}
             ORDER BY core_study.name
-            """.format(jhe_user_id=practitioner_user_id, study_sql_where=study_sql_where, organization_sql_where=organization_sql_where)
+            """.format(study_sql_where=study_sql_where, organization_sql_where=organization_sql_where)
         
-        return Study.objects.raw(q)
+        return Study.objects.raw(q, {'jhe_user_id': practitioner_user_id})
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, study_id):
@@ -435,10 +445,13 @@ class Study(models.Model):
             JOIN core_studypatient ON core_studypatient.study_id=core_study.id
             LEFT JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.study_patient_id=core_studypatient.id
                 AND core_studypatientscopeconsent.scope_code_id=core_studyscoperequest.scope_code_id
-            WHERE core_studypatientscopeconsent.scope_code_id IS {sql_scope_code} AND core_studypatient.patient_id={patient_id};
-            """.format(patient_id=patient_id, sql_scope_code=sql_scope_code)
+            WHERE core_studypatientscopeconsent.scope_code_id IS {sql_scope_code} AND core_studypatient.patient_id=%(patient_id)s;
+            """.format(sql_scope_code=sql_scope_code)
 
-        studies_with_scopes = Study.objects.raw(q)
+        studies_with_scopes = Study.objects.raw(q, {
+            'patient_id': patient_id,
+            'sql_scope_code': sql_scope_code
+        })
         
         study_id_studies_map = {}
         
@@ -498,10 +511,12 @@ class StudyPatientScopeConsent(models.Model):
             JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.scope_code_id=core_codeableconcept.id
             JOIN core_studypatient ON core_studypatient.id=core_studypatientscopeconsent.study_patient_id
             JOIN core_patient ON core_patient.id=core_studypatient.patient_id
-            WHERE core_studypatientscopeconsent.consented IS TRUE AND core_patient.jhe_user_id={jhe_user_id};
-            """.format(jhe_user_id=jhe_user_id)
+            WHERE core_studypatientscopeconsent.consented IS TRUE AND core_patient.jhe_user_id=%(jhe_user_id)s;
+            """
         
-        return CodeableConcept.objects.raw(q)
+        return CodeableConcept.objects.raw(q, {
+            {'jhe_user_id': jhe_user_id}
+        })
         
     class Meta:
         constraints = [
@@ -538,13 +553,14 @@ class DataSource(models.Model):
     @staticmethod
     def data_sources_with_scopes(data_source_id=None, study_id=None):
 
+        # Explicitly cast to ints so no injection vulnerability
         sql_where = ''
         sql_join = ''
         if data_source_id:
-            sql_where = "WHERE core_datasource.id={data_source_id}".format(data_source_id=data_source_id)
+            sql_where = "WHERE core_datasource.id={data_source_id}".format(data_source_id=int(data_source_id))
         elif study_id:
             sql_join = 'JOIN core_studydatasource ON core_studydatasource.data_source_id=core_datasource.id'
-            sql_where = "WHERE core_studydatasource.study_id={study_id}".format(study_id=study_id)
+            sql_where = "WHERE core_studydatasource.study_id={study_id}".format(study_id=int(study_id))
 
         q = """
             SELECT core_datasource.*
@@ -560,12 +576,12 @@ class DataSource(models.Model):
             SELECT core_codeableconcept.*
             FROM core_codeableconcept
             JOIN core_datasourcesupportedscope ON core_datasourcesupportedscope.scope_code_id=core_codeableconcept.id
-            WHERE core_datasourcesupportedscope.data_source_id={data_source_id}
+            WHERE core_datasourcesupportedscope.data_source_id=%(data_source_id)s
             ORDER BY text
             """
 
         for data_source in data_sources:
-            for scope in CodeableConcept.objects.raw(q.format(data_source_id=data_source.id)):
+            for scope in CodeableConcept.objects.raw(q, {'data_source_id': data_source.id}):
                 data_source.supported_scopes.append(scope)
         
         return data_sources
@@ -613,21 +629,22 @@ class Observation(models.Model):
     @staticmethod
     def for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None):
         
+        # Explicitly cast to ints so no injection vulnerability
         organization_sql_where = ''
         if organization_id:
-            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=organization_id)
+            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=int(organization_id))
 
         study_sql_where = ''
         if study_id:
-            study_sql_where = "AND core_study.id={study_id}".format(study_id=study_id)
+            study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
         
         patient_sql_where = ''
         if patient_id:
-            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=patient_id)
+            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
 
         observation_sql_where = ''
         if observation_id:
-            observation_sql_where = "AND core_observation.id={observation_id}".format(observation_id=observation_id)
+            observation_sql_where = "AND core_observation.id={observation_id}".format(observation_id=int(observation_id))
         
         q = """
             SELECT DISTINCT(core_observation.*),
@@ -645,21 +662,20 @@ class Observation(models.Model):
             LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
             JOIN core_organization ON core_organization.id=core_patient.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id}
+            WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
             {organization_sql_where}
             {study_sql_where}
             {patient_sql_where}
             {observation_sql_where}
             ORDER BY core_observation.last_updated DESC
             """.format(
-                jhe_user_id=practitioner_user_id,
                 organization_sql_where=organization_sql_where,
                 study_sql_where=study_sql_where,
                 patient_sql_where=patient_sql_where,
                 observation_sql_where=observation_sql_where
             )
         
-        return Observation.objects.raw(q)
+        return Observation.objects.raw(q, {'jhe_user_id': practitioner_user_id })
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, observation_id):
@@ -671,24 +687,18 @@ class Observation(models.Model):
     def fhir_search(practitioner_user_id, study_id=None, patient_id=None, coding_system=None, coding_code=None, observation_id=None):
         from core.serializers import FHIRObservationSerializer
 
+        # Explicitly cast to ints so no injection vulnerability
         study_sql_where = ''
         if study_id:
-            study_sql_where = "AND core_study.id={study_id}".format(study_id=study_id)
+            study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
         
         patient_sql_where = ''
         if patient_id:
-            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=patient_id)
-
-        coding_sql_where = ''
-        if coding_system and coding_code:
-            coding_sql_where = "AND core_codeableconcept.coding_system='{coding_system}' AND core_codeableconcept.coding_code='{coding_code}'".format(
-                coding_system=coding_system,
-                coding_code=coding_code
-            )
+            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
 
         observation_sql_where = ''
         if observation_id:
-            observation_sql_where = "AND core_observation.id={observation_id}".format(observation_id=observation_id)
+            observation_sql_where = "AND core_observation.id={observation_id}".format(observation_id=int(observation_id))
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # pagination: https://github.com/mattbuck85/django-paginator-rawqueryset
@@ -738,6 +748,7 @@ class Observation(models.Model):
             JOIN core_organization ON core_organization.id=core_patient.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
             WHERE core_jheuserorganization.jhe_user_id={jhe_user_id}
+            core_codeableconcept.coding_system LIKE '%(coding_system)s' AND core_codeableconcept.coding_code LIKE '%(coding_code)s'
             {study_sql_where}
             {patient_sql_where}
             {observation_sql_where}
@@ -749,11 +760,13 @@ class Observation(models.Model):
                 jhe_user_id=practitioner_user_id,
                 study_sql_where=study_sql_where,
                 patient_sql_where=patient_sql_where,
-                coding_sql_where=coding_sql_where,
                 observation_sql_where=observation_sql_where
             )
 
-        records = Observation.objects.raw(q)
+        records = Observation.objects.raw(q, {
+            "coding_system": coding_system if coding_system else '*',
+            "coding_code": coding_code if coding_code else '*'
+        })
         
         for record in records:
             # jsonb in raw is not automagically cast
