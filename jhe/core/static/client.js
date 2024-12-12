@@ -101,13 +101,16 @@ async function nav(newRoute, queryParams, appendQueryParams) {
     navItems.push(settings);
   }
 
-  insert(
-    body({
-      navItems: navItems,
-      mainContent: mainContent,
-    }),
-    "baseBody"
-  );
+  const baseBodyElement = document.getElementById("baseBody");
+
+  document
+    .querySelectorAll("#baseBody > main")
+    .forEach((child) => baseBodyElement.removeChild(child));
+
+  document.getElementById("baseBody").insertAdjacentHTML("afterbegin", body({
+    navItems: navItems,
+    mainContent: mainContent,
+  }));
 
   renderUserProfile();
 
