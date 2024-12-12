@@ -593,12 +593,14 @@ async function renderPatients(queryParams) {
 async function createPatient(organizationId) {
   const patientRecord = {
     organizationId: organizationId,
-    identifier: document.getElementById("patientIdentifier").value || null,
+    identifier:
+      document.getElementById("patientIdentifier").value ||
+      Math.random().toString().split(".")[1], // temporarily create one until we have form validation
     nameFamily: document.getElementById("patientFamilyName").value || null,
     nameGiven: document.getElementById("patientGivenName").value || null,
     birthDate: document.getElementById("patientBirthDate").value || null,
     telecomEmail: document.getElementById("patientTelecomEmail").value || null,
-    telecomPhone: document.getElementById("patienttelecomPhone").value || null,
+    telecomPhone: document.getElementById("patientTelecomPhone").value || null,
   };
   const response = await apiRequest("POST", `patients`, patientRecord);
   if (response.ok) navReturnFromCrud();
@@ -610,7 +612,7 @@ async function updatePatient(id) {
     nameFamily: document.getElementById("patientFamilyName").value || null,
     nameGiven: document.getElementById("patientGivenName").value || null,
     birthDate: document.getElementById("patientBirthDate").value || null,
-    telecomPhone: document.getElementById("patienttelecomPhone").value || null,
+    telecomPhone: document.getElementById("patientTelecomPhone").value || null,
   };
   const response = await apiRequest("PATCH", `patients/${id}`, patientRecord);
   if (response.ok) navReturnFromCrud();
