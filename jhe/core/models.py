@@ -752,7 +752,6 @@ class Observation(models.Model):
             {study_sql_where}
             {patient_sql_where}
             {observation_sql_where}
-            {coding_sql_where}
             GROUP BY core_observation.id, core_codeableconcept.coding_system, core_codeableconcept.coding_code
             ORDER BY core_observation.last_updated DESC;
             """.format(
