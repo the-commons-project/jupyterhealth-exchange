@@ -748,7 +748,7 @@ class Observation(models.Model):
             JOIN core_organization ON core_organization.id=core_patient.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
             WHERE core_jheuserorganization.jhe_user_id={jhe_user_id}
-            core_codeableconcept.coding_system LIKE '%(coding_system)s' AND core_codeableconcept.coding_code LIKE '%(coding_code)s'
+            core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
             {study_sql_where}
             {patient_sql_where}
             {observation_sql_where}
