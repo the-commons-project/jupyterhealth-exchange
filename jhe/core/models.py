@@ -747,8 +747,8 @@ class Observation(models.Model):
             LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
             JOIN core_organization ON core_organization.id=core_patient.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id}
-            core_codeableconcept.coding_system LIKE '%(coding_system)s' AND core_codeableconcept.coding_code LIKE '%(coding_code)s'
+            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id} AND
+            core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
             {study_sql_where}
             {patient_sql_where}
             {observation_sql_where}
@@ -763,8 +763,8 @@ class Observation(models.Model):
             )
 
         records = Observation.objects.raw(q, {
-            "coding_system": coding_system if coding_system else '*',
-            "coding_code": coding_code if coding_code else '*'
+            "coding_system": coding_system if coding_system else '%',
+            "coding_code": coding_code if coding_code else '%'
         })
         
         for record in records:
