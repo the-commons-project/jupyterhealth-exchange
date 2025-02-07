@@ -123,7 +123,7 @@ code=4AWKhgaaomTSf9PfwxN4ExnXjdSEqh&grant_type=authorization_code&redirect_uri=h
 - The `profile` endpoint returns the current user details.
 
 ```json
-// GET https://jhe.fly.dev/api/v1/users/profile
+// GET /api/v1/users/profile
 {
     "id": 10001,
     "email": "peter@example.com",
