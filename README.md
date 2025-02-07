@@ -108,6 +108,7 @@ PATIENT_AUTHORIZATION_CODE_CHALLENGE = '-2FUJ5UCa7NK9hZWS0bc0W9uJ-Zr_-Pngd4on69o
 PATIENT_AUTHORIZATION_CODE_VERIFIER  = 'f28984eaebcf41d881223399fc8eab27eaa374a9a8134eb3a900a3b7c0e6feab5b427479f3284ebe9c15b698849b0de2'
 
 Client POST
+Content-Type: application/x-www-form-urlencoded
 code=4AWKhgaaomTSf9PfwxN4ExnXjdSEqh&grant_type=authorization_code&redirect_uri=https%3A%2F%2Fexample.com%2Fauth%2Fcallback
 &client_id=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 &code_verifier=f28984eaebcf41d881223399fc8eab27eaa374a9a8134eb3a900a3b7c0e6feab5b427479f3284ebe9c15b698849b0de2
