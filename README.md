@@ -37,9 +37,11 @@ https://github.com/orgs/the-commons-project/projects/8
    - Check *Skip authorization*
    - Set *Algorithm* to RSA with SHA-2 256
    - Skip Allowed origins
+1. Create an RS256 Private Key (step by step [here](https://django-oauth-toolkit.readthedocs.io/en/latest/oidc.html#creating-rsa-private-key))
 1. Create a new static PKCE verifier - a random alphanumeric string 44 chars long, and then create the challenge [here](https://tonyxu-io.github.io/pkce-generator).
 1. Return to the `.env` file
    - Update `OIDC_CLIENT_ID` with the newly created app Client ID
+   - Update the `OIDC_RSA_PRIVATE_KEY` with the newly created Private Key
    - Update `PATIENT_AUTHORIZATION_CODE_CHALLENGE` and `PATIENT_AUTHORIZATION_CODE_VERIFIER` with PKCE static values generated above
    - Restart the python environment and Django server
 1. Browse to http://localhost:8000/ and log in with the credentials `anna@example.com` `Jhe1234!`and you should be directed to the `/portal/organizations` path with some example Organizations is the dropdown
