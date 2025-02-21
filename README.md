@@ -546,3 +546,6 @@ An example Dockerfile is included to deploy the app using [gunicorn](https://gun
 1. Seed the database by running the SQL commands found in `db/seed.sql`
 1. From the `jhe` directory, build the image `$ docker build .`
 1. Run the image `$ docker run -p 8000:8000 <image_id>`
+
+### References:
+- [Consent management with FHIR](https://www.linkedin.com/posts/darrendevitt_implementing-consent-management-in-fhir-activity-7264966966757539841-8WBu)
