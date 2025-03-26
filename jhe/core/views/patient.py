@@ -56,7 +56,10 @@ class PatientViewSet(ModelViewSet):
     def invitation_link(self, request, pk):
         patient = self.get_object()
         grant = patient.jhe_user.create_authorization_code(1,settings.OIDC_CLIENT_REDIRECT_URI)
-        return Response({"invitation_link": settings.CH_INVITATION_LINK_PREFIX+settings.SITE_URL.split('/')[2]+'|'+grant.code})
+        url = settings.CH_INVITATION_LINK_PREFIX
+        if not settings.CH_INVITATION_LINK_EXCLUDE_HOST:
+            url = url + settings.SITE_URL.split('/')[2]+'|'
+        return Response({"invitation_link": url+grant.code})
 
     @action(detail=True, methods=['GET','POST','PATCH','DELETE'])
     def consents(self, request, pk):
