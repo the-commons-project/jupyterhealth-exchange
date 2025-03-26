@@ -4,3 +4,7 @@ VALUES
     ('https://w3id.org/openmhealth', 'omh:respiratory-rate:2.0', 'Respiratory rate'),
     ('https://w3id.org/openmhealth', 'omh:rr-interval:1.0', 'RR Interval')
 ON CONFLICT (coding_system, coding_code) DO NOTHING;
+
+INSERT INTO core_datasource(name, type)
+VALUES
+    ('CareX', 'personal_device');
