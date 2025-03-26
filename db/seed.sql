@@ -26,8 +26,7 @@ INSERT INTO public.core_organization (id, name, part_of_id, type) VALUES
     (20011, 'UC Berkeley', 0, 'edu'),
     (20012, 'College of Computing, Data Science, and Society', 20011, 'edu'),
     (20013, 'Berkeley Institute for Data Science (BIDS)', 20012, 'edu');
-
-ALTER SEQUENCE core_organization_id_seq RESTART WITH 20013;
+ALTER SEQUENCE core_organization_id_seq RESTART WITH 20014;
 
 
 -- STUDIES
@@ -47,9 +46,11 @@ VALUES
     (50001, 'https://w3id.org/openmhealth', 'omh:blood-glucose:4.0', 'Blood glucose'),
     (50002, 'https://w3id.org/openmhealth', 'omh:blood-pressure:4.0', 'Blood pressure'),
     (50003, 'https://w3id.org/openmhealth', 'omh:body-temperature:3.0', 'Body temperature'),
-    (50004, 'https://w3id.org/openmhealth', 'omh:oxygen-saturation:2.0', 'Oxygen saturation'),
-    (50005, 'https://w3id.org/openmhealth', 'omh:heart-rate:2.0', 'Heart Rate');
-ALTER SEQUENCE core_codeableconcept_id_seq RESTART WITH 50005;
+    (50004, 'https://w3id.org/openmhealth', 'omh:heart-rate:2.0', 'Heart Rate');
+    (50005, 'https://w3id.org/openmhealth', 'omh:oxygen-saturation:2.0', 'Oxygen saturation'),
+    (50006, 'https://w3id.org/openmhealth', 'omh:respiratory-rate:2.0', 'Respiratory rate'),
+    (50007, 'https://w3id.org/openmhealth', 'omh:rr-interval:1.0', 'RR Interval');
+ALTER SEQUENCE core_codeableconcept_id_seq RESTART WITH 50008;
 
 
 -- OBSERVATIONS
@@ -61,6 +62,7 @@ ALTER SEQUENCE core_observation_id_seq RESTART WITH 60001;
 
 INSERT INTO core_datasource(id, name, type)
 VALUES
-    (70001, 'iHealth', 'personal_device'),
-    (70002, 'Dexcom', 'personal_device');
-ALTER SEQUENCE core_datasource_id_seq RESTART WITH 70003;
+    (70001, 'CareX', 'personal_device'),
+    (70002, 'Dexcom', 'personal_device'),
+    (70003, 'iHealth', 'personal_device');
+ALTER SEQUENCE core_datasource_id_seq RESTART WITH 70004;
