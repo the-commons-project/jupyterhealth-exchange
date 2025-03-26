@@ -1,4 +1,3 @@
-ALTER TABLE core_codeableconcept ADD CONSTRAINT core_core_codeableconcept_coding_system_coding_code_key UNIQUE (coding_system, coding_code);
 INSERT INTO core_codeableconcept(coding_system, coding_code, text)
 VALUES
     ('https://w3id.org/openmhealth', 'omh:oxygen-saturation:2.0', 'Oxygen saturation'),
