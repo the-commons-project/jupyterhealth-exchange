@@ -18,6 +18,13 @@ This project is currently in a Proof of Concept stage, the project can be viewed
 
 https://github.com/orgs/the-commons-project/projects/8
 
+## Troubleshooting Local Development
+
+**Issue:** On Windows machines, users may experience a blank screen after logging in, caused by incorrect OIDC configuration.  
+**Solution:** Explicitly set OIDC variables in your `settings.py`. For full details, see [Troubleshooting Local Development Issues](doc/localdevelopment/issues.md).
+
+By setting these variables explicitly, you prevent incorrect path injections and ensure proper URL formation, resolving the blank screen issue after login on Windows machines. 
+
 ## Getting Started
 
 1. Set up your Python environment - this project uses Django **version 5.1** which requires python  **3.10, 3.11, 3.12 or 3.13**
