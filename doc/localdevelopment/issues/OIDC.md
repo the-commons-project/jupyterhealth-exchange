@@ -1,6 +1,3 @@
-Here's an updated, accurate version of the troubleshooting section you can directly include in your README:
-
-```markdown
 ## Troubleshooting Local Development
 
 ### Issue: Blank Screen After Login on Windows
@@ -30,4 +27,3 @@ OIDC_CLIENT_AUTHORITY = 'http://localhost:8000/o/'
 ```
 
 By explicitly defining these variables, you prevent incorrect path injections and resolve the blank screen issue on Windows machines.
-```
