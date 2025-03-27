@@ -761,6 +761,7 @@ async function createStudy() {
     organization: parseInt(
       document.getElementById("studyOrganizationId").value
     ),
+    icon_url: document.getElementById("studyIconUrl").value || null
   };
   const response = await apiRequest("POST", `studies`, studyRecord);
   if (response.ok) navReturnFromCrud();
@@ -770,6 +771,7 @@ async function updateStudy(id) {
   const studyRecord = {
     name: document.getElementById("studyName").value || null,
     description: document.getElementById("studyDescription").value || null,
+    icon_url: document.getElementById("studyIconUrl").value || null
   };
   const response = await apiRequest("PATCH", `studies/${id}`, studyRecord);
   if (response.ok) navReturnFromCrud();
@@ -1225,4 +1227,58 @@ async function debugDoObservations() {
     null,
     2
   );
+}
+
+let iconPreviewTimeout;
+
+function previewIcon(input) {
+  if (iconPreviewTimeout) {
+    clearTimeout(iconPreviewTimeout);
+  }
+
+  const previewContainer = document.getElementById('iconPreview');
+  const url = input.value.trim();
+
+  previewContainer.innerHTML = '';
+  clearModalValidationErrors();
+
+  if (!url) {
+    previewContainer.innerHTML = `
+      <div class="text-center text-muted" style="height: 100%; line-height: 46px;">
+        <i class="bi bi-image"></i>
+      </div>`;
+    return;
+  }
+
+  previewContainer.innerHTML = `
+    <div class="text-center text-muted" style="height: 100%; line-height: 46px;">
+      <i class="bi bi-arrow-repeat"></i>
+    </div>`;
+
+  iconPreviewTimeout = setTimeout(() => {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = 'Icon';
+    img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+    
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'text-center text-muted';
+    errorDiv.style.cssText = 'display: none; height: 100%; line-height: 46px;';
+    errorDiv.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
+
+    img.onerror = () => {
+      img.style.display = 'none';
+      errorDiv.style.display = 'block';
+      displayModalValidationError(['Unable to load image from URL. Please check the URL and try again.']);
+    };
+
+    img.onload = () => {
+      errorDiv.style.display = 'none';
+      clearModalValidationErrors();
+    };
+
+    previewContainer.innerHTML = '';
+    previewContainer.appendChild(img);
+    previewContainer.appendChild(errorDiv);
+  }, 500);
 }
