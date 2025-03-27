@@ -21,7 +21,7 @@ https://github.com/orgs/the-commons-project/projects/8
 ## Troubleshooting Local Development
 
 **Issue:** On Windows machines, users may experience a blank screen after logging in, caused by incorrect OIDC configuration.  
-**Solution:** Explicitly set OIDC variables in your `settings.py`. For full details, see [Troubleshooting Local Development Issues](doc/localdevelopment/issues.md).
+**Solution:** Explicitly set OIDC variables in your `settings.py`. For full details, see [Troubleshooting Local Development Issues](doc/localdevelopment/issues/OIDC.md).
 
 By setting these variables explicitly, you prevent incorrect path injections and ensure proper URL formation, resolving the blank screen issue after login on Windows machines.
 
