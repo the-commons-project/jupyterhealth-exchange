@@ -152,7 +152,7 @@
                   >{{studyRecord.description}}</textarea>
                 </div>
                 <div class="mb-3">
-                  <label for="iconUrl" class="form-label">Icon URL</label>
+                  <label for="studyIconUrl" class="form-label">Icon URL</label>
                   <div class="d-flex align-items-center gap-3">
                     <div id="iconPreview" class="study-icon-preview" style="width: 48px; height: 48px; border: 1px solid #dee2e6; border-radius: 4px; overflow: hidden;">
                       <div class="text-center text-muted" style="height: 100%; line-height: 46px;">
@@ -162,8 +162,9 @@
                     <input
                       type="url"
                       class="form-control"
-                      id="iconUrl"
+                      id="studyIconUrl"
                       placeholder="Enter icon URL"
+                      value="{{studyRecord.icon_url}}"
                       onchange="previewIcon(this)"
                       oninput="previewIcon(this)"
                     />
