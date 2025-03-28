@@ -692,7 +692,7 @@ async function renderStudies(queryParams) {
           iconUrlInput.value = studyRecord.iconUrl;
           previewIcon(iconUrlInput);
         }
-      }, 100);
+      }, 500);
     }
 
     if (queryParams.read) {
