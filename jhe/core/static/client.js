@@ -685,6 +685,16 @@ async function renderStudies(queryParams) {
     );
     studyRecord = await studyRecordResponse.json();
 
+    if (studyRecord.iconUrl) {
+      setTimeout(() => {
+        const iconUrlInput = document.getElementById("studyIconUrl");
+        if (iconUrlInput) {
+          iconUrlInput.value = studyRecord.iconUrl;
+          previewIcon(iconUrlInput);
+        }
+      }, 100);
+    }
+
     if (queryParams.read) {
       const studyDataSourcesResponse = await apiRequest(
         "GET",
@@ -700,8 +710,6 @@ async function renderStudies(queryParams) {
       allDataSources.results = allDataSources.results.filter(
         (dataSource) => dataSourceIds.indexOf(dataSource.id) == -1
       );
-
-      console.log(studyRecord.dataSources);
 
       const studyScopesRequestedResponse = await apiRequest(
         "GET",
@@ -761,7 +769,7 @@ async function createStudy() {
     organization: parseInt(
       document.getElementById("studyOrganizationId").value
     ),
-    icon_url: document.getElementById("studyIconUrl").value || null
+    iconUrl: document.getElementById("studyIconUrl").value || null
   };
   const response = await apiRequest("POST", `studies`, studyRecord);
   if (response.ok) navReturnFromCrud();
@@ -771,7 +779,7 @@ async function updateStudy(id) {
   const studyRecord = {
     name: document.getElementById("studyName").value || null,
     description: document.getElementById("studyDescription").value || null,
-    icon_url: document.getElementById("studyIconUrl").value || null
+    iconUrl: document.getElementById("studyIconUrl").value || null
   };
   const response = await apiRequest("PATCH", `studies/${id}`, studyRecord);
   if (response.ok) navReturnFromCrud();

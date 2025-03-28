@@ -384,6 +384,7 @@ class Study(models.Model):
     description = models.TextField()
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     patients = models.ManyToManyField('Patient', through='StudyPatient')
+    icon_url = models.TextField(null=True, blank=True)
 
     @staticmethod
     def for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None):
