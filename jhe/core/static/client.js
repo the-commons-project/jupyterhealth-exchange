@@ -711,6 +711,8 @@ async function renderStudies(queryParams) {
         (dataSource) => dataSourceIds.indexOf(dataSource.id) == -1
       );
 
+      console.log(studyRecord.dataSources);
+
       const studyScopesRequestedResponse = await apiRequest(
         "GET",
         `studies/${queryParams.id}/scope_requests`
