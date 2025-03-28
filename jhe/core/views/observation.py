@@ -7,26 +7,129 @@ from core.serializers import FHIRBundledObservationSerializer, FHIRObservationSe
 from core.models import Observation, Patient, Study
 from rest_framework.response import Response
 from django.core.exceptions import PermissionDenied, BadRequest
+import math
 
 logger = logging.getLogger(__name__)
 
 class ObservationViewSet(ModelViewSet):
-
     serializer_class = ObservationSerializer
+    pagination_class = FHIRBundlePagination
 
     def get_queryset(self):
+        """Return queryset for list view - this must return a queryset or list, not a Response"""
+        """Specifically use queryset and operate on it directly, instead of converting to list which dumps the queryset into memory"""
         if self.detail:
             if Observation.practitioner_authorized(self.request.user.id, self.kwargs['pk']):
                 return Patient.objects.filter(id=self.kwargs['pk'])
             else:
                 raise PermissionDenied("Current User does not have authorization to access this Observation.")
         else:
-            return Observation.for_practitioner_organization_study_patient(
-                self.request.user.id,
-                self.request.GET.get('organization_id', None),
-                self.request.GET.get('study_id', None),
-                self.request.GET.get('patient_id', None)
+            organization_id = self.request.query_params.get('organization_id')
+            study_id = self.request.query_params.get('study_id')
+            patient_id = self.request.query_params.get('patient_id')
+            
+            return Observation.objects.filter(
+              patient__practitioner_users=self.request.user.id,
+              **({"organization_id": organization_id} if organization_id else {}),
+              **({"study_id": study_id} if study_id else {}),
+              **({"patient_id": patient_id} if patient_id else {})
             )
+    
+    def list(self, request, *args, **kwargs):
+        """Override list method to handle raw SQL pagination"""
+        page_size = self.pagination_class().get_page_size(request)
+        page_number = self.pagination_class().get_page_number(request)
+        offset = (page_number - 1) * page_size
+        
+        # TBD: Do we have a need to support both camelCase and snake_case?
+        organization_id = request.query_params.get('organizationId') or request.query_params.get('organization_id')
+        study_id = request.query_params.get('studyId') or request.query_params.get('study_id')
+        patient_id = request.query_params.get('patientId') or request.query_params.get('patient_id')
+        
+        total_count = Observation.count_for_practitioner_organization_study_patient(
+            practitioner_user_id=request.user.id,
+            organization_id=organization_id,
+            study_id=study_id,
+            patient_id=patient_id
+        )
+        
+        total_pages = math.ceil(total_count / page_size) if total_count > 0 else 1
+        
+        observations = Observation.for_practitioner_organization_study_patient(
+            practitioner_user_id=request.user.id,
+            organization_id=organization_id,
+            study_id=study_id,
+            patient_id=patient_id,
+            offset=offset,
+            page=page_size
+        )
+        
+        serializer = self.get_serializer(observations, many=True)
+        
+        # Build FHIR response with proper total and links
+        response = {
+            'resourceType': 'Bundle',
+            'type': 'searchset',
+            'total': total_count,
+            'entry': serializer.data,
+            'link': [],
+            # TBD: we can remove this if we want to keep it strictly FHIR
+            'meta': {
+                'pagination': {
+                    'page': page_number,
+                    'pageSize': page_size,
+                    'totalPages': total_pages,
+                }
+            }
+        }
+        
+        # Always include a self link
+        response['link'].append({
+            'relation': 'self',
+            'url': request.build_absolute_uri()
+        })
+        
+        # Previous page link
+        if page_number > 1:
+            prev_params = request.query_params.copy()
+            prev_params['_page'] = page_number - 1
+            prev_url = f"{request.build_absolute_uri().split('?')[0]}?{prev_params.urlencode()}"
+            response['link'].append({
+                'relation': 'previous',
+                'url': prev_url
+            })
+        
+        # Next page link
+        if page_number < total_pages:
+            next_params = request.query_params.copy()  # Keep all original parameters with original names
+            next_params['_page'] = page_number + 1     # Update only the page number
+            next_url = f"{request.build_absolute_uri().split('?')[0]}?{next_params.urlencode()}"
+            response['link'].append({
+                'relation': 'next',
+                'url': next_url
+            })
+        
+        # First page link
+        if page_number > 1:
+            first_params = request.query_params.copy()
+            first_params['_page'] = 1
+            first_url = f"{request.build_absolute_uri().split('?')[0]}?{first_params.urlencode()}"
+            response['link'].append({
+                'relation': 'first',
+                'url': first_url
+            })
+        
+        # Last page link
+        if page_number < total_pages:
+            last_params = request.query_params.copy()
+            last_params['_page'] = total_pages
+            last_url = f"{request.build_absolute_uri().split('?')[0]}?{last_params.urlencode()}"
+            response['link'].append({
+                'relation': 'last',
+                'url': last_url
+            })
+        print(f"response: {response}")
+        return Response(response)
 
 
 class FHIRObservationViewSet(ModelViewSet):

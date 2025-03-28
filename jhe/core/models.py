@@ -21,7 +21,6 @@ from django.db.utils import IntegrityError
 from django.db.models import Q
 import base64
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -627,7 +626,7 @@ class Observation(models.Model):
     )
 
     @staticmethod
-    def for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None):
+    def for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None, offset=None, page=None):
         
         # Explicitly cast to ints so no injection vulnerability
         organization_sql_where = ''
@@ -646,6 +645,10 @@ class Observation(models.Model):
         if observation_id:
             observation_sql_where = "AND core_observation.id={observation_id}".format(observation_id=int(observation_id))
         
+        # Set default values for pagination parameters
+        offset = 0 if offset is None else int(offset)
+        limit = 10 if page is None else int(page)
+
         q = """
             SELECT DISTINCT(core_observation.*),
             core_observation.value_attachment_data as value_attachment_data_json,
@@ -668,11 +671,15 @@ class Observation(models.Model):
             {patient_sql_where}
             {observation_sql_where}
             ORDER BY core_observation.last_updated DESC
+            LIMIT {limit}
+            OFFSET {offset};
             """.format(
                 organization_sql_where=organization_sql_where,
                 study_sql_where=study_sql_where,
                 patient_sql_where=patient_sql_where,
-                observation_sql_where=observation_sql_where
+                observation_sql_where=observation_sql_where,
+                limit=limit,
+                offset=offset
             )
         
         return Observation.objects.raw(q, {'jhe_user_id': practitioner_user_id })
@@ -684,7 +691,7 @@ class Observation(models.Model):
         return True
     
     @staticmethod
-    def fhir_search(practitioner_user_id, study_id=None, patient_id=None, coding_system=None, coding_code=None, observation_id=None):
+    def fhir_search(practitioner_user_id, study_id=None, patient_id=None, coding_system=None, coding_code=None, observation_id=None, offset=None, page=None):
         from core.serializers import FHIRObservationSerializer
 
         # Explicitly cast to ints so no injection vulnerability
@@ -699,6 +706,10 @@ class Observation(models.Model):
         observation_sql_where = ''
         if observation_id:
             observation_sql_where = "AND core_observation.id={observation_id}".format(observation_id=int(observation_id))
+
+        # Set default values for pagination parameters
+        offset = 0 if offset is None else int(offset)
+        limit = 10 if page is None else int(page)
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # pagination: https://github.com/mattbuck85/django-paginator-rawqueryset
@@ -753,13 +764,17 @@ class Observation(models.Model):
             {patient_sql_where}
             {observation_sql_where}
             GROUP BY core_observation.id, core_codeableconcept.coding_system, core_codeableconcept.coding_code
-            ORDER BY core_observation.last_updated DESC;
+            ORDER BY core_observation.last_updated DESC
+            LIMIT {limit}
+            OFFSET {offset};
             """.format(
                 SITE_URL=settings.SITE_URL,
                 jhe_user_id=practitioner_user_id,
                 study_sql_where=study_sql_where,
                 patient_sql_where=patient_sql_where,
-                observation_sql_where=observation_sql_where
+                observation_sql_where=observation_sql_where,
+                limit=limit,
+                offset=offset
             )
 
         records = Observation.objects.raw(q, {
@@ -784,6 +799,53 @@ class Observation(models.Model):
                 raise(BadRequest(e)) # TBD: move to view
         
         return records
+    
+    @staticmethod
+    def count_for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None):
+      """Use a dedicated count query for better performance. Aligns with optional inclusion for _total number of matching resources per FHIR spec."""
+      
+      # Explicitly cast to ints so no injection vulnerability
+      organization_sql_where = ''
+      if organization_id:
+        organization_sql_where = f"AND core_organization.id={int(organization_id)}"
+      
+      study_sql_where = ''
+      if study_id:
+        study_sql_where = f"AND core_study.id={int(study_id)}"
+      
+      patient_sql_where = ''
+      if patient_id:
+        patient_sql_where = f"AND core_patient.id={int(patient_id)}"
+      
+      observation_sql_where = ''
+      if observation_id:
+        observation_sql_where = f"AND core_observation.id={int(observation_id)}"
+      
+      # Use a temporary model for count results
+      class CountResult(models.Model):
+        count = models.IntegerField()
+        
+        class Meta:
+          managed = False  # No table creation
+          app_label = 'core'
+      
+      query = f"""
+        SELECT 1 as id, COUNT(DISTINCT core_observation.id) as count
+        FROM core_observation
+        JOIN core_patient ON core_patient.id = core_observation.subject_patient_id
+        JOIN core_organization ON core_organization.id = core_patient.organization_id
+        JOIN core_jheuserorganization ON core_jheuserorganization.organization_id = core_organization.id
+        LEFT JOIN core_studypatient ON core_studypatient.patient_id = core_patient.id
+        LEFT JOIN core_study ON core_study.id = core_studypatient.study_id
+        WHERE core_jheuserorganization.jhe_user_id = %(jhe_user_id)s
+        {organization_sql_where}
+        {study_sql_where}
+        {patient_sql_where}
+        {observation_sql_where}
+      """
+      
+      results = list(CountResult.objects.raw(query, {'jhe_user_id': practitioner_user_id}))
+      return results[0].count if results else 0
     
     # Get the binary data eg https://www.rapidtables.com/convert/number/string-to-binary.html (delimiter=none)
     # base64 it eg https://cryptii.com/pipes/binary-to-base64
