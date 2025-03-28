@@ -65,7 +65,7 @@ class StudySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Study
-        fields = ['id', 'name', 'description', 'organization']
+        fields = ['id', 'name', 'description', 'organization', 'icon_url']
 
 
 class StudyOrganizationSerializer(serializers.ModelSerializer):
@@ -74,7 +74,7 @@ class StudyOrganizationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Study
-        fields = ['id', 'name', 'description', 'organization']
+        fields = ['id', 'name', 'description', 'organization', 'icon_url']
 
 
 class StudyPatientSerializer(serializers.ModelSerializer):
