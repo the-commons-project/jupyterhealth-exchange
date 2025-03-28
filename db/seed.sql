@@ -46,7 +46,7 @@ VALUES
     (50001, 'https://w3id.org/openmhealth', 'omh:blood-glucose:4.0', 'Blood glucose'),
     (50002, 'https://w3id.org/openmhealth', 'omh:blood-pressure:4.0', 'Blood pressure'),
     (50003, 'https://w3id.org/openmhealth', 'omh:body-temperature:3.0', 'Body temperature'),
-    (50004, 'https://w3id.org/openmhealth', 'omh:heart-rate:2.0', 'Heart Rate');
+    (50004, 'https://w3id.org/openmhealth', 'omh:heart-rate:2.0', 'Heart Rate'),
     (50005, 'https://w3id.org/openmhealth', 'omh:oxygen-saturation:2.0', 'Oxygen saturation'),
     (50006, 'https://w3id.org/openmhealth', 'omh:respiratory-rate:2.0', 'Respiratory rate'),
     (50007, 'https://w3id.org/openmhealth', 'omh:rr-interval:1.0', 'RR Interval');
