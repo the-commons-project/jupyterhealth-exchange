@@ -546,10 +546,13 @@ async function renderPatients(queryParams) {
 
   let patientsPaginated, patientRecord, studiesPendingConsent, studiesConsented;
 
+  const pageSize = parseInt(queryParams.pageSize) || 20;
+  const page = parseInt(queryParams.page) || 1;
+
   const patientsParams = {
     organizationId: queryParams.organizationId,
-    page: queryParams.page || 1,
-    pageSize: queryParams.pageSize || 20
+    page: page,
+    pageSize: pageSize
   };
 
   if (queryParams.studyId) {
@@ -559,8 +562,11 @@ async function renderPatients(queryParams) {
   const patientsResponse = await apiRequest("GET", "patients", patientsParams);
   patientsPaginated = await patientsResponse.json();
 
-  if (queryParams.read || queryParams.update || queryParams.delete) {
+  if (patientsPaginated.results && patientsPaginated.results.length > pageSize) {
+    patientsPaginated.results = patientsPaginated.results.slice(0, pageSize);
+  }
 
+  if (queryParams.read || queryParams.update || queryParams.delete) {
     const patientRecordResponse = await apiRequest(
       "GET",
       `patients/${queryParams.id}`
@@ -592,9 +598,9 @@ async function renderPatients(queryParams) {
     ...queryParams,
     patients: patientsPaginated?.results,
     patientRecord: patientRecord,
-    page: parseInt(queryParams.page) || 1,
-    pageSize: parseInt(queryParams.pageSize) || 20,
-    totalPages: Math.ceil(patientsPaginated.count / (parseInt(queryParams.pageSize) || 20)),
+    page: page,
+    pageSize: pageSize,
+    totalPages: Math.ceil(patientsPaginated.count / pageSize),
     organizationForPatientsSelect: organizationForPatientsSelect,
     studyForPatientsSelect: studyForPatientsSelect,
     studiesPendingConsent: studiesPendingConsent,
@@ -944,10 +950,13 @@ async function renderObservations(queryParams) {
     document.getElementById("t-observations").innerHTML
   );
 
+  const pageSize = parseInt(queryParams.pageSize) || 20;
+  const page = parseInt(queryParams.page) || 1;
+
   const observationParams = {
     organizationId: queryParams.organizationId,
-    page: queryParams.page || 1,
-    pageSize: queryParams.pageSize || 20
+    page: page,
+    pageSize: pageSize
   };
 
   if (queryParams.studyId) {
@@ -961,6 +970,10 @@ async function renderObservations(queryParams) {
   );
 
   const observationsPaginated = await observationsResponse.json();
+
+  if (observationsPaginated.results && observationsPaginated.results.length > pageSize) {
+    observationsPaginated.results = observationsPaginated.results.slice(0, pageSize);
+  }
 
   observationsPaginated.results = observationsPaginated.results.map(
     (observation) => {
@@ -989,9 +1002,9 @@ async function renderObservations(queryParams) {
     ...queryParams,
     observations: observationsPaginated.results,
     observationRecord: observationRecord,
-    page: parseInt(queryParams.page) || 1,
-    pageSize: parseInt(queryParams.pageSize) || 20,
-    totalPages: Math.ceil(observationsPaginated.count / (parseInt(queryParams.pageSize) || 20)),
+    page: page,
+    pageSize: pageSize,
+    totalPages: Math.ceil(observationsPaginated.count / pageSize),
     organizationForObservationsSelect: organizationForObservationsSelect,
     studyForObservationsSelect: studyForObservationsSelect,
     pageSizes: [5, 10, 15, 20, 100, 500, 1000]
