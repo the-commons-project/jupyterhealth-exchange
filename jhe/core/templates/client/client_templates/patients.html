@@ -56,6 +56,31 @@
         </button>
       </td>
       {{/if}}
+      <td class="pe-3">
+        <div class="d-flex align-items-center">
+          <span class="me-2">Page 
+            <input 
+              type="number" 
+              class="form-control form-control-sm d-inline-block" 
+              style="width: 60px;" 
+              value="{{page}}" 
+              min="1" 
+              max="{{totalPages}}"
+              onkeydown="if(event.key === 'Enter') nav('patients', null, {...getCurrentParams(), page: this.value})"
+            /> of {{totalPages}}
+          </span>
+          <select 
+            class="form-select form-select-sm me-2" 
+            style="width: auto;"
+            onchange="nav('patients', null, {...getCurrentParams(), pageSize: this.value, page: 1})"
+          >
+            {{#each pageSizes}}
+              <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
+            {{/each}}
+          </select>
+          <span>per page</span>
+        </div>
+      </td>
     </tr>
   </table>
   <table class="table table-striped">

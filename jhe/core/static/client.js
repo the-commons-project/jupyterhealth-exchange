@@ -503,6 +503,11 @@ async function removeUserFromOrganization(userId, organizationId) {
 // Patients
 // ==================================================
 
+function getCurrentParams() {
+  const currentRouteAndParams = getCurrentRouteAndParams();
+  return currentRouteAndParams.params;
+}
+
 async function renderPatients(queryParams) {
   console.log(`queryParams: ${JSON.stringify(queryParams)}`);
 
@@ -543,6 +548,8 @@ async function renderPatients(queryParams) {
 
   const patientsParams = {
     organizationId: queryParams.organizationId,
+    page: queryParams.page || 1,
+    pageSize: queryParams.pageSize || 20
   };
 
   if (queryParams.studyId) {
@@ -566,7 +573,7 @@ async function renderPatients(queryParams) {
         `patients/${queryParams.id}/consents`
       );
       patientRecordConsents = await patientRecordConsentsResponse.json();
-      studiesPendingConsent = patientRecordConsents.studiesPendingConsent
+      studiesPendingConsent = patientRecordConsents.studiesPendingConsent;
       studiesConsented = patientRecordConsents.studies;
       console.log(JSON.stringify(patientRecordConsents));
     }
@@ -577,14 +584,22 @@ async function renderPatients(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
+  Handlebars.registerHelper('eq', function (v1, v2) {
+    return v1 === v2;
+  });
+
   const renderParams = {
     ...queryParams,
     patients: patientsPaginated?.results,
     patientRecord: patientRecord,
+    page: parseInt(queryParams.page) || 1,
+    pageSize: parseInt(queryParams.pageSize) || 20,
+    totalPages: Math.ceil(patientsPaginated.count / (parseInt(queryParams.pageSize) || 20)),
     organizationForPatientsSelect: organizationForPatientsSelect,
     studyForPatientsSelect: studyForPatientsSelect,
     studiesPendingConsent: studiesPendingConsent,
     studiesConsented: studiesConsented,
+    pageSizes: [5, 10, 15, 20, 100, 500, 1000]
   };
 
   return content(renderParams);
@@ -931,6 +946,8 @@ async function renderObservations(queryParams) {
 
   const observationParams = {
     organizationId: queryParams.organizationId,
+    page: queryParams.page || 1,
+    pageSize: queryParams.pageSize || 20
   };
 
   if (queryParams.studyId) {
@@ -963,12 +980,21 @@ async function renderObservations(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
+  // Register the eq helper for Handlebars
+  Handlebars.registerHelper('eq', function (v1, v2) {
+    return v1 === v2;
+  });
+
   const renderParams = {
     ...queryParams,
     observations: observationsPaginated.results,
     observationRecord: observationRecord,
+    page: parseInt(queryParams.page) || 1,
+    pageSize: parseInt(queryParams.pageSize) || 20,
+    totalPages: Math.ceil(observationsPaginated.count / (parseInt(queryParams.pageSize) || 20)),
     organizationForObservationsSelect: organizationForObservationsSelect,
     studyForObservationsSelect: studyForObservationsSelect,
+    pageSizes: [5, 10, 15, 20, 100, 500, 1000]
   };
 
   return content(renderParams);
