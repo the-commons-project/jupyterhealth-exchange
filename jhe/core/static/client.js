@@ -993,7 +993,6 @@ async function renderObservations(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
-  // Register the eq helper for Handlebars
   Handlebars.registerHelper('eq', function (v1, v2) {
     return v1 === v2;
   });
