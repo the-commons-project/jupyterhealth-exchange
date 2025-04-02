@@ -1,89 +1,89 @@
 {% verbatim %}
 <script id="t-patients" type="text/template">
-  <table class="mb-3">
-    <tr>
-      <td class="pe-3">
-        <select
-          id="organizationForPatients"
-          class="form-control form-select"
-          onchange="nav('patients', null, {organizationId: this.value})"
-        >
-          {{#organizationForPatientsSelect}} {{#if selected}}
-            <option value="{{id}}" selected>{{name}}</option>
-          {{else}}
-            <option value="{{id}}">{{name}}</option>
-          {{/if}} {{/organizationForPatientsSelect}}
-        </select>
-      </td>
-      <td class="pe-3">
-        <select
-          id="studyForPatients"
-          class="form-control form-select"
-          onchange="this.value == 'all' ? nav('patients',{ organizationId: {{organizationId}} }) : nav('patients',{studyId: this.value, organizationId: {{organizationId}} })"
-        >
-            <option value="all">All Studies</option>
-          {{#studyForPatientsSelect}} {{#if selected}}
-            <option value="{{id}}" selected>{{name}}</option>
-          {{else}}
-            <option value="{{id}}">{{name}}</option>
-          {{/if}} {{/studyForPatientsSelect}}
-        </select>
-      </td>
-      <td class="pe-3">
-        <button type="button"
-                class="btn btn-sm btn-success"
-                onclick="nav('patients',{
-                    create: true,
-                    organizationId: {{@root.organizationId}},
-                    {{#if @root.studyId}} studyId: {{@root.studyId}} {{/if}}
-                })">
-          Add Patient...
-        </button>
-      </td>
-      <td class="pe-3">
-        <button type="button"
-                class="btn btn-sm btn-primary"
-                onclick="selectPatientsForStudy({{@root.organizationId}})">
-          Add Patient(s) to Study...
-        </button>
-      </td>
-      {{#if studyId}}
-      <td>
-        <button type="button"
-                class="btn btn-sm btn-warning"
-                onclick="removeSelectedPatientsFromStudy({{@root.studyId}})">
-          Remove Patient(s) from Study
-        </button>
-      </td>
-      {{/if}}
-      <td class="pe-3">
-        <div class="d-flex align-items-center">
-          <span class="me-2">Page 
-            <input 
-              type="number" 
-              class="form-control form-control-sm d-inline-block" 
-              style="width: 60px;" 
-              value="{{page}}" 
-              min="1" 
-              max="{{totalPages}}"
-              onchange="nav('patients', null, {...getCurrentParams(), page: this.value})"
-              onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('patients', null, {...getCurrentParams(), page: this.value}) }"
-            /> of {{totalPages}}
-          </span>
-          <select 
-            class="form-select form-select-sm me-2" 
-            style="width: auto;"
-            onchange="nav('patients', null, {...getCurrentParams(), pageSize: this.value, page: 1})"
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <table>
+      <tr>
+        <td class="pe-3">
+          <select
+            id="organizationForPatients"
+            class="form-control form-select"
+            onchange="nav('patients', null, {organizationId: this.value})"
           >
-            {{#each pageSizes}}
-              <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
-            {{/each}}
+            {{#organizationForPatientsSelect}} {{#if selected}}
+              <option value="{{id}}" selected>{{name}}</option>
+            {{else}}
+              <option value="{{id}}">{{name}}</option>
+            {{/if}} {{/organizationForPatientsSelect}}
           </select>
-          <span>per page</span>
-        </div>
-      </td>
-    </tr>
-  </table>
+        </td>
+        <td class="pe-3">
+          <select
+            id="studyForPatients"
+            class="form-control form-select"
+            onchange="this.value == 'all' ? nav('patients',{ organizationId: {{organizationId}} }) : nav('patients',{studyId: this.value, organizationId: {{organizationId}} })"
+          >
+              <option value="all">All Studies</option>
+            {{#studyForPatientsSelect}} {{#if selected}}
+              <option value="{{id}}" selected>{{name}}</option>
+            {{else}}
+              <option value="{{id}}">{{name}}</option>
+            {{/if}} {{/studyForPatientsSelect}}
+          </select>
+        </td>
+        <td class="pe-3">
+          <button type="button"
+                  class="btn btn-sm btn-success"
+                  onclick="nav('patients',{
+                      create: true,
+                      organizationId: {{@root.organizationId}},
+                      {{#if @root.studyId}} studyId: {{@root.studyId}} {{/if}}
+                  })">
+            Add Patient...
+          </button>
+        </td>
+        <td class="pe-3">
+          <button type="button"
+                  class="btn btn-sm btn-primary"
+                  onclick="selectPatientsForStudy({{@root.organizationId}})">
+            Add Patient(s) to Study...
+          </button>
+        </td>
+        {{#if studyId}}
+        <td>
+          <button type="button"
+                  class="btn btn-sm btn-warning"
+                  onclick="removeSelectedPatientsFromStudy({{@root.studyId}})">
+            Remove Patient(s) from Study
+          </button>
+        </td>
+        {{/if}}
+      </tr>
+    </table>
+    <div class="d-flex align-items-center">
+      <span class="me-2">Page 
+        <input 
+          type="number" 
+          class="form-control form-control-sm d-inline-block" 
+          style="width: 60px;" 
+          value="{{page}}" 
+          min="1" 
+          max="{{totalPages}}"
+          onchange="nav('patients', null, {...getCurrentParams(), page: this.value})"
+          onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('patients', null, {...getCurrentParams(), page: this.value}) }"
+        /> of {{totalPages}}
+      </span>
+      <select 
+        class="form-select form-select-sm me-2" 
+        style="width: auto;"
+        onchange="nav('patients', null, {...getCurrentParams(), pageSize: this.value, page: 1})"
+      >
+        {{#each pageSizes}}
+          <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
+        {{/each}}
+      </select>
+      <span>per page</span>
+    </div>
+  </div>
   <table class="table table-striped">
     <thead>
       <tr>
