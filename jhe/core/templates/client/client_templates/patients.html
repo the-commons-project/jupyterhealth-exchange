@@ -66,7 +66,8 @@
               value="{{page}}" 
               min="1" 
               max="{{totalPages}}"
-              onkeydown="if(event.key === 'Enter') nav('patients', null, {...getCurrentParams(), page: this.value})"
+              onchange="nav('patients', null, {...getCurrentParams(), page: this.value})"
+              onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('patients', null, {...getCurrentParams(), page: this.value}) }"
             /> of {{totalPages}}
           </span>
           <select 

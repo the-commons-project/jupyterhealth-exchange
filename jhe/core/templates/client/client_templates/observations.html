@@ -40,7 +40,8 @@
               value="{{page}}" 
               min="1" 
               max="{{totalPages}}"
-              onkeydown="if(event.key === 'Enter') nav('observations', null, {...getCurrentParams(), page: this.value})"
+              onchange="nav('observations', null, {...getCurrentParams(), page: this.value})"
+              onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('observations', null, {...getCurrentParams(), page: this.value}) }"
             /> of {{totalPages}}
           </span>
           <select 

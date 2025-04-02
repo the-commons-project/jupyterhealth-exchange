@@ -605,7 +605,7 @@ async function renderPatients(queryParams) {
     studyForPatientsSelect: studyForPatientsSelect,
     studiesPendingConsent: studiesPendingConsent,
     studiesConsented: studiesConsented,
-    pageSizes: [5, 10, 15, 20, 100, 500, 1000]
+    pageSizes: [20, 100, 500, 1000]
   };
 
   return content(renderParams);
@@ -1007,7 +1007,7 @@ async function renderObservations(queryParams) {
     totalPages: Math.ceil(observationsPaginated.count / pageSize),
     organizationForObservationsSelect: organizationForObservationsSelect,
     studyForObservationsSelect: studyForObservationsSelect,
-    pageSizes: [5, 10, 15, 20, 100, 500, 1000]
+    pageSizes: [20, 100, 500, 1000]
   };
 
   return content(renderParams);
