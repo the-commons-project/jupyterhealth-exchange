@@ -66,6 +66,7 @@ INSTALLED_APPS = [
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    #'DEFAULT_PAGINATION_CLASS': 'core.pagination.CustomPageNumberPagination',
     'PAGE_SIZE': 1000,
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
@@ -155,9 +156,10 @@ OAUTH2_PROVIDER = {
     "OIDC_RSA_PRIVATE_KEY": os.getenv('OIDC_RSA_PRIVATE_KEY'),
     "SCOPES": {
         "openid": "OpenID Connect scope"
-    }
+    },
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 1209600 # 2 weeks
 }
-ACCESS_TOKEN_EXPIRE_SECONDS = 1209600 # 2 weeks
+
 
 PATIENT_AUTHORIZATION_CODE_EXPIRE_SECONDS = 1209600 # 2 weeks
 PATIENT_AUTHORIZATION_CODE_CHALLENGE= os.getenv('PATIENT_AUTHORIZATION_CODE_CHALLENGE')
