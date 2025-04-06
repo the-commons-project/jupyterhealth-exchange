@@ -627,63 +627,81 @@ class Observation(models.Model):
     )
 
     @staticmethod
-    def for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None, offset=None, page=None):
-        
-        # Explicitly cast to ints so no injection vulnerability
-        organization_sql_where = ''
-        if organization_id:
-            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=int(organization_id))
+    def for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None, page=None, pageSize=None):
 
-        study_sql_where = ''
-        if study_id:
-            study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
-        
-        patient_sql_where = ''
-        if patient_id:
-            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
+      # for remote debugging
+      print("pageSize: ", pageSize)
+      print("page: ", page)
 
-        observation_sql_where = ''
-        if observation_id:
-            observation_sql_where = "AND core_observation.id={observation_id}".format(observation_id=int(observation_id))
-        
-        # Set default values for pagination parameters
-        offset = 0 if offset is None else int(offset)
-        limit = 10 if page is None else int(page)
+      if isinstance(pageSize, str):
+        print(f"pageSize.lower() == 'null': {pageSize.lower() == 'null'}")
 
-        q = """
-            SELECT DISTINCT(core_observation.*),
-            core_observation.value_attachment_data as value_attachment_data_json,
-            core_codeableconcept.coding_system as coding_system,
-            core_codeableconcept.coding_code as coding_code,
-            core_codeableconcept.text as coding_text,
-            core_patient.name_family as patient_name_family,
-            core_patient.name_given as patient_name_given
+      # Handle "null" (string) or missing values.
+      if isinstance(pageSize, str) and pageSize.lower() == "null":
+        pageSize = 20
+      elif pageSize is None:
+        pageSize = 20
+      else:
+        pageSize = int(pageSize)
 
-            FROM core_observation
-            JOIN core_codeableconcept ON core_codeableconcept.id=core_observation.codeable_concept_id
-            JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
-            LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
-            LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-            JOIN core_organization ON core_organization.id=core_patient.organization_id
-            JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
-            {organization_sql_where}
-            {study_sql_where}
-            {patient_sql_where}
-            {observation_sql_where}
-            ORDER BY core_observation.last_updated DESC
-            LIMIT {limit}
-            OFFSET {offset};
-            """.format(
-                organization_sql_where=organization_sql_where,
-                study_sql_where=study_sql_where,
-                patient_sql_where=patient_sql_where,
-                observation_sql_where=observation_sql_where,
-                limit=limit,
-                offset=offset
-            )
-        
-        return Observation.objects.raw(q, {'jhe_user_id': practitioner_user_id })
+      print(f"pageSize: {pageSize}, page: {page}")
+
+      offset = pageSize * (page - 1)
+      
+      # Explicitly cast to ints so no injection vulnerability
+      organization_sql_where = ''
+      if organization_id:
+        organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=int(organization_id))
+
+      study_sql_where = ''
+      if study_id:
+        study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
+      
+      patient_sql_where = ''
+      if patient_id:
+        patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
+
+      observation_sql_where = ''
+      if observation_id:
+        observation_sql_where = "AND core_observation.id={observation_id}".format(observation_id=int(observation_id))
+
+      q = """
+        SELECT DISTINCT(core_observation.*),
+        core_observation.value_attachment_data as value_attachment_data_json,
+        core_codeableconcept.coding_system as coding_system,
+        core_codeableconcept.coding_code as coding_code,
+        core_codeableconcept.text as coding_text,
+        core_patient.name_family as patient_name_family,
+        core_patient.name_given as patient_name_given
+
+        FROM core_observation
+        JOIN core_codeableconcept ON core_codeableconcept.id=core_observation.codeable_concept_id
+        JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
+        LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
+        LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
+        JOIN core_organization ON core_organization.id=core_patient.organization_id
+        JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
+        WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
+        {organization_sql_where}
+        {study_sql_where}
+        {patient_sql_where}
+        {observation_sql_where}
+        ORDER BY core_observation.last_updated DESC
+        LIMIT %(pageSize)s OFFSET %(offset)s;
+        """.format(
+          organization_sql_where=organization_sql_where,
+          study_sql_where=study_sql_where,
+          patient_sql_where=patient_sql_where,
+          observation_sql_where=observation_sql_where,
+          pageSize=pageSize,
+          offset=offset,
+        )
+      
+      return Observation.objects.raw(q, {
+        'jhe_user_id': practitioner_user_id,
+        'pageSize': pageSize,
+        'offset': offset
+      })
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, observation_id):
