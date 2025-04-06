@@ -65,9 +65,10 @@ INSTALLED_APPS = [
 ]
 
 REST_FRAMEWORK = {
+    # uncomment if you need to revert to the default pagination class
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     #'DEFAULT_PAGINATION_CLASS': 'core.pagination.CustomPageNumberPagination',
-    'PAGE_SIZE': 1000,
+    'PAGE_SIZE': 20,
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
      ),
