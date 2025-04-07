@@ -11,6 +11,7 @@ window.OIDCSettings = {
 };
 
 const CONSTANTS = {
+  JHE_VERSION: "{{ JHE_VERSION }}",
   SITE_URL: "{{ SITE_URL }}",
   ORGANIZATION_TOP_LEVEL_PART_OF_ID: 0,
   ORGANIZATION_TOP_LEVEL_PART_OF_LABEL: "None (Top Level Organization)",

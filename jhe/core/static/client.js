@@ -113,6 +113,7 @@ async function nav(newRoute, queryParams, appendQueryParams) {
   }));
 
   renderUserProfile();
+  document.getElementById("jheVersion").textContent = CONSTANTS.JHE_VERSION;
 
   const crudModalElement = document.getElementById(`${newRoute}-crudModal`);
   if (crudModalElement) {

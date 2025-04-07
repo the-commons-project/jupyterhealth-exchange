@@ -8,6 +8,7 @@ OIDC_CLIENT_REDIRECT_URI_PATH=/auth/callback
 OIDC_CLIENT_ID=Abc123
 
 CH_INVITATION_LINK_PREFIX="https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.dev&referrer=cloud_sharing_code="
+# CH_INVITATION_LINK_EXCLUDE_HOST=True
 
 DB_NAME=jhe_dev
 DB_USER=jheuser

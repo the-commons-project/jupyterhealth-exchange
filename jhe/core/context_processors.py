@@ -5,6 +5,7 @@ from core.models import DataSource, Organization
 def constants(request):
 
     return {
+        'JHE_VERSION': settings.JHE_VERSION,
         'SITE_TITLE': settings.SITE_TITLE,
         'SITE_URL': settings.SITE_URL,
         'OIDC_CLIENT_AUTHORITY': settings.OIDC_CLIENT_AUTHORITY,
