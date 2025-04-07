@@ -692,7 +692,7 @@ async function renderStudies(queryParams) {
           iconUrlInput.value = studyRecord.iconUrl;
           previewIcon(iconUrlInput);
         }
-      }, 500);
+      }, 800);
     }
 
     if (queryParams.read) {
@@ -1300,5 +1300,5 @@ function previewIcon(input) {
     previewContainer.innerHTML = '';
     previewContainer.appendChild(img);
     previewContainer.appendChild(errorDiv);
-  }, 500);
+  }, 400);
 }
