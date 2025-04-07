@@ -950,13 +950,18 @@ async function renderObservations(queryParams) {
     document.getElementById("t-observations").innerHTML
   );
 
-  const pageSize = parseInt(queryParams.pageSize) || 20;
-  const page = parseInt(queryParams.page) || 1;
+  // Parse the page and pageSize from queryParams
+  const pageParsed = parseInt(queryParams.page);
+  const pageSizeParsed = parseInt(queryParams.pageSize);
 
+  console.log(`isNaN(pageParsed): ${isNaN(pageParsed)}`);
+  console.log(`isNaN(pageSizeParsed): ${isNaN(pageSizeParsed)}`);
+  
+  // Use isNaN to check for invalid numbers, and default to null (or any safe value)
   const observationParams = {
     organizationId: queryParams.organizationId,
-    page: page,
-    pageSize: pageSize
+    page: isNaN(pageParsed) ? null : pageParsed,
+    pageSize: isNaN(pageSizeParsed) ? null : pageSizeParsed,
   };
 
   if (queryParams.studyId) {
