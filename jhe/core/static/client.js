@@ -976,8 +976,9 @@ async function renderObservations(queryParams) {
 
   const observationsPaginated = await observationsResponse.json();
 
-  if (observationsPaginated.results && observationsPaginated.results.length > pageSize) {
-    observationsPaginated.results = observationsPaginated.results.slice(0, pageSize);
+  const currentPageSize = isNaN(pageSizeParsed) ? 20 : pageSizeParsed;
+  if (observationsPaginated.results && observationsPaginated.results.length > currentPageSize) {
+    observationsPaginated.results = observationsPaginated.results.slice(0, currentPageSize);
   }
 
   observationsPaginated.results = observationsPaginated.results.map(
@@ -1006,9 +1007,9 @@ async function renderObservations(queryParams) {
     ...queryParams,
     observations: observationsPaginated.results,
     observationRecord: observationRecord,
-    page: page,
-    pageSize: pageSize,
-    totalPages: Math.ceil(observationsPaginated.count / pageSize),
+    page: isNaN(pageParsed) ? 1 : pageParsed,
+    pageSize: isNaN(pageSizeParsed) ? 20 : pageSizeParsed,
+    totalPages: Math.ceil(observationsPaginated.count / (isNaN(pageSizeParsed) ? 20 : pageSizeParsed)),
     organizationForObservationsSelect: organizationForObservationsSelect,
     studyForObservationsSelect: studyForObservationsSelect,
     pageSizes: [20, 100, 500, 1000]
