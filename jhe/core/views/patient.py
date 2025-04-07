@@ -29,7 +29,7 @@ class PatientViewSet(ModelViewSet):
 
     def list(self, request):
         """Override list method to handle pagination"""
-        page_size = int(request.query_params.get('pageSize', 20))
+        page_size = int(request.query_params.get('pageSize') or request.query_params.get('page_size', 20))
         page_number = int(request.query_params.get('page', 1))
         offset = (page_number - 1) * page_size
         
