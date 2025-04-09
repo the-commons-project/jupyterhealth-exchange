@@ -1,4 +1,4 @@
-JHE_VERSION = 'v0.0.1'
+JHE_VERSION = 'v0.0.2'
 
 """
 Django settings for jhe project.
@@ -70,7 +70,7 @@ REST_FRAMEWORK = {
     # uncomment if you need to revert to the default pagination class
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     #'DEFAULT_PAGINATION_CLASS': 'core.pagination.CustomPageNumberPagination',
-    'PAGE_SIZE': 20,
+    'PAGE_SIZE': 1000,
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
      ),

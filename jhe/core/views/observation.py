@@ -33,10 +33,11 @@ class FHIRObservationViewSet(ModelViewSet):
           study_id = self.request.GET.get('_has:_group:member:_id', None)
       
       patient_id = self.request.GET.get('patient', None)
+      patient_identifier_system_and_value = self.request.GET.get('patient.identifier', None)
       coding_system_and_value = self.request.GET.get('code', None)
 
-      if not (study_id or patient_id):
-          raise BadRequest("Request parameter patient._has:Group:member:_id=<study_id> or patient=<patient_id> must be provided.")
+      if not (study_id or patient_id or patient_identifier_system_and_value):
+          raise BadRequest("Request parameter patient._has:Group:member:_id=<study_id> or patient=<patient_id> or patient.identifier=<system>|<value> must be provided.")
       
       if study_id and (not Study.practitioner_authorized(self.request.user.id, study_id)):
           raise PermissionDenied("Current User does not have authorization to access this Study.")
@@ -47,14 +48,23 @@ class FHIRObservationViewSet(ModelViewSet):
       coding_system = None
       coding_value = None
       if coding_system_and_value:
-          coding_split = coding_system_and_value.split('|')
+          coding_split = coding_system_and_value.split('|') # TBD 400 for formatting error
           coding_system = coding_split[0]
           coding_value = coding_split[1]
+
+      patient_identifier_system = None
+      patient_identifier_value = None
+      if patient_identifier_system_and_value:
+          patient_identifier_split = patient_identifier_system_and_value.split('|') # TBD 400 for formatting error
+          patient_identifier_system = patient_identifier_split[0]
+          patient_identifier_value = patient_identifier_split[1]
 
       return Observation.fhir_search(
           self.request.user.id,
           study_id,
           patient_id,
+          patient_identifier_system,
+          patient_identifier_value,
           coding_system,
           coding_value
       )

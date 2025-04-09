@@ -284,10 +284,19 @@ code=4AWKhgaaomTSf9PfwxN4ExnXjdSEqh&grant_type=authorization_code&redirect_uri=h
 #### Observations
 
 - The `FHIR Observation` endpoint returns a list of Observations as a FHIR Bundle
-- At least one of Study ID, passed as `patient._has:Group:member:_id` or Patient ID, passed as `patient` query parameters are required
+- At least one of Study ID, passed as `patient._has:Group:member:_id` or Patient ID, passed as `patient` or Patient Identifier passed as `patient.identifier=<system>|<value>` query parameters are required
 - `subject.reference` references a Patient ID
 - `device.reference` references a Data Source ID
 - `valueAttachment` is Base 64 Encoded Binary JSON
+
+| Query Parameter         | Example                                               | Description                                                  |
+| ----------------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| `_has:Group:member:_id` | `30001`                                               | Filter by Patients that are in the Study with ID 30001       |
+| `patient`               | `40001`                                               | Filter by single Patient with ID 40001                       |
+| `patient.identifier`    | `http://ehr.example.com|abc123`                       | Filter by single Patient with Identifier System `http://ehr.example.com` and Value `abc123` |
+| `code`                  | `https://w3id.org/openmhealth|omh:blood-pressure:4.0` | Filter by Type/Scope with System `https://w3id.org/openmhealth` and Code `omh:blood-pressure:4.0` |
+
+
 
 ```json
 // GET /fhir/r5/Observation?patient._has:Group:member:_id=30001&patient=40001&code=https://w3id.org/openmhealth|omh:blood-pressure:4.0

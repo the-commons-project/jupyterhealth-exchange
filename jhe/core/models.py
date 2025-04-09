@@ -234,9 +234,9 @@ class Patient(models.Model):
         if study_id:
             study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
         
-        patient_sql_where = ''
+        patient_id_sql_where = ''
         if patient_id:
-            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
+            patient_id_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
 
         
         q = """
@@ -249,11 +249,11 @@ class Patient(models.Model):
             WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
             {organization_sql_where}
             {study_sql_where}
-            {patient_sql_where}
+            {patient_id_sql_where}
             """.format(
                 organization_sql_where=organization_sql_where,
                 study_sql_where=study_sql_where,
-                patient_sql_where=patient_sql_where,
+                patient_id_sql_where=patient_id_sql_where,
             )
 
         return Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id})
@@ -657,9 +657,9 @@ class Observation(models.Model):
       if study_id:
         study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
       
-      patient_sql_where = ''
+      patient_id_sql_where = ''
       if patient_id:
-        patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
+        patient_id_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
 
       observation_sql_where = ''
       if observation_id:
@@ -684,14 +684,14 @@ class Observation(models.Model):
         WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
         {organization_sql_where}
         {study_sql_where}
-        {patient_sql_where}
+        {patient_id_sql_where}
         {observation_sql_where}
         ORDER BY core_observation.last_updated DESC
         LIMIT %(pageSize)s OFFSET %(offset)s;
         """.format(
           organization_sql_where=organization_sql_where,
           study_sql_where=study_sql_where,
-          patient_sql_where=patient_sql_where,
+          patient_id_sql_where=patient_id_sql_where,
           observation_sql_where=observation_sql_where,
           pageSize=pageSize,
           offset=offset,
@@ -710,7 +710,7 @@ class Observation(models.Model):
         return True
     
     @staticmethod
-    def fhir_search(practitioner_user_id, study_id=None, patient_id=None, coding_system=None, coding_code=None, observation_id=None, offset=None, page=None):
+    def fhir_search(practitioner_user_id, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None, coding_system=None, coding_code=None, observation_id=None, offset=None, page=None):
         from core.serializers import FHIRObservationSerializer
 
         # Explicitly cast to ints so no injection vulnerability
@@ -718,9 +718,13 @@ class Observation(models.Model):
         if study_id:
             study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
         
-        patient_sql_where = ''
+        patient_id_sql_where = ''
         if patient_id:
-            patient_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
+            patient_id_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
+
+        patient_identifier_value_sql_where = ''
+        if patient_identifier_value:
+            patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s"
 
         observation_sql_where = ''
         if observation_id:
@@ -728,7 +732,7 @@ class Observation(models.Model):
 
         # Set default values for pagination parameters
         offset = 0 if offset is None else int(offset)
-        limit = 10 if page is None else int(page)
+        limit = 1000 if page is None else int(page)
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # pagination: https://github.com/mattbuck85/django-paginator-rawqueryset
@@ -777,10 +781,11 @@ class Observation(models.Model):
             LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
             JOIN core_organization ON core_organization.id=core_patient.organization_id
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id} AND
-            core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
+            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id}
+            AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
             {study_sql_where}
-            {patient_sql_where}
+            {patient_id_sql_where}
+            {patient_identifier_value_sql_where}
             {observation_sql_where}
             GROUP BY core_observation.id, core_codeableconcept.coding_system, core_codeableconcept.coding_code
             ORDER BY core_observation.last_updated DESC
@@ -790,7 +795,8 @@ class Observation(models.Model):
                 SITE_URL=settings.SITE_URL,
                 jhe_user_id=practitioner_user_id,
                 study_sql_where=study_sql_where,
-                patient_sql_where=patient_sql_where,
+                patient_id_sql_where=patient_id_sql_where,
+                patient_identifier_value_sql_where=patient_identifier_value_sql_where,
                 observation_sql_where=observation_sql_where,
                 limit=limit,
                 offset=offset
@@ -798,7 +804,8 @@ class Observation(models.Model):
 
         records = Observation.objects.raw(q, {
             "coding_system": coding_system if coding_system else '%',
-            "coding_code": coding_code if coding_code else '%'
+            "coding_code": coding_code if coding_code else '%',
+            "patient_identifier_value": patient_identifier_value
         })
         
         for record in records:
@@ -832,9 +839,9 @@ class Observation(models.Model):
       if study_id:
         study_sql_where = f"AND core_study.id={int(study_id)}"
       
-      patient_sql_where = ''
+      patient_id_sql_where = ''
       if patient_id:
-        patient_sql_where = f"AND core_patient.id={int(patient_id)}"
+        patient_id_sql_where = f"AND core_patient.id={int(patient_id)}"
       
       observation_sql_where = ''
       if observation_id:
@@ -859,7 +866,7 @@ class Observation(models.Model):
         WHERE core_jheuserorganization.jhe_user_id = %(jhe_user_id)s
         {organization_sql_where}
         {study_sql_where}
-        {patient_sql_where}
+        {patient_id_sql_where}
         {observation_sql_where}
       """
       
