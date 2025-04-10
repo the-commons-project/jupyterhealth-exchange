@@ -222,7 +222,7 @@ class Patient(models.Model):
         return CodeableConcept.objects.raw(q, {'patient_id': self.id})
     
     @staticmethod
-    def for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None):
+    def for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):
         
 
         # Explicitly cast to ints so no injection vulnerability
@@ -237,6 +237,10 @@ class Patient(models.Model):
         patient_id_sql_where = ''
         if patient_id:
             patient_id_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
+        
+        patient_identifier_value_sql_where = ''
+        if patient_identifier_value:
+            patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s"
 
         
         q = """
@@ -250,17 +254,19 @@ class Patient(models.Model):
             {organization_sql_where}
             {study_sql_where}
             {patient_id_sql_where}
+            {patient_identifier_value_sql_where}
             """.format(
                 organization_sql_where=organization_sql_where,
                 study_sql_where=study_sql_where,
                 patient_id_sql_where=patient_id_sql_where,
+                patient_identifier_value_sql_where=patient_identifier_value_sql_where
             )
 
-        return Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id})
+        return Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id, 'patient_identifier_value': patient_identifier_value})
 
     @staticmethod
-    def practitioner_authorized(practitioner_user_id, patient_id):
-        if len(Patient.for_practitioner_organization_study(practitioner_user_id, None, None, patient_id))==0:
+    def practitioner_authorized(practitioner_user_id, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):
+        if len(Patient.for_practitioner_organization_study(practitioner_user_id, None, None, patient_id, patient_identifier_system, patient_identifier_value))==0:
             return False
         return True
 
@@ -287,13 +293,17 @@ class Patient(models.Model):
     
     # GET /Patient?_has:Group:member:_id=<group-id>
     @staticmethod
-    def fhir_search(practitioner_user_id, study_id=None):
+    def fhir_search(practitioner_user_id, study_id=None, patient_identifier_system=None, patient_identifier_value=None):
         from core.serializers import FHIRPatientSerializer
 
         # Explicitly cast to ints so no injection vulnerability
         study_sql_where = ''
         if study_id:
             study_sql_where = "AND core_studypatient.study_id={study_id}".format(study_id=int(study_id))
+        
+        patient_identifier_value_sql_where = ''
+        if patient_identifier_value:
+            patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s"
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # TBD: sub constants from config
@@ -343,10 +353,11 @@ class Patient(models.Model):
             JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
             WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
             {study_sql_where}
+            {patient_identifier_value_sql_where}
             ORDER BY core_patient.name_family;
-            """.format(SITE_URL=settings.SITE_URL, study_sql_where=study_sql_where)
+            """.format(SITE_URL=settings.SITE_URL, study_sql_where=study_sql_where, patient_identifier_value_sql_where=patient_identifier_value_sql_where)
 
-        records = Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id })
+        records = Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id, "patient_identifier_value": patient_identifier_value })
         
         for record in records:
             # jsonb in raw is not automagically cast

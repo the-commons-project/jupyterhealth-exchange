@@ -1,4 +1,4 @@
-JHE_VERSION = 'v0.0.2'
+JHE_VERSION = 'v0.0.3'
 
 """
 Django settings for jhe project.
