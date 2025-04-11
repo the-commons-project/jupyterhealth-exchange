@@ -1,37 +1,63 @@
 {% verbatim %}
 <script id="t-observations" type="text/template">
 
-  <table class="mb-3">
-    <tr>
-      <td class="pe-3">
-        <select
-          id="organizationForObservations"
-          class="form-control form-select"
-          onchange="nav('observations', null, {organizationId: this.value})"
-        >
-          {{#organizationForObservationsSelect}} {{#if selected}}
-            <option value="{{id}}" selected>{{name}}</option>
-          {{else}}
-            <option value="{{id}}">{{name}}</option>
-          {{/if}} {{/organizationForObservationsSelect}}
-        </select>
-      </td>
-      <td class="pe-3">
-        <select
-          id="studyForObservations"
-          class="form-control form-select"
-          onchange="this.value == 'all' ? nav('observations',{ organizationId: {{organizationId}} }) : nav('observations',{studyId: this.value, organizationId: {{organizationId}} })"
-        >
-            <option value="all">All Studies</option>
-          {{#studyForObservationsSelect}} {{#if selected}}
-            <option value="{{id}}" selected>{{name}}</option>
-          {{else}}
-            <option value="{{id}}">{{name}}</option>
-          {{/if}} {{/studyForObservationsSelect}}
-        </select>
-      </td>
-    </tr>
-  </table>
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <table>
+      <tr>
+        <td class="pe-3">
+          <select
+            id="organizationForObservations"
+            class="form-control form-select"
+            onchange="nav('observations', null, {organizationId: this.value})"
+          >
+            {{#organizationForObservationsSelect}} {{#if selected}}
+              <option value="{{id}}" selected>{{name}}</option>
+            {{else}}
+              <option value="{{id}}">{{name}}</option>
+            {{/if}} {{/organizationForObservationsSelect}}
+          </select>
+        </td>
+        <td class="pe-3">
+          <select
+            id="studyForObservations"
+            class="form-control form-select"
+            onchange="this.value == 'all' ? nav('observations',{ organizationId: {{organizationId}} }) : nav('observations',{studyId: this.value, organizationId: {{organizationId}} })"
+          >
+              <option value="all">All Studies</option>
+            {{#studyForObservationsSelect}} {{#if selected}}
+              <option value="{{id}}" selected>{{name}}</option>
+            {{else}}
+              <option value="{{id}}">{{name}}</option>
+            {{/if}} {{/studyForObservationsSelect}}
+          </select>
+        </td>
+      </tr>
+    </table>
+    <div class="d-flex align-items-center">
+      <span class="me-2">Page 
+        <input 
+          type="number" 
+          class="form-control form-control-sm d-inline-block" 
+          style="width: 60px;" 
+          value="{{page}}" 
+          min="1" 
+          max="{{totalPages}}"
+          onchange="nav('observations', null, {...getCurrentParams(), page: this.value})"
+          onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('observations', null, {...getCurrentParams(), page: this.value}) }"
+        /> of {{totalPages}}
+      </span>
+      <select 
+        class="form-select form-select-sm me-2" 
+        style="width: auto;"
+        onchange="nav('observations', null, {...getCurrentParams(), pageSize: this.value, page: 1})"
+      >
+        {{#each pageSizes}}
+          <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
+        {{/each}}
+      </select>
+      <span>per page</span>
+    </div>
+  </div>
 
   <table class="table table-striped">
     <thead>

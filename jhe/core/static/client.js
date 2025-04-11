@@ -504,6 +504,11 @@ async function removeUserFromOrganization(userId, organizationId) {
 // Patients
 // ==================================================
 
+function getCurrentParams() {
+  const currentRouteAndParams = getCurrentRouteAndParams();
+  return currentRouteAndParams.params;
+}
+
 async function renderPatients(queryParams) {
   console.log(`queryParams: ${JSON.stringify(queryParams)}`);
 
@@ -542,8 +547,13 @@ async function renderPatients(queryParams) {
 
   let patientsPaginated, patientRecord, studiesPendingConsent, studiesConsented;
 
+  const pageSize = parseInt(queryParams.pageSize) || 20;
+  const page = parseInt(queryParams.page) || 1;
+
   const patientsParams = {
     organizationId: queryParams.organizationId,
+    page: page,
+    pageSize: pageSize
   };
 
   if (queryParams.studyId) {
@@ -553,8 +563,11 @@ async function renderPatients(queryParams) {
   const patientsResponse = await apiRequest("GET", "patients", patientsParams);
   patientsPaginated = await patientsResponse.json();
 
-  if (queryParams.read || queryParams.update || queryParams.delete) {
+  if (patientsPaginated.results && patientsPaginated.results.length > pageSize) {
+    patientsPaginated.results = patientsPaginated.results.slice(0, pageSize);
+  }
 
+  if (queryParams.read || queryParams.update || queryParams.delete) {
     const patientRecordResponse = await apiRequest(
       "GET",
       `patients/${queryParams.id}`
@@ -567,7 +580,7 @@ async function renderPatients(queryParams) {
         `patients/${queryParams.id}/consents`
       );
       patientRecordConsents = await patientRecordConsentsResponse.json();
-      studiesPendingConsent = patientRecordConsents.studiesPendingConsent
+      studiesPendingConsent = patientRecordConsents.studiesPendingConsent;
       studiesConsented = patientRecordConsents.studies;
       console.log(JSON.stringify(patientRecordConsents));
     }
@@ -578,14 +591,22 @@ async function renderPatients(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
+  Handlebars.registerHelper('eq', function (v1, v2) {
+    return v1 === v2;
+  });
+
   const renderParams = {
     ...queryParams,
     patients: patientsPaginated?.results,
     patientRecord: patientRecord,
+    page: page,
+    pageSize: pageSize,
+    totalPages: Math.ceil(patientsPaginated.count / pageSize),
     organizationForPatientsSelect: organizationForPatientsSelect,
     studyForPatientsSelect: studyForPatientsSelect,
     studiesPendingConsent: studiesPendingConsent,
     studiesConsented: studiesConsented,
+    pageSizes: [20, 100, 500, 1000]
   };
 
   return content(renderParams);
@@ -956,6 +977,11 @@ async function renderObservations(queryParams) {
 
   const observationsPaginated = await observationsResponse.json();
 
+  const currentPageSize = isNaN(pageSizeParsed) ? 20 : pageSizeParsed;
+  if (observationsPaginated.results && observationsPaginated.results.length > currentPageSize) {
+    observationsPaginated.results = observationsPaginated.results.slice(0, currentPageSize);
+  }
+
   observationsPaginated.results = observationsPaginated.results.map(
     (observation) => {
       observation.valueAttachmentData = JSON.stringify(
@@ -974,12 +1000,20 @@ async function renderObservations(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
+  Handlebars.registerHelper('eq', function (v1, v2) {
+    return v1 === v2;
+  });
+
   const renderParams = {
     ...queryParams,
     observations: observationsPaginated.results,
     observationRecord: observationRecord,
+    page: isNaN(pageParsed) ? 1 : pageParsed,
+    pageSize: isNaN(pageSizeParsed) ? 20 : pageSizeParsed,
+    totalPages: Math.ceil(observationsPaginated.count / (isNaN(pageSizeParsed) ? 20 : pageSizeParsed)),
     organizationForObservationsSelect: organizationForObservationsSelect,
     studyForObservationsSelect: studyForObservationsSelect,
+    pageSizes: [20, 100, 500, 1000]
   };
 
   return content(renderParams);
