@@ -1,5 +1,5 @@
 import logging
-from core.utils import FHIRBundlePagination
+from core.fhir_pagination import FHIRBundlePagination
 from core.views.fhir_base import FHIRBase
 from rest_framework import status, viewsets
 from rest_framework.viewsets import ModelViewSet
