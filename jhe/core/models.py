@@ -293,7 +293,7 @@ class Patient(models.Model):
     
     # GET /Patient?_has:Group:member:_id=<group-id>
     @staticmethod
-    def fhir_search(practitioner_user_id, study_id=None, patient_identifier_system=None, patient_identifier_value=None):
+    def fhir_search(practitioner_user_id, study_id=None, patient_identifier_system=None, patient_identifier_value=None, offset=None, page=None):
         from core.serializers import FHIRPatientSerializer
 
         # Explicitly cast to ints so no injection vulnerability
@@ -304,6 +304,10 @@ class Patient(models.Model):
         patient_identifier_value_sql_where = ''
         if patient_identifier_value:
             patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s"
+
+        # Set default values for pagination parameters
+        offset = 0 if offset is None else int(offset)
+        limit = 1000 if page is None else int(page)
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # TBD: sub constants from config
@@ -354,10 +358,21 @@ class Patient(models.Model):
             WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
             {study_sql_where}
             {patient_identifier_value_sql_where}
-            ORDER BY core_patient.name_family;
-            """.format(SITE_URL=settings.SITE_URL, study_sql_where=study_sql_where, patient_identifier_value_sql_where=patient_identifier_value_sql_where)
+            ORDER BY core_patient.name_family
+            LIMIT {limit}
+            OFFSET {offset};
+            """.format(
+                SITE_URL=settings.SITE_URL,
+                study_sql_where=study_sql_where,
+                patient_identifier_value_sql_where=patient_identifier_value_sql_where,
+                limit=limit,
+                offset=offset
+                )
 
-        records = Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id, "patient_identifier_value": patient_identifier_value })
+        records = Patient.objects.raw(q, {
+            'jhe_user_id': practitioner_user_id,
+            "patient_identifier_value": patient_identifier_value
+        })
         
         for record in records:
             # jsonb in raw is not automagically cast

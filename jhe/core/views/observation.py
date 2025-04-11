@@ -7,7 +7,7 @@ from core.serializers import FHIRBundledObservationSerializer, FHIRObservationSe
 from core.models import Observation, Study
 from rest_framework.response import Response
 from django.core.exceptions import PermissionDenied, BadRequest
-from core.pagination import AdminListMixin
+from core.admin_pagination import AdminListMixin
 
 logger = logging.getLogger(__name__)
 

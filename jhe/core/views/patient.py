@@ -1,7 +1,7 @@
 import logging
 from core.serializers import CodeableConceptSerializer, FHIRBundledPatientSerializer, PatientSerializer, StudyPendingConsentsSerializer, StudyConsentsSerializer, StudyPatientScopeConsentSerializer
 from core.models import JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study
-from core.utils import FHIRBundlePagination
+from core.fhir_pagination import FHIRBundlePagination
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
