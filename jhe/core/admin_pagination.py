@@ -189,6 +189,11 @@ class AdminListMixin:
           data = self.process_admin_query_results(data)
 
       count = count_func(*query_args, **params)
+      
+      if self.serializer_class is None:
+          raise NotImplementedError(
+              "Subclasses must define 'serializer_class' attribute"
+          )
       serialized_data = self.serializer_class(data, many=True).data
 
       base_url = request.build_absolute_uri().split('?')[0]

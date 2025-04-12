@@ -499,7 +499,32 @@ class Study(models.Model):
     icon_url = models.TextField(null=True, blank=True)
 
     @staticmethod
-    def for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None):
+    def for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None, page=None, pageSize=None):
+
+        # TODO: need to make this as DRY as possible, and re-use in other models.
+        # for remote debugging
+        print("pageSize: ", pageSize)
+        print("page: ", page)
+        # need to default page to 1 if NoneType or null
+        if page is None or page == 'null':
+          page = 1
+        else:
+          page = int(page)
+
+        if isinstance(pageSize, str):
+          print(f"pageSize.lower() == 'null': {pageSize.lower() == 'null'}")
+
+        # Handle "null" (string) or missing values.
+        if isinstance(pageSize, str) and pageSize.lower() == "null":
+          pageSize = 20
+        elif pageSize is None:
+          pageSize = 20
+        else:
+          pageSize = int(pageSize)
+
+        print(f"pageSize: {pageSize}, page: {page}")
+
+        offset = pageSize * (page - 1)
 
         # Explicitly cast to ints so no injection vulnerability
         study_sql_where = ''
@@ -520,9 +545,50 @@ class Study(models.Model):
             {study_sql_where}
             {organization_sql_where}
             ORDER BY core_study.name
-            """.format(study_sql_where=study_sql_where, organization_sql_where=organization_sql_where)
+            LIMIT {pageSize}
+            OFFSET {offset};
+            """.format(
+                study_sql_where=study_sql_where,
+                organization_sql_where=organization_sql_where,
+                pageSize=pageSize,
+                offset=offset
+            )
         
         return Study.objects.raw(q, {'jhe_user_id': practitioner_user_id})
+    
+    @staticmethod
+    def count_for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None):
+      """Use a dedicated count query for better performance. Returns the total number of studies matching the criteria."""
+      
+      # Explicitly cast to ints so no injection vulnerability
+      study_sql_where = ''
+      if study_id:
+        study_sql_where = f"AND core_study.id={int(study_id)}"
+      
+      organization_sql_where = ''
+      if organization_id:
+        organization_sql_where = f"AND core_organization.id={int(organization_id)}"
+      
+      # Use a temporary model for count results
+      class CountResult(models.Model):
+        count = models.IntegerField()
+        
+        class Meta:
+          managed = False  # No table creation
+          app_label = 'core'
+      
+      query = f"""
+        SELECT 1 as id, COUNT(DISTINCT core_study.id) as count
+        FROM core_study
+        JOIN core_organization ON core_organization.id = core_study.organization_id
+        JOIN core_jheuserorganization ON core_jheuserorganization.organization_id = core_organization.id
+        WHERE core_jheuserorganization.jhe_user_id = %(jhe_user_id)s
+        {study_sql_where}
+        {organization_sql_where}
+      """
+      
+      results = list(CountResult.objects.raw(query, {'jhe_user_id': practitioner_user_id}))
+      return results[0].count if results else 0
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, study_id):
