@@ -5,10 +5,16 @@ from core.models import Patient, Study, StudyDataSource, StudyPatient, StudyScop
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.core.exceptions import PermissionDenied, BadRequest
+from core.admin_pagination import AdminListMixin
 
 logger = logging.getLogger(__name__)
 
-class StudyViewSet(ModelViewSet):
+class StudyViewSet(AdminListMixin, ModelViewSet):
+    
+    model_class = Study
+    serializer_class = StudyOrganizationSerializer
+    admin_query_method = Study.__dict__['for_practitioner_organization']
+    admin_count_method = Study.__dict__['count_for_practitioner_organization']
 
     def get_serializer_class(self):
         if self.request.method == 'GET': 
