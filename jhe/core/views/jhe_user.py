@@ -6,12 +6,15 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from core.admin_pagination import CustomPageNumberPagination
 
 logger = logging.getLogger(__name__)
 
 class JheUserViewSet(ModelViewSet):
 
     serializer_class = JheUserSerializer
+    pagination_class = CustomPageNumberPagination
+    model_class = JheUser
 
     def get_permissions(self):
         permission_classes = [IsAuthenticated]

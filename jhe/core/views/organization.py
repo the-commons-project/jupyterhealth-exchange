@@ -4,6 +4,7 @@ from core.serializers import JheUserOrganizationSerializer, OrganizationSerializ
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
+from core.admin_pagination import CustomPageNumberPagination
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,8 @@ class OrganizationViewSet(ModelViewSet):
     `update` and `destroy` actions.
     """
     serializer_class = OrganizationSerializer
+    model_class = Organization
+    pagination_class = CustomPageNumberPagination
 
     def get_queryset(self):
         param_part_of = self.request.query_params.get('part_of')
