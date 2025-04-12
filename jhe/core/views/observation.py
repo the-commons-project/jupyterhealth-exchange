@@ -15,6 +15,9 @@ class ObservationViewSet(AdminListMixin, viewsets.ViewSet):
   model_class = Observation
   serializer_class = ObservationSerializer
 
+  admin_query_method = Observation.__dict__['for_practitioner_organization_study_patient']
+  admin_count_method = Observation.__dict__['count_for_practitioner_organization_study_patient']
+
 class FHIRObservationViewSet(ModelViewSet):
     
   pagination_class = FHIRBundlePagination
