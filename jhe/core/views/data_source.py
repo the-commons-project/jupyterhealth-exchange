@@ -4,12 +4,15 @@ from rest_framework.viewsets import ModelViewSet
 from core.serializers import CodeableConceptSerializer, DataSourceSerializer, DataSourceSupportedScopeSerializer
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from core.admin_pagination import CustomPageNumberPagination
 
 logger = logging.getLogger(__name__)
 
 class DataSourceViewSet(ModelViewSet):
 
     serializer_class = DataSourceSerializer
+    model_class = DataSource
+    pagination_class = CustomPageNumberPagination
 
     # this will never be large
     def get_queryset(self):
@@ -27,7 +30,6 @@ class DataSourceViewSet(ModelViewSet):
     
     @action(detail=True, methods=['GET','POST','DELETE'])
     def supported_scopes(self, request, pk):
-
         if request.method == 'GET': 
             scopes = DataSourceSupportedScope.objects.filter(data_source_id=pk).order_by('id')
             serializer = DataSourceSupportedScopeSerializer(scopes, many=True)
