@@ -118,7 +118,7 @@ class JheUser(AbstractUser):
             nonce='',
             claims=json.dumps({}),
         )
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.patient = None
@@ -222,8 +222,32 @@ class Patient(models.Model):
         return CodeableConcept.objects.raw(q, {'patient_id': self.id})
     
     @staticmethod
-    def for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):
+    def for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None, page=None, pageSize=None):
         
+        # TODO: need to make this as DRY as possible, and re-use in other models.
+        # for remote debugging
+        print("pageSize: ", pageSize)
+        print("page: ", page)
+        # need to default page to 1 if NoneType or null
+        if page is None or page == 'null':
+          page = 1
+        else:
+          page = int(page)
+
+        if isinstance(pageSize, str):
+          print(f"pageSize.lower() == 'null': {pageSize.lower() == 'null'}")
+
+        # Handle "null" (string) or missing values.
+        if isinstance(pageSize, str) and pageSize.lower() == "null":
+          pageSize = 20
+        elif pageSize is None:
+          pageSize = 20
+        else:
+          pageSize = int(pageSize)
+
+        print(f"pageSize: {pageSize}, page: {page}")
+
+        offset = pageSize * (page - 1)
 
         # Explicitly cast to ints so no injection vulnerability
         organization_sql_where = ''
@@ -255,14 +279,77 @@ class Patient(models.Model):
             {study_sql_where}
             {patient_id_sql_where}
             {patient_identifier_value_sql_where}
+            LIMIT {pageSize}
+            OFFSET {offset};
             """.format(
                 organization_sql_where=organization_sql_where,
                 study_sql_where=study_sql_where,
                 patient_id_sql_where=patient_id_sql_where,
-                patient_identifier_value_sql_where=patient_identifier_value_sql_where
+                patient_identifier_value_sql_where=patient_identifier_value_sql_where,
+                pageSize=pageSize,
+                offset=offset
             )
+        
+        print(f'query: {q}')
+        print(f'jhe_user_id: {practitioner_user_id}')
 
         return Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id, 'patient_identifier_value': patient_identifier_value})
+    
+    # TODO: need to make this as DRY as possible, and re-use in other models.
+    @staticmethod
+    def count_for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):
+      """Use a dedicated count query for better performance. Aligns with optional inclusion for _total number of matching resources per FHIR spec."""
+      
+      # Explicitly cast to ints so no injection vulnerability
+      organization_sql_where = ''
+      if organization_id:
+        organization_sql_where = f"AND core_organization.id={int(organization_id)}"
+      
+      study_sql_where = ''
+      if study_id:
+        study_sql_where = f"AND core_study.id={int(study_id)}"
+      
+      patient_id_sql_where = ''
+      if patient_id:
+        patient_id_sql_where = f"AND core_patient.id={int(patient_id)}"
+
+      patient_identifier_value_sql_where = ''
+      if patient_identifier_value:
+          patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s"
+
+      # Count query for the same criteria
+      query = """
+        SELECT 1 as id, COUNT(DISTINCT core_patient.id) as count
+        FROM core_patient
+        LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
+        LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
+        JOIN core_organization ON core_organization.id=core_patient.organization_id
+        JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
+        WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
+        {organization_sql_where}
+        {study_sql_where}
+        {patient_id_sql_where}
+        {patient_identifier_value_sql_where}
+        """.format(
+          organization_sql_where=organization_sql_where,
+          study_sql_where=study_sql_where,
+          patient_id_sql_where=patient_id_sql_where,
+          patient_identifier_value_sql_where=patient_identifier_value_sql_where
+        )
+      
+      # Use a temporary model for count results
+      class CountResult(models.Model):
+        count = models.IntegerField()
+        
+        class Meta:
+          managed = False  # No table creation
+          app_label = 'core'
+      
+      params = {'jhe_user_id': practitioner_user_id}
+      if patient_identifier_value:
+          params['patient_identifier_value'] = patient_identifier_value
+      results = list(CountResult.objects.raw(query, params))
+      return results[0].count if results else 0
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):

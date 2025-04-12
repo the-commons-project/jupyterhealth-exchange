@@ -10,12 +10,16 @@ from rest_framework.decorators import action
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, BadRequest
 from datetime import datetime
+from core.admin_pagination import AdminListMixin
 
 logger = logging.getLogger(__name__)
 
-class PatientViewSet(ModelViewSet):
+class PatientViewSet(AdminListMixin, ModelViewSet):
     
+    model_class = Patient
     serializer_class = PatientSerializer
+    admin_query_method = Patient.__dict__['for_practitioner_organization_study']
+    admin_count_method = Patient.__dict__['count_for_practitioner_organization_study']
 
     def get_queryset(self):
         if self.detail:
@@ -26,45 +30,6 @@ class PatientViewSet(ModelViewSet):
                 raise PermissionDenied("Current User does not have authorization to access this Patient.")
         else:
             return Patient.for_practitioner_organization_study(self.request.user.id, self.request.GET.get('organization_id', None), self.request.GET.get('study_id', None))
-
-    def list(self, request):
-        """Override list method to handle pagination"""
-        page_size = int(request.query_params.get('pageSize') or request.query_params.get('page_size', 20))
-        page_number = int(request.query_params.get('page', 1))
-        offset = (page_number - 1) * page_size
-        
-        organization_id = request.query_params.get('organizationId') or request.query_params.get('organization_id')
-        study_id = request.query_params.get('studyId') or request.query_params.get('study_id')
-        
-        all_patients = list(Patient.for_practitioner_organization_study(
-            practitioner_user_id=request.user.id,
-            organization_id=organization_id,
-            study_id=study_id
-        ))
-        
-        total_count = len(all_patients)
-        total_pages = (total_count + page_size - 1) // page_size
-        
-        if page_number < 1:
-            page_number = 1
-        elif page_number > total_pages:
-            page_number = total_pages
-            
-        start_idx = (page_number - 1) * page_size
-        end_idx = min(start_idx + page_size, total_count)
-        paginated_patients = all_patients[start_idx:end_idx]
-        
-        serializer = self.get_serializer(paginated_patients, many=True)
-        
-        response = {
-            'count': total_count,
-            'results': serializer.data,
-            'page': page_number,
-            'pageSize': page_size,
-            'totalPages': total_pages
-        }
-        
-        return Response(response)
 
     def create(self, request):
         patient = None
