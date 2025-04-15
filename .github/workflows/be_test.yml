@@ -1,6 +1,6 @@
 # https://docs.github.com/en/actions/writing-workflows/quickstart
 name: GitHub Actions Demo
-run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+run-name: is testing out GitHub Actions
 on:
   push:
     branches: [feat/github-issue-48-django-test-coverage]
@@ -9,33 +9,29 @@ jobs:
   Explore-GitHub-Actions:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "🎉 Triggered by a ${{ github.event_name }} event."
-      - run: echo "🐧 Running on a ${{ runner.os }} server hosted by GitHub."
-      - run: echo "🔎 Branch: ${{ github.ref }}, Repository: ${{ github.repository }}."
+      - run: echo "Triggered by a ${{ github.event_name }} event."
+      - run: echo "The workflow is running on ${{ runner.os }}."
+      - run: echo "Branch name is ${{ github.ref }}."
+      - run: echo "Repository name is ${{ github.repository }}."
 
-      - name: Check out repository code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - run: echo "💡 Repository cloned to the runner."
+      - run: echo "Repository cloned successfully."
 
-      - name: Set up Python
+      - name: Set up Python 3.x
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'  # specify the desired Python version
+          python-version: 3.x
 
       - name: Install dependencies using Pipenv
         run: |
-          python -m pip install --upgrade pip
           pip install pipenv
-          # Install both default and development dependencies (including test packages)
           pipenv install --dev
 
-      - name: Run Django Tests
+      - name: Run Django tests
         run: |
-          # Run tests with Django’s test runner
-          pipenv run python manage.py test
+          pipenv run python manage.py test --pattern="*_test.py" --verbosity=2 --failfast --keepdb --noinput --parallel 4
+          pipenv run coverage run --source='.' manage.py test --pattern="*_test.py" --verbosity=2 --failfast --keepdb --noinput --parallel 4
 
-      - name: List files in the repository (optional)
-        run: ls ${{ github.workspace }}
-
-      - run: echo "🍏 Job status: ${{ job.status }}."
+      - run: echo "Django tests completed."
