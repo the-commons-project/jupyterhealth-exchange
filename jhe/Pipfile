@@ -19,6 +19,7 @@ djangorestframework-camel-case = "*"
 pydantic = "*"
 pydantic-core = "*"
 pyhumps = "*"
+coverage = "*"
 
 [dev-packages]
 
