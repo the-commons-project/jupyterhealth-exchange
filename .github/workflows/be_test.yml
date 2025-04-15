@@ -24,13 +24,14 @@ jobs:
         with:
           python-version: 3.11
 
-      - name: Install dependencies using Pipenv
-        run: |
-          pip install pipenv
-          pipenv install --dev
-
       - name: Find manage.py location
         run: find . -name manage.py
+
+      - name: Install dependencies using Pipenv
+        run: |
+          cd jhe
+          pip install pipenv
+          pipenv install --dev
 
       - name: Run Django tests
         run: |
