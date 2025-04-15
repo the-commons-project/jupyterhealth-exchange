@@ -29,8 +29,12 @@ jobs:
           pip install pipenv
           pipenv install --dev
 
+      - name: Find manage.py location
+        run: find . -name manage.py
+
       - name: Run Django tests
         run: |
+          cd jhe
           pipenv run python manage.py test --pattern="*_test.py" --verbosity=2 --failfast --keepdb --noinput --parallel 4
           pipenv run coverage run --source='.' manage.py test --pattern="*_test.py" --verbosity=2 --failfast --keepdb --noinput --parallel 4
 
