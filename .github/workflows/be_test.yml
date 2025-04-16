@@ -9,6 +9,20 @@ jobs:
   run-full-test-suite:
     name: Run full test suite
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_jhe_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       SITE_TITLE: "JupyterHealth Exchange Dev"
       REGISTRATION_INVITE_CODE: "helloworld"
@@ -17,9 +31,9 @@ jobs:
       OIDC_CLIENT_REDIRECT_URI_PATH: "/auth/callback"
       OIDC_CLIENT_ID: "Abc123"
       CH_INVITATION_LINK_PREFIX: "https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.dev&referrer=cloud_sharing_code="
-      DB_NAME: "jhe_dev"
-      DB_USER: "jheuser"
-      DB_PASSWORD: "jhepassword"
+      DB_NAME: "test_jhe_dev"
+      DB_USER: "postgres"
+      DB_PASSWORD: "postgres"
       DB_HOST: "localhost"
       DB_PORT: "5432"
       OIDC_RSA_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----\\Abc123\\n-----END RSA PRIVATE KEY-----"
