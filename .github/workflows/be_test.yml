@@ -1,12 +1,13 @@
 # https://docs.github.com/en/actions/writing-workflows/quickstart
-name: GitHub Actions Demo
-run-name: Django Test Coverage; triggered by ${{ github.event_name }} to ${{ github.ref }}
+name: Django Backend Test
+run-name: Triggered by ${{ github.event_name }} to ${{ github.ref }}
 on:
   push:
     branches: [feat/github-issue-48-django-test-coverage]
 
 jobs:
-  Explore-GitHub-Actions:
+  run-full-test-suite:
+    name: Run full test suite
     runs-on: ubuntu-latest
     env:
       SITE_TITLE: "JupyterHealth Exchange Dev"
@@ -52,7 +53,7 @@ jobs:
       - name: Run Django tests
         run: |
           cd jhe
-          pipenv run python manage.py test --pattern="*_test.py" --verbosity=2 --failfast --keepdb --noinput --parallel 4
+          pipenv run python manage.py test --pattern="test*.py" --verbosity=2 --failfast --keepdb --noinput --parallel 4
           # TODO: Uncomment the following line to run coverage after the tests are confirmed to work.
           # pipenv run coverage run --source='.' manage.py test --pattern="*_test.py" --verbosity=2 --failfast --keepdb --noinput --parallel 4
 
