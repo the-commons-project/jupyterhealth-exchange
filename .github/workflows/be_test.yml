@@ -1,6 +1,6 @@
 # https://docs.github.com/en/actions/writing-workflows/quickstart
 name: GitHub Actions Demo
-run-name: Django Test Coverage, triggered ${{ github.event_name }} - ${{ github.actor }} - ${{ github.ref }}
+run-name: Django Test Coverage; triggered by ${{ github.event_name }} to ${{ github.ref }}
 on:
   push:
     branches: [feat/github-issue-48-django-test-coverage]
