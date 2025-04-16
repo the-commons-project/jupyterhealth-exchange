@@ -5,7 +5,16 @@ from core.models import (
   StudyDataSource, Observation, ObservationIdentifier
 )
 from django.utils import timezone
-from django.test import TestCase
+from django.test import TestCase, override_settings
+
+@override_settings(
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+)
 
 class JheUserTest(TestCase):
   def setUp(self):
