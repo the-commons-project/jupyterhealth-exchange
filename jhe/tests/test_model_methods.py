@@ -14,15 +14,6 @@ from core.models import (
     StudyDataSource, Observation, ObservationIdentifier
 )
 
-@override_settings(
-    DATABASES={
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': ':memory:',
-        }
-    }
-)
-
 # -----------------------------------------------------
 # JheUser Methods
 # -----------------------------------------------------
