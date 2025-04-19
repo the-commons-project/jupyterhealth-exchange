@@ -67,8 +67,8 @@ jobs:
       - name: Run Django tests
         run: |
           cd jhe
-          pipenv run python manage.py test --pattern="test*.py" --verbosity=2 --failfast --noinput --parallel 4 --settings=jhe.test_settings
+          pipenv run python manage.py test --pattern="test*.py" --verbosity=2 --failfast --noinput --settings=jhe.test_settings
           # TODO: Uncomment the following line to run coverage after the tests are confirmed to work.
-          # pipenv run coverage run --source='.' manage.py test --pattern="*_test.py" --verbosity=2 --failfast --noinput --parallel 4
+          # pipenv run coverage run --source='.' manage.py test --pattern="*_test.py" --verbosity=2 --failfast --noinput --settings=jhe.test_settings
 
       - run: echo "Django tests completed."
