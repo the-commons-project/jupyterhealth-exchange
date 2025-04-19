@@ -3,12 +3,16 @@ name: Django Backend Test
 run-name: Triggered by ${{ github.event_name }} to ${{ github.ref }}
 on:
   push:
-    branches: [feat/github-issue-48-django-test-coverage]
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   run-full-test-suite:
+    
     name: Run full test suite
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:16
@@ -23,6 +27,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
     env:
       SITE_TITLE: "JupyterHealth Exchange Dev"
       REGISTRATION_INVITE_CODE: "helloworld"
@@ -39,6 +44,7 @@ jobs:
       OIDC_RSA_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----\\Abc123\\n-----END RSA PRIVATE KEY-----"
       PATIENT_AUTHORIZATION_CODE_CHALLENGE: "abc123"
       PATIENT_AUTHORIZATION_CODE_VERIFIER: "abc123"
+      
     steps:
       - run: echo "Triggered by a ${{ github.event_name }} event."
       - run: echo "The workflow is running on ${{ runner.os }}."
