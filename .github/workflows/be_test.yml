@@ -1,19 +1,80 @@
 # https://docs.github.com/en/actions/writing-workflows/quickstart
-name: GitHub Actions Demo
-run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
-on: [push]
+name: Django Backend Test
+run-name: Triggered by ${{ github.event_name }} to ${{ github.ref }}
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
 jobs:
-  Explore-GitHub-Actions:
+  run-full-test-suite:
+    
+    name: Run full test suite
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_jhe_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SITE_TITLE: "JupyterHealth Exchange Dev"
+      REGISTRATION_INVITE_CODE: "helloworld"
+      SITE_URL: "http://localhost:8000"
+      OIDC_CLIENT_AUTHORITY_PATH: "/o/"
+      OIDC_CLIENT_REDIRECT_URI_PATH: "/auth/callback"
+      OIDC_CLIENT_ID: "Abc123"
+      CH_INVITATION_LINK_PREFIX: "https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.dev&referrer=cloud_sharing_code="
+      DB_NAME: "test_jhe_dev"
+      DB_USER: "postgres"
+      DB_PASSWORD: "postgres"
+      DB_HOST: "localhost"
+      DB_PORT: "5432"
+      OIDC_RSA_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----\\Abc123\\n-----END RSA PRIVATE KEY-----"
+      PATIENT_AUTHORIZATION_CODE_CHALLENGE: "abc123"
+      PATIENT_AUTHORIZATION_CODE_VERIFIER: "abc123"
+      
     steps:
-      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
-      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
-      - name: Check out repository code
+      - run: echo "Triggered by a ${{ github.event_name }} event."
+      - run: echo "The workflow is running on ${{ runner.os }}."
+      - run: echo "Branch name is ${{ github.ref }}."
+      - run: echo "Repository name is ${{ github.repository }}."
+
+      - name: Checkout code
         uses: actions/checkout@v4
-      - run: echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-      - run: echo "🖥️ The workflow is now ready to test your code on the runner."
-      - name: List files in the repository
+
+      - run: echo "Repository cloned successfully."
+
+      - name: Set up Python 3.11 for Django tests
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Find manage.py location
+        run: find . -name manage.py
+
+      - name: Install dependencies using Pipenv
         run: |
-          ls ${{ github.workspace }}
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+          cd jhe
+          pip install pipenv
+          pipenv install --dev
+
+      - name: Run Django tests
+        run: |
+          cd jhe
+          pipenv run python manage.py test --pattern="test*.py" --verbosity=2 --failfast --noinput --settings=jhe.test_settings
+          # TODO: Uncomment the following line to run coverage after the tests are confirmed to work.
+          # pipenv run coverage run --source='.' manage.py test --pattern="*_test.py" --verbosity=2 --failfast --noinput --settings=jhe.test_settings
+
+      - run: echo "Django tests completed."

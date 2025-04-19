@@ -222,28 +222,13 @@ class Patient(models.Model):
         return CodeableConcept.objects.raw(q, {'patient_id': self.id})
     
     @staticmethod
-    def for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None, page=None, pageSize=None):
-        
-        # TODO: need to make this as DRY as possible, and re-use in other models.
-        # for remote debugging
-        print("pageSize: ", pageSize)
-        print("page: ", page)
-        # need to default page to 1 if NoneType or null
-        if page is None or page == 'null':
-          page = 1
-        else:
-          page = int(page)
+    def for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None, page=1, pageSize=20):
 
         if isinstance(pageSize, str):
-          print(f"pageSize.lower() == 'null': {pageSize.lower() == 'null'}")
-
-        # Handle "null" (string) or missing values.
-        if isinstance(pageSize, str) and pageSize.lower() == "null":
-          pageSize = 20
-        elif pageSize is None:
-          pageSize = 20
-        else:
           pageSize = int(pageSize)
+
+        if isinstance(page, str):
+          page = int(page)
 
         print(f"pageSize: {pageSize}, page: {page}")
 
@@ -499,28 +484,13 @@ class Study(models.Model):
     icon_url = models.TextField(null=True, blank=True)
 
     @staticmethod
-    def for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None, page=None, pageSize=None):
-
-        # TODO: need to make this as DRY as possible, and re-use in other models.
-        # for remote debugging
-        print("pageSize: ", pageSize)
-        print("page: ", page)
-        # need to default page to 1 if NoneType or null
-        if page is None or page == 'null':
-          page = 1
-        else:
-          page = int(page)
+    def for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None, page=1, pageSize=20):
 
         if isinstance(pageSize, str):
-          print(f"pageSize.lower() == 'null': {pageSize.lower() == 'null'}")
-
-        # Handle "null" (string) or missing values.
-        if isinstance(pageSize, str) and pageSize.lower() == "null":
-          pageSize = 20
-        elif pageSize is None:
-          pageSize = 20
-        else:
           pageSize = int(pageSize)
+
+        if isinstance(page, str):
+          page = int(page)
 
         print(f"pageSize: {pageSize}, page: {page}")
 
@@ -806,22 +776,13 @@ class Observation(models.Model):
     )
 
     @staticmethod
-    def for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None, page=None, pageSize=None):
-
-      # for remote debugging
-      print("pageSize: ", pageSize)
-      print("page: ", page)
+    def for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None, page=1, pageSize=20):
 
       if isinstance(pageSize, str):
-        print(f"pageSize.lower() == 'null': {pageSize.lower() == 'null'}")
-
-      # Handle "null" (string) or missing values.
-      if isinstance(pageSize, str) and pageSize.lower() == "null":
-        pageSize = 20
-      elif pageSize is None:
-        pageSize = 20
-      else:
         pageSize = int(pageSize)
+
+      if isinstance(page, str):
+        page = int(page)
 
       print(f"pageSize: {pageSize}, page: {page}")
 
