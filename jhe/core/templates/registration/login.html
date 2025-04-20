@@ -22,6 +22,6 @@
 </div -->
 
 <button class="w-100 btn btn-lg btn-primary mt-5" type="submit">Login</button>
-<div class="mt-4"><!-- a href="{ url 'signup' }">Forgot Password</a> | --> <a href="{% url 'signup' %}">Sign Up</a></div>
+<div class="mt-4"><a href="{% url 'password_reset' %}">Forgot Password</a> | <a href="{% url 'signup' %}">Sign Up</a></div>
 
 {% endblock %}
