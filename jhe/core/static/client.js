@@ -60,6 +60,8 @@ let crudModal;
 let store = {};
 let userProfile = {};
 let signingOut = false;
+let showDelayedElementsTimeoutId = null;
+let navLoadingOverlayCounter = 0;
 
 // ==================================================
 // Common
@@ -72,7 +74,57 @@ async function app() {
   await nav(currentRouteAndParams.route, currentRouteAndParams.params);
 }
 
+function showNavLoadingOverlay() {
+  const overlay = document.getElementById('navLoadingOverlay');
+  if (overlay) {
+    const shouldStartTimer = (navLoadingOverlayCounter === 0);
+    navLoadingOverlayCounter++;
+
+    overlay.style.display = 'flex';
+
+    const closeButton = document.getElementById('cancelLoadingBtn');
+    if (closeButton) closeButton.style.display = 'none';
+
+    if (shouldStartTimer && showDelayedElementsTimeoutId) {
+      clearTimeout(showDelayedElementsTimeoutId);
+      showDelayedElementsTimeoutId = null;
+    }
+
+    if (shouldStartTimer) {
+      showDelayedElementsTimeoutId = setTimeout(() => {
+        if (navLoadingOverlayCounter > 0 && closeButton) {
+          closeButton.style.display = 'block';
+          setTimeout(() => closeButton.focus(), 50);
+        }
+        showDelayedElementsTimeoutId = null;
+      }, 10000);
+    }
+  }
+}
+
+function hideNavLoadingOverlay() {
+  const overlay = document.getElementById('navLoadingOverlay');
+  if (overlay) {
+    navLoadingOverlayCounter--;
+
+    if (navLoadingOverlayCounter <= 0) {
+      navLoadingOverlayCounter = 0;
+      overlay.style.display = 'none';
+
+      if (showDelayedElementsTimeoutId) {
+        clearTimeout(showDelayedElementsTimeoutId);
+        showDelayedElementsTimeoutId = null;
+      }
+
+      const closeButton = document.getElementById('cancelLoadingBtn');
+      if (closeButton) closeButton.style.display = 'none';
+    }
+  }
+}
+
 async function nav(newRoute, queryParams, appendQueryParams) {
+  showNavLoadingOverlay();
+
   const newRouteSettings = ROUTES[newRoute];
 
   const currentRouteAndParams = getCurrentRouteAndParams();
@@ -142,12 +194,15 @@ async function nav(newRoute, queryParams, appendQueryParams) {
         new URLSearchParams(queryParams).toString()
     );
   }
+
+  hideNavLoadingOverlay();
 }
 
 function navReload() {
   clearModalValidationErrors();
   if (crudModal._isShown) crudModal.hide();
   const currentRouteAndParams = getCurrentRouteAndParams();
+  showNavLoadingOverlay();
   nav(currentRouteAndParams.route, currentRouteAndParams.params);
 }
 
