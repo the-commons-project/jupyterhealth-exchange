@@ -786,6 +786,8 @@ class Observation(models.Model):
 
       print(f"pageSize: {pageSize}, page: {page}")
 
+      logger.info(f"GH issue #56 sanity check")
+
       offset = pageSize * (page - 1)
       
       # Explicitly cast to ints so no injection vulnerability

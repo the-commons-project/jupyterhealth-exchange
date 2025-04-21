@@ -110,6 +110,7 @@ venv/
 ENV/ 
 env.bak/ 
 venv.bak/ 
+jhe/jhe/dev.env
 
 # mkdocs documentation 
 /site 
