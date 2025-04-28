@@ -22,6 +22,33 @@
   </head>
   <body class="h-100" id="baseBody" {% block body_tag %}{% endblock %}>
     {% block body_content %} {% endblock %}
+    
+    <!-- Global Navigation Loading Overlay -->
+    <div id="navLoadingOverlay" 
+         style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: white; z-index: 9999; flex-direction: column; justify-content: center; align-items: center;"
+         role="dialog" 
+         aria-modal="true" 
+         aria-labelledby="loadingHeading"
+         tabindex="-1">
+      
+      <!-- Close button (top-left) - Initially hidden -->
+      <button 
+        type="button" 
+        class="btn-close" 
+        style="position: absolute; top: 1rem; left: 1rem; font-size: 1.5rem; z-index: 10000; outline: none !important; box-shadow: none !important; display: none;" 
+        onclick="hideNavLoadingOverlay()"
+        aria-label="Close loading overlay"
+        id="cancelLoadingBtn"
+      >
+      </button>
+
+      <div class="text-center">
+        <h5 id="loadingHeading" class="mb-3">Loading...</h5>
+        <div class="spinner-border text-primary" role="status">
+        </div>
+      </div>
+    </div>
+    
     <!-- Load order for OIDC is finicky -->
     <script
       onload="window.initOidc();"
