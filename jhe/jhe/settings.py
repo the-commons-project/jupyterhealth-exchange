@@ -196,17 +196,13 @@ PATIENT_AUTHORIZATION_CODE_VERIFIER = os.getenv('PATIENT_AUTHORIZATION_CODE_VERI
 
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
-
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-#EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-#EMAIL_HOST = "smtp.gmail.com"
-#EMAIL_HOST_USER = "youremail@gmail.com"
-#EMAIL_HOST_PASSWORD = "your email password"
-#EMAIL_PORT = 587
-#EMAIL_USE_TLS = True
-DEFAULT_FROM_EMAIL = 'JHE Support <support@jhe.org>'
-
-
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+EMAIL_HOST_USER = os.getenv('SMTP_USER', 'your email address')
+EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASSWORD', 'your email password')
+EMAIL_PORT = os.getenv('SMTP_PORT', 587)
+EMAIL_USE_TLS = True
+DEFAULT_FROM_EMAIL = 'support@jhe.org'
 
 CODE_VERIFIER = 'N0hHRVk2WDNCUUFPQTIwVDNZWEpFSjI4UElNV1pSTlpRUFBXNTEzU0QzRTMzRE85WDFWTzU2WU9ESw=='
 
