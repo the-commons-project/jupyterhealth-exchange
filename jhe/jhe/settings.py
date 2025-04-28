@@ -148,6 +148,32 @@ DATABASES = {
     }
 }
 
+# default django logging scheme: https://docs.djangoproject.com/en/5.2/ref/logging/#default-logging-configuration
+# https://docs.djangoproject.com/en/5.2/topics/logging
+# also see: https://docs.djangoproject.com/en/5.2/howto/error-reporting/#filtering-error-reports
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        # makes it required to set the log level in the environment variable DJANGO_LOG_LEVEL
+        "level": os.getenv("DJANGO_LOG_LEVEL"),
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
+
 # https://django-oauth-toolkit.readthedocs.io/en/latest/getting_started.html
 AUTH_USER_MODEL = 'core.JheUser'
 REGISTRATION_INVITE_CODE = os.getenv('REGISTRATION_INVITE_CODE')
