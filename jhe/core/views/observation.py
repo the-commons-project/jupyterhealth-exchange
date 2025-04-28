@@ -76,11 +76,13 @@ class FHIRObservationViewSet(ModelViewSet):
       observation = None
       try:
           observation = Observation.fhir_create(request.data, request.user)
+          logger.debug(f'created observation: {observation}')
       # TBD: except PermissionDenied:
       except Exception as e:
+          logger.error(f'error in creating observation: {e}')
           return Response(FHIRBase.error_outcome(str(e)), status=status.HTTP_400_BAD_REQUEST)
       
-      fhir_observation = Observation.fhir_search(self.request.user.id, None, None, None, None, None, observation.id)[0]
+      fhir_observation = Observation.fhir_search(self.request.user.id, None, None, None, None, None, None, observation.id)[0]
       serializer = FHIRObservationSerializer(fhir_observation, many=False)
       headers = self.get_success_headers(serializer.data)
       return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
