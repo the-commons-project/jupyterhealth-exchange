@@ -188,20 +188,25 @@ class Organization(models.Model):
         super().__init__(*args, **kwargs)
         self.children = []
 
-
-class JheUserOrganization(models.Model):
-    jhe_user = models.ForeignKey(JheUser, on_delete=models.CASCADE)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=['jhe_user','organization_id'], name="core_jheuserorganization_unique_jhe_user_id_organization_id")
-        ]
-
+class Practitioner(models.Model):
+    jhe_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="practitioner_profile"
+    )
 
 class Patient(models.Model):
-    jhe_user = models.ForeignKey(JheUser, unique=True, on_delete=models.CASCADE)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    """
+        Instead of using a ForeignKey and letting Django create the table we are using a OneToOneField to create a 1:1 relationship with our JheUser model.
+        jhe_user = models.ForeignKey(JheUser, unique=True, on_delete=models.CASCADE)
+    """
+    jhe_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="patient_profile",
+        null=True, # allows pre-existing patients without a JHE user,
+        blank=True
+    )
     identifier = models.CharField(null=True)
     name_family = models.CharField()
     name_given = models.CharField()
@@ -465,6 +470,20 @@ class Patient(models.Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.telecom_email = None
+
+"""
+    Allows for a many-to-many relationship between organizations and practitioner users
+"""
+class PractitionerOrganization(models.Model):
+    practitioner = models.ForeignKey(Practitioner, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+
+"""
+    Allows for a many-to-many relationship between organizations and patient users
+"""
+class PatientOrganization(models.Model):
+    patient = models.ForeignKey(Practitioner, on_delete=models.CASCADE)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
 
 class CodeableConcept(models.Model):
     coding_system = models.CharField()
@@ -1131,5 +1150,3 @@ class ObservationIdentifier(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['system','value'], name="core_observation_identifier_unique_observation_system_value")
         ]
-
-
