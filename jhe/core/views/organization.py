@@ -1,10 +1,15 @@
 import logging
-from core.models import Organization, JheUserOrganization
-from core.serializers import JheUserOrganizationSerializer, OrganizationSerializer, OrganizationUsersSerializer, StudySerializer
+from core.models import Organization, PractitionerOrganization, PatientOrganization
+from core.serializers import (
+  OrganizationSerializer, OrganizationUsersSerializer, StudySerializer, PractitionerOrganizationSerializer,
+  PatientOrganizationSerializer
+)
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from core.admin_pagination import CustomPageNumberPagination
+from core.models import JheUser
+from django.shortcuts import get_object_or_404
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +57,45 @@ class OrganizationViewSet(ModelViewSet):
     
     @action(detail=True, methods=['POST','DELETE'])
     def user(self, request, pk):
-        response = None
+      user_type = request.data.get('user_type', 'practitioner')  # Default to practitioner if not specified
+      jhe_user_id = request.data.get('jhe_user_id')
+      
+      if not jhe_user_id:
+        return Response({"error": "jhe_user_id is required"}, status=400)
+      
+      jhe_user = get_object_or_404(JheUser, pk=jhe_user_id)
+      
+      if user_type.lower() == 'patient':
         if request.method == 'POST':
-            response = JheUserOrganization.objects.create(organization_id=pk, jhe_user_id=request.data['jhe_user_id'])
+          relation = PatientOrganization.objects.create(
+            organization_id=pk, 
+            patient_id=jhe_user_id
+          )
+          serializer = PatientOrganizationSerializer(relation)
         else:
-            response = JheUserOrganization.objects.filter(organization_id=pk, jhe_user_id=request.data['jhe_user_id']).delete()
-        serializer = JheUserOrganizationSerializer(response, many=False)
-        return Response(serializer.data)
+          relation = PatientOrganization.objects.filter(
+            organization_id=pk, 
+            patient_id=jhe_user_id
+          ).delete()
+          return Response(status=204)
+      else:  # practitioner
+        practitioner = jhe_user.practitioner
+        if not practitioner:
+            return Response({"error": "Practitioner not found"}, status=404)
+        if request.method == 'POST':
+          relation = PractitionerOrganization.objects.create(
+            organization_id=pk, 
+            practitioner=practitioner
+          )
+          serializer = PractitionerOrganizationSerializer(relation)
+        else:
+          relation = PractitionerOrganization.objects.filter(
+            organization_id=pk, 
+            practitioner=practitioner
+          ).delete()
+          return Response(status=204)
+      
+      return Response(serializer.data)
 
     @action(detail=True, methods=['GET'])
     def studies(self, request, pk):

@@ -1,7 +1,7 @@
 from fhir.resources.observation import Observation as FHIRObservation
 from fhir.resources.patient import Patient as FHIRPatient
 import json, logging, humps
-from django.db import models
+from django.db import models, connection
 from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.base_user import BaseUserManager
@@ -12,6 +12,8 @@ from django.core.exceptions import PermissionDenied, BadRequest
 from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils import timezone
+from django.shortcuts import get_object_or_404
+from django.core.exceptions import ValidationError
 
 from .tokens import account_activation_token
 from random import SystemRandom
@@ -25,103 +27,157 @@ logger = logging.getLogger(__name__)
 
 
 class JheUserManager(BaseUserManager):
-    def create_user(self, email, password, **extra_fields):
-        if not email:
-            raise ValueError(_('The Email must be set'))
-        email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
-        user.set_password(password)
-        user.save()
-        return user
+  def create_user(self, email, password, user_type=None, **extra_fields):
+    if not email:
+      raise ValueError(_('The Email must be set'))
+    email = self.normalize_email(email)
+    user = self.model(email=email, user_type=user_type, **extra_fields)
+    user.set_password(password)
+    user.save()
+    return user
 
-    def create_superuser(self, email, password, **extra_fields):
-        extra_fields.setdefault('is_staff', True)
-        extra_fields.setdefault('is_superuser', True)
-        extra_fields.setdefault('is_active', True)
-        if extra_fields.get('is_staff') is not True:
-            raise ValueError(_('Superuser must have is_staff=True.'))
-        if extra_fields.get('is_superuser') is not True:
-            raise ValueError(_('Superuser must have is_superuser=True.'))
-        return self.create_user(email, password, **extra_fields)
-    
-    def get_by_ehr_id(self, ehr_id):
-        return JheUser.objects.filter(
-            identifier=ehr_id
-        )
+  def create_superuser(self, email, password, **extra_fields):
+    extra_fields.setdefault('is_staff', True)
+    extra_fields.setdefault('is_superuser', True)
+    extra_fields.setdefault('is_active', True)
+    if extra_fields.get('is_staff') is not True:
+      raise ValueError(_('Superuser must have is_staff=True.'))
+    if extra_fields.get('is_superuser') is not True:
+      raise ValueError(_('Superuser must have is_superuser=True.'))
+    return self.create_user(email, password, **extra_fields)
+  
+  def get_by_ehr_id(self, ehr_id):
+    return JheUser.objects.filter(
+      identifier=ehr_id
+    )
 
 
 class JheUser(AbstractUser):
-    username = None
-    email = models.EmailField(_('Email Address'), max_length=254, unique=True)
-    email_is_verified = models.BooleanField(default=False)
-    identifier = models.CharField()
-    organizations = models.ManyToManyField('Organization', through='JheUserOrganization')
+  username = None
+  email = models.EmailField(_('Email Address'), max_length=254, unique=True)
+  email_is_verified = models.BooleanField(default=False)
+  identifier = models.CharField()
+  USER_TYPE_CHOICES = (
+    ('patient', 'Patient'),
+    ('practitioner', 'Practitioner'),
+  )
+  user_type = models.CharField(max_length=12, choices=USER_TYPE_CHOICES, null=True, blank=True)
+  
+  USERNAME_FIELD = 'email'
+  REQUIRED_FIELDS = []
+
+  objects = JheUserManager()
+
+  def __str__(self):
+    return self.email
+
+  def save(self, *args, **kwargs):
+    is_new = self._state.adding  # lives on internal ModelState object; Django's built-in flag for "has this object been added to the database yet?"
+    super().save(*args, **kwargs)
     
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = []
-
-    objects = JheUserManager()
-
-    def __str__(self):
-        return self.email
-
-    def save(self, *args, **kwargs):
-
-        super().save(*args, **kwargs)
-
-    def send_email_verificaion(self):
-        message = render_to_string('registration/verify_email_message.html', {
-            'site_url': settings.SITE_URL,
-            'email_address': self.email,
-            'user_id': urlsafe_base64_encode(force_bytes(self.id)),
-            'token': account_activation_token.make_token(self),
-        })
-        email = EmailMessage(
-            "JHE E-mail Verification", message, to=[self.email]
+    if is_new and self.user_type:
+      if self.user_type == 'patient' and not hasattr(self, 'patient_profile'):
+        print(f'Creating patient profile in save method')
+        Patient.objects.create(
+          jhe_user=self,
+          name_family=self.last_name or '',
+          name_given=self.first_name or '',
+          birth_date=timezone.now().date(),  # TBD, do we want a default value equivalent to this?
+          identifier=self.identifier
         )
-        email.content_subtype = 'html'
-        email.send()
-    
-    def is_patient(self):
-        return len(Patient.objects.filter(jhe_user_id=self.id))>0
-    
-    def get_patient(self):
-        patient = Patient.objects.filter(jhe_user_id=self.id)
-        return patient[0] if patient else None
-    
-    # https://github.com/jazzband/django-oauth-toolkit/blob/102c85141ec44549e17080c676292e79e5eb46cc/oauth2_provider/oauth2_validators.py#L675
-    def create_authorization_code(self, application_id, redirect_uri):
-
-        self.last_login = timezone.now()
-        self.save()
-
-        Grant = get_grant_model()
-
-        Grant.objects.filter(user_id=self.id).delete()
-
-        # https://github.com/oauthlib/oauthlib/blob/f9a07c6c07d0ddac255dd322ef5fc54a7a46366d/oauthlib/common.py#L188
-        UNICODE_ASCII_CHARACTER_SET = ( 'abcdefghijklmnopqrstuvwxyz'
-                                        'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-                                        '0123456789')
-        authorization_code = ''.join( SystemRandom().choice(UNICODE_ASCII_CHARACTER_SET) for x in range(30))
-
-        return Grant.objects.create(
-            application_id=application_id,
-            user_id=self.id,
-            code=authorization_code,
-            expires=timezone.now() + timedelta(seconds=settings.PATIENT_AUTHORIZATION_CODE_EXPIRE_SECONDS),
-            redirect_uri=redirect_uri,
-            scope='openid',
-            # https://github.com/oauthlib/oauthlib/blob/f9a07c6c07d0ddac255dd322ef5fc54a7a46366d/oauthlib/oauth2/rfc6749/grant_types/authorization_code.py#L18
-            code_challenge=settings.PATIENT_AUTHORIZATION_CODE_CHALLENGE,
-            code_challenge_method='S256',
-            nonce='',
-            claims=json.dumps({}),
+      elif self.user_type == 'practitioner' and not hasattr(self, 'practitioner_profile'):
+        print(f'Creating practitioner profile in save method')
+        Practitioner.objects.create(
+          jhe_user=self,
+          name_family=self.last_name,
+          name_given=self.first_name,
+          identifier=self.identifier
         )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.patient = None
+  def send_email_verificaion(self):
+    message = render_to_string('registration/verify_email_message.html', {
+      'site_url': settings.SITE_URL,
+      'email_address': self.email,
+      'user_id': urlsafe_base64_encode(force_bytes(self.id)),
+      'token': account_activation_token.make_token(self),
+    })
+    email = EmailMessage(
+      "JHE E-mail Verification", message, to=[self.email]
+    )
+    email.content_subtype = 'html'
+    email.send()
+  
+  def is_patient(self):
+    return self.user_type == 'patient' or hasattr(self, 'patient_profile')
+  
+  def is_practitioner(self):
+    return self.user_type == 'practitioner' or hasattr(self, 'practitioner_profile')
+  
+  def get_patient(self):
+    patient = Patient.objects.filter(jhe_user_id=self.id)
+    return patient[0] if patient else None
+  
+  @property
+  def practitioner(self):
+    return getattr(self, 'practitioner_profile', None)
+  
+  @property
+  def patient(self):
+    if not hasattr(self, '_patient'):
+      self._patient = getattr(self, 'patient_profile', None)
+    return self._patient
+
+  @patient.setter
+  def patient(self, value):
+    # Handle the case where value is the get_patient method instead of its result
+    if value is not None and callable(value):
+      value = value()
+    
+    if value is not None and not hasattr(value, 'jhe_user'):
+      raise ValidationError("Expected Patient object or None")
+    self._patient = value
+  
+  def organization(self):
+    if self.is_practitioner():
+      return self.practitioner.organizations.all()
+    elif self.is_patient():
+      return self.patient.organizations.all()
+    else:
+      return None
+  
+  # https://github.com/jazzband/django-oauth-toolkit/blob/102c85141ec44549e17080c676292e79e5eb46cc/oauth2_provider/oauth2_validators.py#L675
+  def create_authorization_code(self, application_id, redirect_uri):
+
+    self.last_login = timezone.now()
+    self.save()
+
+    Grant = get_grant_model()
+
+    Grant.objects.filter(user_id=self.id).delete()
+
+    # https://github.com/oauthlib/oauthlib/blob/f9a07c6c07d0ddac255dd322ef5fc54a7a46366d/oauthlib/common.py#L188
+    UNICODE_ASCII_CHARACTER_SET = ( 'abcdefghijklmnopqrstuvwxyz'
+                    'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                    '0123456789')
+    authorization_code = ''.join( SystemRandom().choice(UNICODE_ASCII_CHARACTER_SET) for _ in range(30))
+
+    return Grant.objects.create(
+      application_id=application_id,
+      user_id=self.id,
+      code=authorization_code,
+      expires=timezone.now() + timedelta(seconds=settings.PATIENT_AUTHORIZATION_CODE_EXPIRE_SECONDS),
+      redirect_uri=redirect_uri,
+      scope='openid',
+      # https://github.com/oauthlib/oauthlib/blob/f9a07c6c07d0ddac255dd322ef5fc54a7a46366d/oauthlib/oauth2/rfc6749/grant_types/authorization_code.py#L18
+      code_challenge=settings.PATIENT_AUTHORIZATION_CODE_CHALLENGE,
+      code_challenge_method='S256',
+      nonce='',
+      claims=json.dumps({}),
+    )
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    # Don't initialize patient here since it's a property without a setter
 
 
 class Organization(models.Model):
@@ -160,7 +216,24 @@ class Organization(models.Model):
         null=True,
         blank=True
     )
-    users = models.ManyToManyField(JheUser, through='JheUserOrganization')
+    
+    # Helper method to return all users in this organization
+    @property
+    def users(self):
+        from django.db.models import Q
+        
+        patient_user_ids = PatientOrganization.objects.filter(
+            organization=self
+        ).select_related('patient__jhe_user').values_list('patient__jhe_user_id', flat=True)
+        
+        practitioner_user_ids = PractitionerOrganization.objects.filter(
+            organization=self
+        ).select_related('practitioner__jhe_user').values_list('practitioner__jhe_user_id', flat=True)
+        
+        # Combine the IDs and get all of the users
+        return JheUser.objects.filter(
+            Q(id__in=patient_user_ids) | Q(id__in=practitioner_user_ids)
+        )
 
     @staticmethod
     def collect_children(parent):
@@ -178,8 +251,9 @@ class Organization(models.Model):
         q = """
             SELECT core_organization.*
             FROM core_organization
-            JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id=%(practitioner_user_id)s
+            JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
+            JOIN core_practitioner ON core_practitioner.id=core_practitionerorganization.practitioner_id
+            WHERE core_practitioner.jhe_user_id=%(practitioner_user_id)s
             """
         
         return Organization.objects.raw(q, {'practitioner_user_id': practitioner_user_id})
@@ -188,12 +262,63 @@ class Organization(models.Model):
         super().__init__(*args, **kwargs)
         self.children = []
 
+class PractitionerQuerySet(models.QuerySet):
+    def count_studies(self, practitioner_user_id, organization_id=None, study_id=None):
+        """
+        Returns the total number of distinct studies for this practitioner,
+        optionally filtered by organization_id and/or study_id.
+        """
+        params = {'jhe_user_id': practitioner_user_id}
+        study_clause = ''
+        if study_id:
+            study_clause = 'AND core_study.id = %(study_id)s'
+            params['study_id'] = int(study_id)
+        org_clause = ''
+        if organization_id:
+            org_clause = 'AND core_organization.id = %(org_id)s'
+            params['org_id'] = int(organization_id)
+
+        sql = f"""
+            SELECT COUNT(DISTINCT core_study.id) AS count
+            FROM core_study
+            JOIN core_organization 
+              ON core_organization.id = core_study.organization_id
+            JOIN core_practitionerorganization 
+              ON core_practitionerorganization.organization_id = core_organization.id
+            WHERE core_practitionerorganization.jhe_user_id = %(jhe_user_id)s
+            {study_clause}
+            {org_clause}
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            row = cursor.fetchone()
+        return row[0] if row else 0
+
+class PractitionerManager(models.Manager):
+    def get_queryset(self):
+        return PractitionerQuerySet(self.model, using=self._db)
+
+    def count_studies(self, *args, **kwargs):
+        return self.get_queryset().count_studies(*args, **kwargs)
+
 class Practitioner(models.Model):
     jhe_user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="practitioner_profile"
     )
+    identifier = models.CharField(null=True)
+    name_family = models.CharField(null=True)
+    name_given = models.CharField(null=True)
+    birth_date = models.DateField(null=True)
+    telecom_phone = models.CharField(null=True)
+    last_updated = models.DateTimeField(default=timezone.now)
+    organizations = models.ManyToManyField(
+        Organization,
+        through='PractitionerOrganization',
+        related_name='practitioners'
+    )
+    objects = PractitionerManager()
 
 class Patient(models.Model):
     """
@@ -213,6 +338,11 @@ class Patient(models.Model):
     birth_date = models.DateField()
     telecom_phone = models.CharField(null=True)
     last_updated = models.DateTimeField(default=timezone.now)
+    organizations = models.ManyToManyField(
+        Organization,
+        through='PatientOrganization',
+        related_name='patients'
+    )
 
     def consolidated_consented_scopes(self):
         q = """
@@ -227,119 +357,115 @@ class Patient(models.Model):
         return CodeableConcept.objects.raw(q, {'patient_id': self.id})
     
     @staticmethod
-    def for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None, page=1, pageSize=20):
+    def for_practitioner_organization_study(
+        jhe_user_id,
+        organization_id=None,
+        study_id=None,
+        patient_id=None,
+        patient_identifier_value=None,
+        page=1,
+        pageSize=20
+    ):
+        pageSize = int(pageSize)
+        page     = int(page)
+        offset   = pageSize * (page - 1)
+        organization_sql_where = f"AND core_organization.id={int(organization_id)}" if organization_id else ""
+        study_sql_where = f"AND core_study.id={int(study_id)}"         if study_id        else ""
+        patient_id_sql_where   = f"AND core_patient.id={int(patient_id)}"     if patient_id      else ""
+        patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s" \
+                      if patient_identifier_value else ""
+        sql = f"""
+            SELECT DISTINCT core_patient.*
+            FROM core_patient
+            LEFT JOIN core_studypatient
+              ON core_studypatient.patient_id = core_patient.id
+            LEFT JOIN core_study
+              ON core_study.id = core_studypatient.study_id
+            JOIN core_patientorganization
+              ON core_patientorganization.patient_id = core_patient.id
+            JOIN core_organization
+              ON core_organization.id = core_patientorganization.organization_id
+            JOIN core_practitionerorganization
+              ON core_practitionerorganization.organization_id = core_organization.id
+            JOIN core_practitioner
+              ON core_practitioner.id = core_practitionerorganization.practitioner_id
+            WHERE core_practitioner.jhe_user_id = %(jhe_user_id)s
+              {organization_sql_where}
+              {study_sql_where}
+              {patient_id_sql_where}
+              {patient_identifier_value_sql_where}
+            LIMIT {pageSize}
+            OFFSET {offset};
+        """
 
-        if isinstance(pageSize, str):
-          pageSize = int(pageSize)
+        params = {'jhe_user_id': jhe_user_id}
+        if patient_identifier_value:
+            params['patient_identifier_value'] = patient_identifier_value
+        return Patient.objects.raw(sql, params)
+    # TODO: need to make this as DRY as possible, and re-use in other models.
+    @staticmethod
+    def count_for_practitioner_organization_study(
+        jhe_user_id,
+        organization_id=None,
+        study_id=None,
+        patient_id=None,
+        patient_identifier_value=None
+    ):
+        """
+        Count patients a practitioner is allowed to see (FHIR _total).
+        """
+        from .models import Practitioner
+        practitioner = Practitioner.objects.get(jhe_user_id=jhe_user_id)
+        practitioner_id = practitioner.id
 
-        if isinstance(page, str):
-          page = int(page)
-
-        print(f"pageSize: {pageSize}, page: {page}")
-
-        offset = pageSize * (page - 1)
-
-        # Explicitly cast to ints so no injection vulnerability
         organization_sql_where = ''
         if organization_id:
-            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=int(organization_id))
+            organization_sql_where = f"AND core_organization.id={int(organization_id)}"
 
         study_sql_where = ''
         if study_id:
-            study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
-        
+            study_sql_where = f"AND core_study.id={int(study_id)}"
+
         patient_id_sql_where = ''
         if patient_id:
-            patient_id_sql_where = "AND core_patient.id={patient_id}".format(patient_id=int(patient_id))
-        
+            patient_id_sql_where = f"AND core_patient.id={int(patient_id)}"
+
         patient_identifier_value_sql_where = ''
         if patient_identifier_value:
             patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s"
 
-        
-        q = """
-            SELECT DISTINCT(core_patient.*)
+        query = f"""
+            SELECT 1 AS id,
+                   COUNT(DISTINCT core_patient.id) AS count
             FROM core_patient
-            LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
-            LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-            JOIN core_organization ON core_organization.id=core_patient.organization_id
-            JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
-            {organization_sql_where}
-            {study_sql_where}
-            {patient_id_sql_where}
-            {patient_identifier_value_sql_where}
-            LIMIT {pageSize}
-            OFFSET {offset};
-            """.format(
-                organization_sql_where=organization_sql_where,
-                study_sql_where=study_sql_where,
-                patient_id_sql_where=patient_id_sql_where,
-                patient_identifier_value_sql_where=patient_identifier_value_sql_where,
-                pageSize=pageSize,
-                offset=offset
-            )
-        
-        print(f'query: {q}')
-        print(f'jhe_user_id: {practitioner_user_id}')
+            LEFT JOIN core_studypatient
+              ON core_studypatient.patient_id = core_patient.id
+            LEFT JOIN core_study
+              ON core_study.id = core_studypatient.study_id
+            JOIN core_patientorganization
+              ON core_patientorganization.patient_id = core_patient.id
+            JOIN core_organization
+              ON core_organization.id = core_patientorganization.organization_id
+            JOIN core_practitionerorganization
+              ON core_practitionerorganization.organization_id = core_organization.id
+            WHERE core_practitionerorganization.practitioner_id = %(practitioner_id)s
+              {organization_sql_where}
+              {study_sql_where}
+              {patient_id_sql_where}
+              {patient_identifier_value_sql_where}
+        """
+        # Use a temporary model for count results
+        class CountResult(models.Model):
+            count = models.IntegerField()
 
-        return Patient.objects.raw(q, {'jhe_user_id': practitioner_user_id, 'patient_identifier_value': patient_identifier_value})
-    
-    # TODO: need to make this as DRY as possible, and re-use in other models.
-    @staticmethod
-    def count_for_practitioner_organization_study(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):
-      """Use a dedicated count query for better performance. Aligns with optional inclusion for _total number of matching resources per FHIR spec."""
-      
-      # Explicitly cast to ints so no injection vulnerability
-      organization_sql_where = ''
-      if organization_id:
-        organization_sql_where = f"AND core_organization.id={int(organization_id)}"
-      
-      study_sql_where = ''
-      if study_id:
-        study_sql_where = f"AND core_study.id={int(study_id)}"
-      
-      patient_id_sql_where = ''
-      if patient_id:
-        patient_id_sql_where = f"AND core_patient.id={int(patient_id)}"
-
-      patient_identifier_value_sql_where = ''
-      if patient_identifier_value:
-          patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s"
-
-      # Count query for the same criteria
-      query = """
-        SELECT 1 as id, COUNT(DISTINCT core_patient.id) as count
-        FROM core_patient
-        LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
-        LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-        JOIN core_organization ON core_organization.id=core_patient.organization_id
-        JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-        WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
-        {organization_sql_where}
-        {study_sql_where}
-        {patient_id_sql_where}
-        {patient_identifier_value_sql_where}
-        """.format(
-          organization_sql_where=organization_sql_where,
-          study_sql_where=study_sql_where,
-          patient_id_sql_where=patient_id_sql_where,
-          patient_identifier_value_sql_where=patient_identifier_value_sql_where
-        )
-      
-      # Use a temporary model for count results
-      class CountResult(models.Model):
-        count = models.IntegerField()
-        
-        class Meta:
-          managed = False  # No table creation
-          app_label = 'core'
-      
-      params = {'jhe_user_id': practitioner_user_id}
-      if patient_identifier_value:
-          params['patient_identifier_value'] = patient_identifier_value
-      results = list(CountResult.objects.raw(query, params))
-      return results[0].count if results else 0
+            class Meta:
+                managed = False
+                app_label = 'core'
+        params = {'practitioner_id': practitioner_id}
+        if patient_identifier_value:
+            params['patient_identifier_value'] = patient_identifier_value
+        results = list(CountResult.objects.raw(query, params))
+        return results[0].count if results else 0
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):
@@ -356,8 +482,8 @@ class Patient(models.Model):
             JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
             JOIN core_study ON core_study.id=core_studypatient.study_id
             JOIN core_organization ON core_organization.id=core_study.organization_id
-            JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s AND core_study.id=%(study_id)s
+            JOIN core_patientorganization ON core_patientorganization.organization_id=core_organization.id
+            WHERE core_patientorganization.jhe_user_id=%(jhe_user_id)s AND core_study.id=%(study_id)s
             """
         return Patient.objects.raw(q, {
             "jhe_user_id": practitioner_user_id,
@@ -430,9 +556,14 @@ class Patient(models.Model):
             FROM core_patient
             JOIN core_jheuser AS patient_user ON patient_user.id=core_patient.jhe_user_id
             JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
-            JOIN core_organization ON core_organization.id=core_patient.organization_id
-            JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
+            JOIN core_practitionerorganization
+            ON core_practitionerorganization.organization_id = core_organization.id
+
+            WHERE core_practitionerorganization.practitioner_id = (
+              SELECT id
+              FROM core_practitioner
+              WHERE jhe_user_id = %(jhe_user_id)s
+            )
             {study_sql_where}
             {patient_identifier_value_sql_where}
             ORDER BY core_patient.name_family
@@ -468,22 +599,37 @@ class Patient(models.Model):
         return records
 
     def __init__(self, *args, **kwargs):
+        # Remove organization_id if it's passed in, as it should be handled by the M2M relationship
+        self._organization_id = None
+        if 'organization_id' in kwargs:
+            self._organization_id = kwargs.pop('organization_id')
         super().__init__(*args, **kwargs)
         self.telecom_email = None
-
+    
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        
+        if hasattr(self, '_organization_id') and self._organization_id:
+            try:
+                PatientOrganization.objects.get_or_create(
+                    patient=self,
+                    organization_id=self._organization_id
+                )
+            except IntegrityError as e:
+                print(f'IntegrityError: {e}')
 """
     Allows for a many-to-many relationship between organizations and practitioner users
 """
 class PractitionerOrganization(models.Model):
-    practitioner = models.ForeignKey(Practitioner, on_delete=models.CASCADE)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    practitioner = models.ForeignKey(Practitioner, on_delete=models.CASCADE, related_name='organization_links')
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='practitioner_links')
 
 """
     Allows for a many-to-many relationship between organizations and patient users
 """
 class PatientOrganization(models.Model):
-    patient = models.ForeignKey(Practitioner, on_delete=models.CASCADE)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='organization_links')
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='patient_links')
 
 class CodeableConcept(models.Model):
     coding_system = models.CharField()
@@ -503,81 +649,62 @@ class Study(models.Model):
     icon_url = models.TextField(null=True, blank=True)
 
     @staticmethod
-    def for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None, page=1, pageSize=20):
+    def for_practitioner_organization(
+        jhe_user_id,
+        organization_id=None,
+        study_id=None,
+        page=1,
+        pageSize=20
+    ):
+        practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
+        practitioner_id = practitioner.id
 
-        if isinstance(pageSize, str):
-          pageSize = int(pageSize)
+        page     = int(page)
+        pageSize = int(pageSize)
+        offset   = pageSize * (page - 1)
+        study_sql_where = f"AND core_study.id = {int(study_id)}" if study_id else ""
+        organization_sql_where   = f"AND core_organization.id = {int(organization_id)}" if organization_id else ""
 
-        if isinstance(page, str):
-          page = int(page)
-
-        print(f"pageSize: {pageSize}, page: {page}")
-
-        offset = pageSize * (page - 1)
-
-        # Explicitly cast to ints so no injection vulnerability
-        study_sql_where = ''
-        if study_id:
-            study_sql_where = "AND core_study.id={study_id}".format(study_id=int(study_id))
-
-        organization_sql_where = ''
-        if organization_id:
-            organization_sql_where = "AND core_organization.id={organization_id}".format(organization_id=int(organization_id))
-
-        q = """
-            SELECT DISTINCT(core_study.*), core_organization.*
+        sql = f"""
+            SELECT DISTINCT core_study.*, core_organization.*
             FROM core_study
-            JOIN core_organization ON core_organization.id=core_study.organization_id
-            JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE
-            core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
+            JOIN core_organization
+              ON core_organization.id = core_study.organization_id
+            JOIN core_practitionerorganization
+              ON core_practitionerorganization.organization_id = core_organization.id
+            WHERE core_practitionerorganization.practitioner_id = %(practitioner_id)s
             {study_sql_where}
             {organization_sql_where}
             ORDER BY core_study.name
             LIMIT {pageSize}
             OFFSET {offset};
-            """.format(
-                study_sql_where=study_sql_where,
-                organization_sql_where=organization_sql_where,
-                pageSize=pageSize,
-                offset=offset
-            )
-        
-        return Study.objects.raw(q, {'jhe_user_id': practitioner_user_id})
-    
+        """
+        return Study.objects.raw(sql, {'practitioner_id': practitioner_id})
     @staticmethod
-    def count_for_practitioner_organization(practitioner_user_id, organization_id=None, study_id=None):
-      """Use a dedicated count query for better performance. Returns the total number of studies matching the criteria."""
-      
-      # Explicitly cast to ints so no injection vulnerability
-      study_sql_where = ''
-      if study_id:
-        study_sql_where = f"AND core_study.id={int(study_id)}"
-      
-      organization_sql_where = ''
-      if organization_id:
-        organization_sql_where = f"AND core_organization.id={int(organization_id)}"
-      
-      # Use a temporary model for count results
-      class CountResult(models.Model):
-        count = models.IntegerField()
-        
-        class Meta:
-          managed = False  # No table creation
-          app_label = 'core'
-      
-      query = f"""
-        SELECT 1 as id, COUNT(DISTINCT core_study.id) as count
-        FROM core_study
-        JOIN core_organization ON core_organization.id = core_study.organization_id
-        JOIN core_jheuserorganization ON core_jheuserorganization.organization_id = core_organization.id
-        WHERE core_jheuserorganization.jhe_user_id = %(jhe_user_id)s
-        {study_sql_where}
-        {organization_sql_where}
-      """
-      
-      results = list(CountResult.objects.raw(query, {'jhe_user_id': practitioner_user_id}))
-      return results[0].count if results else 0
+    def count_for_practitioner_organization(jhe_user_id, organization_id=None, study_id=None):
+        """Use a dedicated count query for better performance. Returns the total number of studies matching the criteria."""
+        practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
+        practitioner_id = practitioner.id
+        study_sql_where = f"AND core_study.id = {int(study_id)}" if study_id else ""
+        organization_sql_where = f"AND core_organization.id = {int(organization_id)}" if organization_id else ""
+        class CountResult(models.Model):
+            count = models.IntegerField()
+            class Meta:
+                managed = False
+                app_label = 'core'
+        query = f"""
+          SELECT 1 AS id, COUNT(DISTINCT core_study.id) AS count
+          FROM core_study
+          JOIN core_organization
+            ON core_organization.id = core_study.organization_id
+          JOIN core_practitionerorganization
+            ON core_practitionerorganization.organization_id = core_organization.id
+          WHERE core_practitionerorganization.practitioner_id = %(practitioner_id)s
+          {study_sql_where}
+          {organization_sql_where}
+        """
+        results = list(CountResult.objects.raw(query, {'practitioner_id': practitioner_id}))
+        return results[0].count if results else 0
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, study_id):
@@ -840,9 +967,8 @@ class Observation(models.Model):
         JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
         LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
         LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-        JOIN core_organization ON core_organization.id=core_patient.organization_id
-        JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-        WHERE core_jheuserorganization.jhe_user_id=%(jhe_user_id)s
+        JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
+        WHERE core_practitionerorganization.jhe_user_id=%(jhe_user_id)s
         {organization_sql_where}
         {study_sql_where}
         {patient_id_sql_where}
@@ -940,9 +1066,8 @@ class Observation(models.Model):
             JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
             LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
             LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-            JOIN core_organization ON core_organization.id=core_patient.organization_id
-            JOIN core_jheuserorganization ON core_jheuserorganization.organization_id=core_organization.id
-            WHERE core_jheuserorganization.jhe_user_id={jhe_user_id}
+            JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
+            WHERE core_practitionerorganization.jhe_user_id={jhe_user_id}
             AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
             {study_sql_where}
             {patient_id_sql_where}
