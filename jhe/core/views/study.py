@@ -34,7 +34,7 @@ class StudyViewSet(AdminListMixin, ModelViewSet):
     @action(detail=True, methods=['GET','POST','DELETE'])
     def patients(self, request, pk):
 
-        if request.method == 'GET': 
+        if request.method == 'GET':
             serializer = PatientSerializer(Patient.for_study(self.request.user.id, pk), many=True)
             return Response(serializer.data)
         else:
@@ -43,7 +43,8 @@ class StudyViewSet(AdminListMixin, ModelViewSet):
                 if request.method == 'POST':
                     study = Study.objects.get(id=pk)
                     patient = Patient.objects.get(id=patient_id)
-                    if study.organization_id != patient.organization_id:
+                    patient_organization_links = patient.organization_links.all()
+                    if study.organization_id not in patient_organization_links.values_list('organization_id', flat=True):
                         raise BadRequest('Patient and study must be from the same Organization')
                     responses.append(
                         StudyPatient.objects.create(study_id=pk, patient_id=patient_id)

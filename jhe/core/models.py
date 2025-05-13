@@ -220,7 +220,6 @@ class Organization(models.Model):
     # Helper method to return all users in this organization
     @property
     def users(self):
-        from django.db.models import Q
         
         patient_user_ids = PatientOrganization.objects.filter(
             organization=self
@@ -263,12 +262,12 @@ class Organization(models.Model):
         self.children = []
 
 class PractitionerQuerySet(models.QuerySet):
-    def count_studies(self, practitioner_user_id, organization_id=None, study_id=None):
+    def count_studies(self, jhe_user_id, organization_id=None, study_id=None):
         """
         Returns the total number of distinct studies for this practitioner,
         optionally filtered by organization_id and/or study_id.
         """
-        params = {'jhe_user_id': practitioner_user_id}
+        params = {'jhe_user_id': jhe_user_id}
         study_clause = ''
         if study_id:
             study_clause = 'AND core_study.id = %(study_id)s'
@@ -285,7 +284,7 @@ class PractitionerQuerySet(models.QuerySet):
               ON core_organization.id = core_study.organization_id
             JOIN core_practitionerorganization 
               ON core_practitionerorganization.organization_id = core_organization.id
-            WHERE core_practitionerorganization.jhe_user_id = %(jhe_user_id)s
+            WHERE core_practitioner.jhe_user_id = %(jhe_user_id)s
             {study_clause}
             {org_clause}
         """
@@ -366,8 +365,8 @@ class Patient(models.Model):
         page=1,
         pageSize=20
     ):
-        pageSize = int(pageSize)
-        page     = int(page)
+        pageSize = int(pageSize) if pageSize is not None else 20
+        page     = int(page) if page is not None else 1
         offset   = pageSize * (page - 1)
         organization_sql_where = f"AND core_organization.id={int(organization_id)}" if organization_id else ""
         study_sql_where = f"AND core_study.id={int(study_id)}"         if study_id        else ""
@@ -414,7 +413,6 @@ class Patient(models.Model):
         """
         Count patients a practitioner is allowed to see (FHIR _total).
         """
-        from .models import Practitioner
         practitioner = Practitioner.objects.get(jhe_user_id=jhe_user_id)
         practitioner_id = practitioner.id
 
@@ -468,13 +466,13 @@ class Patient(models.Model):
         return results[0].count if results else 0
 
     @staticmethod
-    def practitioner_authorized(practitioner_user_id, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):
-        if len(Patient.for_practitioner_organization_study(practitioner_user_id, None, None, patient_id, patient_identifier_system, patient_identifier_value))==0:
+    def practitioner_authorized(jhe_user_id, patient_id=None, patient_identifier_system=None, patient_identifier_value=None):
+        if len(Patient.for_practitioner_organization_study(jhe_user_id, None, None, patient_id, patient_identifier_value, page=1, pageSize=20))==0:
             return False
         return True
 
     @staticmethod
-    def for_study(practitioner_user_id, study_id):
+    def for_study(jhe_user_id, study_id):
 
         q = """
             SELECT core_patient.*
@@ -486,7 +484,7 @@ class Patient(models.Model):
             WHERE core_patientorganization.jhe_user_id=%(jhe_user_id)s AND core_study.id=%(study_id)s
             """
         return Patient.objects.raw(q, {
-            "jhe_user_id": practitioner_user_id,
+            "jhe_user_id": jhe_user_id,
             "study_id": study_id
         })
 
@@ -496,8 +494,7 @@ class Patient(models.Model):
     
     # GET /Patient?_has:Group:member:_id=<group-id>
     @staticmethod
-    def fhir_search(practitioner_user_id, study_id=None, patient_identifier_system=None, patient_identifier_value=None, offset=None, page=None):
-        from core.serializers import FHIRPatientSerializer
+    def fhir_search(jhe_user_id, study_id=None, patient_identifier_system=None, patient_identifier_value=None, offset=None, page=None):
 
         # Explicitly cast to ints so no injection vulnerability
         study_sql_where = ''
@@ -578,7 +575,7 @@ class Patient(models.Model):
                 )
 
         records = Patient.objects.raw(q, {
-            'jhe_user_id': practitioner_user_id,
+            'jhe_user_id': jhe_user_id,
             "patient_identifier_value": patient_identifier_value
         })
         
@@ -590,6 +587,8 @@ class Patient(models.Model):
                 del record.identifier
             record.name = json.loads(record.name)
             record.telecom = json.loads(record.telecom)
+            # must delay importing to avoid circular import
+            from core.serializers import FHIRPatientSerializer
             serializer = FHIRPatientSerializer(record)
             try:
                 FHIRPatient.parse_obj(humps.camelize(serializer.data))
@@ -922,7 +921,7 @@ class Observation(models.Model):
     )
 
     @staticmethod
-    def for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None, page=1, pageSize=20):
+    def for_practitioner_organization_study_patient(jhe_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None, page=1, pageSize=20):
 
       if isinstance(pageSize, str):
         pageSize = int(pageSize)
@@ -931,8 +930,6 @@ class Observation(models.Model):
         page = int(page)
 
       print(f"pageSize: {pageSize}, page: {page}")
-
-      logger.info(f"GH issue #56 sanity check")
 
       offset = pageSize * (page - 1)
       
@@ -961,14 +958,16 @@ class Observation(models.Model):
         core_codeableconcept.text as coding_text,
         core_patient.name_family as patient_name_family,
         core_patient.name_given as patient_name_given
-
+    
         FROM core_observation
         JOIN core_codeableconcept ON core_codeableconcept.id=core_observation.codeable_concept_id
         JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
+        JOIN core_patientorganization ON core_patientorganization.patient_id=core_patient.id
+        JOIN core_organization ON core_organization.id=core_patientorganization.organization_id
+        JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
         LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
         LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-        JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
-        WHERE core_practitionerorganization.jhe_user_id=%(jhe_user_id)s
+        WHERE core_practitionerorganization.practitioner_id=%(jhe_user_id)s
         {organization_sql_where}
         {study_sql_where}
         {patient_id_sql_where}
@@ -984,8 +983,13 @@ class Observation(models.Model):
           offset=offset,
         )
       
+      practitioner = Practitioner.objects.get(jhe_user_id=jhe_user_id)
+      practitioner_id = practitioner.id
+      
+      print(f'practitioner_id: {practitioner_id}')
+      
       return Observation.objects.raw(q, {
-        'jhe_user_id': practitioner_user_id,
+        'jhe_user_id': practitioner_id,
         'pageSize': pageSize,
         'offset': offset
       })
@@ -997,8 +1001,7 @@ class Observation(models.Model):
         return True
     
     @staticmethod
-    def fhir_search(practitioner_user_id, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None, coding_system=None, coding_code=None, observation_id=None, offset=None, page=None):
-        from core.serializers import FHIRObservationSerializer
+    def fhir_search(jhe_user_id, study_id=None, patient_id=None, patient_identifier_system=None, patient_identifier_value=None, coding_system=None, coding_code=None, observation_id=None, offset=None, page=None):
 
         # Explicitly cast to ints so no injection vulnerability
         study_sql_where = ''
@@ -1020,6 +1023,17 @@ class Observation(models.Model):
         # Set default values for pagination parameters
         offset = 0 if offset is None else int(offset)
         limit = 1000 if page is None else int(page)
+
+        
+        print(f'jhe_user_id: {jhe_user_id}')
+
+        patient = get_object_or_404(Patient, jhe_user_id=jhe_user_id)
+
+        print(f'patient: {patient}')
+
+        patient_user_id = patient.id
+
+        print(f'patient_user_id: {patient_user_id}')
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # pagination: https://github.com/mattbuck85/django-paginator-rawqueryset
@@ -1066,8 +1080,9 @@ class Observation(models.Model):
             JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
             LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
             LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-            JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
-            WHERE core_practitionerorganization.jhe_user_id={jhe_user_id}
+            JOIN core_organization ON core_organization.id=core_study.organization_id
+            JOIN core_patientorganization ON core_patientorganization.organization_id=core_organization.id
+            WHERE core_patientorganization.patient_id={patient_user_id}
             AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
             {study_sql_where}
             {patient_id_sql_where}
@@ -1079,7 +1094,7 @@ class Observation(models.Model):
             OFFSET {offset};
             """.format(
                 SITE_URL=settings.SITE_URL,
-                jhe_user_id=practitioner_user_id,
+                patient_user_id=patient_user_id,
                 study_sql_where=study_sql_where,
                 patient_id_sql_where=patient_id_sql_where,
                 patient_identifier_value_sql_where=patient_identifier_value_sql_where,
@@ -1104,6 +1119,8 @@ class Observation(models.Model):
             record.subject = json.loads(record.subject)
             record.code = json.loads(record.code)
             record.value_attachment = json.loads(record.value_attachment)
+            # have to delay this import to avoid circular import
+            from core.serializers import FHIRObservationSerializer
             serializer = FHIRObservationSerializer(record)
             try:
                 FHIRObservation.parse_obj(humps.camelize(serializer.data))
@@ -1113,7 +1130,7 @@ class Observation(models.Model):
         return records
     
     @staticmethod
-    def count_for_practitioner_organization_study_patient(practitioner_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None):
+    def count_for_practitioner_organization_study_patient(jhe_user_id, organization_id=None, study_id=None, patient_id=None, observation_id=None):
       """Use a dedicated count query for better performance. Aligns with optional inclusion for _total number of matching resources per FHIR spec."""
       
       # Explicitly cast to ints so no injection vulnerability
@@ -1133,6 +1150,9 @@ class Observation(models.Model):
       if observation_id:
         observation_sql_where = f"AND core_observation.id={int(observation_id)}"
       
+      practitioner = Practitioner.objects.get(jhe_user_id=jhe_user_id)
+      practitioner_id = practitioner.id
+      
       # Use a temporary model for count results
       class CountResult(models.Model):
         count = models.IntegerField()
@@ -1144,19 +1164,21 @@ class Observation(models.Model):
       query = f"""
         SELECT 1 as id, COUNT(DISTINCT core_observation.id) as count
         FROM core_observation
-        JOIN core_patient ON core_patient.id = core_observation.subject_patient_id
-        JOIN core_organization ON core_organization.id = core_patient.organization_id
-        JOIN core_jheuserorganization ON core_jheuserorganization.organization_id = core_organization.id
-        LEFT JOIN core_studypatient ON core_studypatient.patient_id = core_patient.id
-        LEFT JOIN core_study ON core_study.id = core_studypatient.study_id
-        WHERE core_jheuserorganization.jhe_user_id = %(jhe_user_id)s
+        JOIN core_codeableconcept ON core_codeableconcept.id=core_observation.codeable_concept_id
+        JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
+        JOIN core_patientorganization ON core_patientorganization.patient_id=core_patient.id
+        JOIN core_organization ON core_organization.id=core_patientorganization.organization_id
+        JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
+        LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
+        LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
+        WHERE core_practitionerorganization.practitioner_id=%(practitioner_id)s
         {organization_sql_where}
         {study_sql_where}
         {patient_id_sql_where}
         {observation_sql_where}
       """
       
-      results = list(CountResult.objects.raw(query, {'jhe_user_id': practitioner_user_id}))
+      results = list(CountResult.objects.raw(query, {'practitioner_id': practitioner_id}))
       return results[0].count if results else 0
     
     # Get the binary data eg https://www.rapidtables.com/convert/number/string-to-binary.html (delimiter=none)
