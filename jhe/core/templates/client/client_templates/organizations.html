@@ -15,41 +15,46 @@
     </select>
 
     {{#if tloId}}
-
-    {{> crudButton iconRead=true
-      onclick="nav('organizations',{
-        tloId: document.getElementById('topLevelOrganization').value,
-        id: document.getElementById('topLevelOrganization').value,
-        read: true
-      })"
-    }}
-
-    {{> crudButton iconUpdate=true
-      onclick="nav('organizations',{
-        tloId: document.getElementById('topLevelOrganization').value,
-        id: document.getElementById('topLevelOrganization').value,
-        update: true
-      })"
-    }}
-
-    {{> crudButton iconCreate=true
-      onclick="nav('organizations',{
-        tloId: document.getElementById('topLevelOrganization').value,
-        partOf: document.getElementById('topLevelOrganization').value,
-        create: true
-      })"
-    }}
-
-    {{> crudButton iconDelete=true
-      onclick="nav('organizations',{
-        tloId: document.getElementById('topLevelOrganization').value,
-        id: document.getElementById('topLevelOrganization').value,
-        delete: true
-      })"
-    }}
-
+      {{> crudButton iconRead=true
+        onclick="nav('organizations',{
+          tloId: document.getElementById('topLevelOrganization').value,
+          id: document.getElementById('topLevelOrganization').value,
+          read: true
+        })"
+      }}
+      {{> crudButton iconUpdate=true
+        onclick="nav('organizations',{
+          tloId: document.getElementById('topLevelOrganization').value,
+          id: document.getElementById('topLevelOrganization').value,
+          update: true
+        })"
+      }}
     {{/if}}
-
+    {{#if tloId}}
+      {{> crudButton iconCreate=true
+        onclick="nav('organizations',{
+          tloId: document.getElementById('topLevelOrganization').value,
+          partOf: document.getElementById('topLevelOrganization').value,
+          create: true
+        })"
+      }}
+    {{/if}}
+    {{#unless tloId}}
+      {{> crudButton iconCreate=true
+        onclick="nav('organizations',{
+          create: true
+        })"
+      }}
+    {{/unless}}
+    {{#if tloId}}
+      {{> crudButton iconDelete=true
+        onclick="nav('organizations',{
+          tloId: document.getElementById('topLevelOrganization').value,
+          id: document.getElementById('topLevelOrganization').value,
+          delete: true
+        })"
+      }}
+    {{/if}}
   </form>
   <div id="subOrganizations">
     <ul style="list-style-type: none;" class="m-3">

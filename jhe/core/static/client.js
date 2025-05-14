@@ -75,15 +75,15 @@ async function app() {
 }
 
 function showNavLoadingOverlay() {
-  const overlay = document.getElementById('navLoadingOverlay');
+  const overlay = document.getElementById("navLoadingOverlay");
   if (overlay) {
-    const shouldStartTimer = (navLoadingOverlayCounter === 0);
+    const shouldStartTimer = navLoadingOverlayCounter === 0;
     navLoadingOverlayCounter++;
 
-    overlay.style.display = 'flex';
+    overlay.style.display = "flex";
 
-    const closeButton = document.getElementById('cancelLoadingBtn');
-    if (closeButton) closeButton.style.display = 'none';
+    const closeButton = document.getElementById("cancelLoadingBtn");
+    if (closeButton) closeButton.style.display = "none";
 
     if (shouldStartTimer && showDelayedElementsTimeoutId) {
       clearTimeout(showDelayedElementsTimeoutId);
@@ -93,7 +93,7 @@ function showNavLoadingOverlay() {
     if (shouldStartTimer) {
       showDelayedElementsTimeoutId = setTimeout(() => {
         if (navLoadingOverlayCounter > 0 && closeButton) {
-          closeButton.style.display = 'block';
+          closeButton.style.display = "block";
           setTimeout(() => closeButton.focus(), 50);
         }
         showDelayedElementsTimeoutId = null;
@@ -103,21 +103,21 @@ function showNavLoadingOverlay() {
 }
 
 function hideNavLoadingOverlay() {
-  const overlay = document.getElementById('navLoadingOverlay');
+  const overlay = document.getElementById("navLoadingOverlay");
   if (overlay) {
     navLoadingOverlayCounter--;
 
     if (navLoadingOverlayCounter <= 0) {
       navLoadingOverlayCounter = 0;
-      overlay.style.display = 'none';
+      overlay.style.display = "none";
 
       if (showDelayedElementsTimeoutId) {
         clearTimeout(showDelayedElementsTimeoutId);
         showDelayedElementsTimeoutId = null;
       }
 
-      const closeButton = document.getElementById('cancelLoadingBtn');
-      if (closeButton) closeButton.style.display = 'none';
+      const closeButton = document.getElementById("cancelLoadingBtn");
+      if (closeButton) closeButton.style.display = "none";
     }
   }
 }
@@ -159,10 +159,13 @@ async function nav(newRoute, queryParams, appendQueryParams) {
     .querySelectorAll("#baseBody > main")
     .forEach((child) => baseBodyElement.removeChild(child));
 
-  document.getElementById("baseBody").insertAdjacentHTML("afterbegin", body({
-    navItems: navItems,
-    mainContent: mainContent,
-  }));
+  document.getElementById("baseBody").insertAdjacentHTML(
+    "afterbegin",
+    body({
+      navItems: navItems,
+      mainContent: mainContent,
+    })
+  );
 
   renderUserProfile();
   document.getElementById("jheVersion").textContent = CONSTANTS.JHE_VERSION;
@@ -340,7 +343,7 @@ async function renderUserProfile() {
   if (!userProfile || !userProfile.email) {
     userProfile = await getUserProfile();
   }
-  let displayName = userProfile.email.substring(0,12)+'...';
+  let displayName = userProfile.email.substring(0, 12) + "...";
   // if (userProfile.firstName && userProfile.lastName) {
   //   displayName = `${userProfile.firstName} ${userProfile.lastName}`
   // }
@@ -405,15 +408,20 @@ async function renderOrganizations(queryParams) {
       partOfId = CONSTANTS.ORGANIZATION_TOP_LEVEL_PART_OF_ID;
       partOfName = CONSTANTS.ORGANIZATION_TOP_LEVEL_PART_OF_LABEL;
     } else {
-      partOfId = queryParams.partOf ? queryParams.partOf : queryParams.id;
-      const organizationRecordPartOfResponse = await apiRequest(
-        "GET",
-        `organizations/${partOfId}`
-      );
-      const organizationRecordPartOf =
-        await organizationRecordPartOfResponse.json();
-      partOfId = organizationRecordPartOf.id;
-      partOfName = organizationRecordPartOf.name;
+      if (queryParams.tloId) {
+        partOfId = queryParams.partOf ? queryParams.partOf : queryParams.id;
+        const organizationRecordPartOfResponse = await apiRequest(
+          "GET",
+          `organizations/${partOfId}`
+        );
+        const organizationRecordPartOf =
+          await organizationRecordPartOfResponse.json();
+        partOfId = organizationRecordPartOf.id;
+        partOfName = organizationRecordPartOf.name;
+      } else {
+        partOfId = CONSTANTS.ORGANIZATION_TOP_LEVEL_PART_OF_ID;
+        partOfName = CONSTANTS.ORGANIZATION_TOP_LEVEL_PART_OF_LABEL;
+      }
     }
     organizationRecord = {
       partOfId: partOfId,
@@ -608,7 +616,7 @@ async function renderPatients(queryParams) {
   const patientsParams = {
     organizationId: queryParams.organizationId,
     page: page,
-    pageSize: pageSize
+    pageSize: pageSize,
   };
 
   if (queryParams.studyId) {
@@ -618,7 +626,10 @@ async function renderPatients(queryParams) {
   const patientsResponse = await apiRequest("GET", "patients", patientsParams);
   patientsPaginated = await patientsResponse.json();
 
-  if (patientsPaginated.results && patientsPaginated.results.length > pageSize) {
+  if (
+    patientsPaginated.results &&
+    patientsPaginated.results.length > pageSize
+  ) {
     patientsPaginated.results = patientsPaginated.results.slice(0, pageSize);
   }
 
@@ -646,7 +657,7 @@ async function renderPatients(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
-  Handlebars.registerHelper('eq', function (v1, v2) {
+  Handlebars.registerHelper("eq", function (v1, v2) {
     return v1 === v2;
   });
 
@@ -661,7 +672,7 @@ async function renderPatients(queryParams) {
     studyForPatientsSelect: studyForPatientsSelect,
     studiesPendingConsent: studiesPendingConsent,
     studiesConsented: studiesConsented,
-    pageSizes: [20, 100, 500, 1000]
+    pageSizes: [20, 100, 500, 1000],
   };
 
   return content(renderParams);
@@ -724,9 +735,9 @@ async function renderStudies(queryParams) {
   const organizationsResponse = await apiRequest("GET", "users/organizations");
   const organizations = await organizationsResponse.json();
 
-  if(organizations.length==0){
-    alert('This user does not belong to any Organization.')
-    return
+  if (organizations.length == 0) {
+    alert("This user does not belong to any Organization.");
+    return;
   }
 
   if (!queryParams.organizationId && organizations[0]) {
@@ -848,7 +859,7 @@ async function createStudy() {
     organization: parseInt(
       document.getElementById("studyOrganizationId").value
     ),
-    iconUrl: document.getElementById("studyIconUrl").value || null
+    iconUrl: document.getElementById("studyIconUrl").value || null,
   };
   const response = await apiRequest("POST", `studies`, studyRecord);
   if (response.ok) navReturnFromCrud();
@@ -858,7 +869,7 @@ async function updateStudy(id) {
   const studyRecord = {
     name: document.getElementById("studyName").value || null,
     description: document.getElementById("studyDescription").value || null,
-    iconUrl: document.getElementById("studyIconUrl").value || null
+    iconUrl: document.getElementById("studyIconUrl").value || null,
   };
   const response = await apiRequest("PATCH", `studies/${id}`, studyRecord);
   if (response.ok) navReturnFromCrud();
@@ -1012,7 +1023,7 @@ async function renderObservations(queryParams) {
 
   console.log(`isNaN(pageParsed): ${isNaN(pageParsed)}`);
   console.log(`isNaN(pageSizeParsed): ${isNaN(pageSizeParsed)}`);
-  
+
   // Use isNaN to check for invalid numbers, and default to null (or any safe value)
   const observationParams = {
     organizationId: queryParams.organizationId,
@@ -1033,8 +1044,14 @@ async function renderObservations(queryParams) {
   const observationsPaginated = await observationsResponse.json();
 
   const currentPageSize = isNaN(pageSizeParsed) ? 20 : pageSizeParsed;
-  if (observationsPaginated.results && observationsPaginated.results.length > currentPageSize) {
-    observationsPaginated.results = observationsPaginated.results.slice(0, currentPageSize);
+  if (
+    observationsPaginated.results &&
+    observationsPaginated.results.length > currentPageSize
+  ) {
+    observationsPaginated.results = observationsPaginated.results.slice(
+      0,
+      currentPageSize
+    );
   }
 
   observationsPaginated.results = observationsPaginated.results.map(
@@ -1055,7 +1072,7 @@ async function renderObservations(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
-  Handlebars.registerHelper('eq', function (v1, v2) {
+  Handlebars.registerHelper("eq", function (v1, v2) {
     return v1 === v2;
   });
 
@@ -1065,10 +1082,13 @@ async function renderObservations(queryParams) {
     observationRecord: observationRecord,
     page: isNaN(pageParsed) ? 1 : pageParsed,
     pageSize: isNaN(pageSizeParsed) ? 20 : pageSizeParsed,
-    totalPages: Math.ceil(observationsPaginated.count / (isNaN(pageSizeParsed) ? 20 : pageSizeParsed)),
+    totalPages: Math.ceil(
+      observationsPaginated.count /
+        (isNaN(pageSizeParsed) ? 20 : pageSizeParsed)
+    ),
     organizationForObservationsSelect: organizationForObservationsSelect,
     studyForObservationsSelect: studyForObservationsSelect,
-    pageSizes: [20, 100, 500, 1000]
+    pageSizes: [20, 100, 500, 1000],
   };
 
   return content(renderParams);
@@ -1346,10 +1366,10 @@ function previewIcon(input) {
     clearTimeout(iconPreviewTimeout);
   }
 
-  const previewContainer = document.getElementById('iconPreview');
+  const previewContainer = document.getElementById("iconPreview");
   const url = input.value.trim();
 
-  previewContainer.innerHTML = '';
+  previewContainer.innerHTML = "";
   clearModalValidationErrors();
 
   if (!url) {
@@ -1366,28 +1386,30 @@ function previewIcon(input) {
     </div>`;
 
   iconPreviewTimeout = setTimeout(() => {
-    const img = document.createElement('img');
+    const img = document.createElement("img");
     img.src = url;
-    img.alt = 'Icon';
-    img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
-    
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'text-center text-muted';
-    errorDiv.style.cssText = 'display: none; height: 100%; line-height: 46px;';
+    img.alt = "Icon";
+    img.style.cssText = "width: 100%; height: 100%; object-fit: cover;";
+
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "text-center text-muted";
+    errorDiv.style.cssText = "display: none; height: 100%; line-height: 46px;";
     errorDiv.innerHTML = '<i class="bi bi-exclamation-triangle"></i>';
 
     img.onerror = () => {
-      img.style.display = 'none';
-      errorDiv.style.display = 'block';
-      displayModalValidationError(['Unable to load image from URL. Please check the URL and try again.']);
+      img.style.display = "none";
+      errorDiv.style.display = "block";
+      displayModalValidationError([
+        "Unable to load image from URL. Please check the URL and try again.",
+      ]);
     };
 
     img.onload = () => {
-      errorDiv.style.display = 'none';
+      errorDiv.style.display = "none";
       clearModalValidationErrors();
     };
 
-    previewContainer.innerHTML = '';
+    previewContainer.innerHTML = "";
     previewContainer.appendChild(img);
     previewContainer.appendChild(errorDiv);
   }, 400);
