@@ -37,28 +37,35 @@ def client_auth_login(request):
     return render(request, 'client/client_auth/login.html')
 
 def signup(request):
-    if request.method == "POST":
-        next = request.GET.get('next')
-        form = UserRegistrationForm(request.POST)
-        if form.is_valid():
-            user = form.save(commit=False)
-            password = form.cleaned_data.get('password')
-            user.set_password(password)
-            user.save()
-            new_user = authenticate(email=user.email, password=password)
-            login(request, new_user)
-            if new_user.email_is_verified != True:
-                new_user.send_email_verificaion()
-            if next:
-                return redirect(next)
-            else:
-                return redirect('/portal/')
-    else:
-        form = UserRegistrationForm()
-    context = {
-        'form': form
-    }
-    return render(request, 'registration/signup.html', context)
+  if request.method == "POST":
+    next = request.GET.get('next')
+    form = UserRegistrationForm(request.POST)
+    if form.is_valid():
+      user = form.save(commit=False)
+      password = form.cleaned_data.get('password')
+      # Get user type from form, default to 'practitioner' if not set
+      user_type = form.cleaned_data.get('user_type') or 'practitioner'
+      user.set_password(password)
+      user.first_name = 'NONE'
+      user.last_name = 'NONE'
+      user.user_type = user_type  # Set user type (patient or practitioner)
+      user.save()
+      new_user = authenticate(email=user.email, password=password)
+      login(request, new_user)
+      if new_user.email_is_verified != True:
+        new_user.send_email_verificaion()
+      if next:
+        return redirect(next)
+      else:
+        return redirect('/portal/')
+  else:
+    # Get user_type from URL parameter, default to 'practitioner' if not specified
+    user_type = request.GET.get('user_type', 'practitioner')
+    form = UserRegistrationForm(initial={'user_type': user_type})
+  context = {
+    'form': form
+  }
+  return render(request, 'registration/signup.html', context)
 
 def verify_email(request):
     if request.method == "POST":

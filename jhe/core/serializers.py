@@ -1,17 +1,24 @@
 import logging
 from django.conf import settings
 from rest_framework import serializers
-from core.models import JheUserOrganization, CodeableConcept, DataSource, DataSourceSupportedScope, Observation, Organization, JheUser, Patient, Study, StudyDataSource, StudyPatient, StudyPatientScopeConsent, StudyScopeRequest
+from core.models import (
+  CodeableConcept, DataSource, DataSourceSupportedScope, Observation, Organization, JheUser,
+  Patient, Study, StudyDataSource, StudyPatient, StudyPatientScopeConsent, StudyScopeRequest,
+  PractitionerOrganization, PatientOrganization
+)
 from rest_framework import permissions
 
-
-class JheUserOrganizationSerializer(serializers.ModelSerializer):
-
+class PractitionerOrganizationSerializer(serializers.ModelSerializer):
     class Meta:
-        model = JheUserOrganization
-        fields = ['id', 'jhe_user', 'organization']
+        model = PractitionerOrganization
+        fields = ['id', 'organization', 'practitioner']
         depth = 1
 
+class PatientOrganizationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Organization
+        fields = ['id', 'organization', 'patient']
+        depth = 1
 
 class OrganizationSerializer(serializers.ModelSerializer):
 
@@ -49,7 +56,7 @@ class PatientSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Patient
-        fields = ['id', 'jhe_user_id', 'jhe_user_id', 'identifier', 'name_family', 'name_given', 'birth_date', 'telecom_phone', 'telecom_email', 'organization_id']
+        fields = ['id', 'jhe_user_id', 'identifier', 'name_family', 'name_given', 'birth_date', 'telecom_phone', 'telecom_email']
 
 
 class JheUserSerializer(serializers.ModelSerializer):
@@ -58,7 +65,7 @@ class JheUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JheUser
-        fields = ['id', 'email', 'first_name', 'last_name', 'patient']
+        fields = ['id', 'email', 'first_name', 'last_name', 'patient', 'user_type']
 
 
 class StudySerializer(serializers.ModelSerializer):
