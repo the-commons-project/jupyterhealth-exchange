@@ -588,9 +588,15 @@ async function renderPatients(queryParams) {
     return;
   }
 
+  let selectedOrganization;
+
   const organizationForPatientsSelect = organizations.map((organization) => {
-    organization.selected =
-      organization.id === parseInt(queryParams.organizationId);
+    if(organization.id === parseInt(queryParams.organizationId)){
+      organization.selected = true;
+      selectedOrganization = organization;
+    } else {
+      organization.selected = false;
+    }
     return organization;
   });
 
@@ -650,6 +656,10 @@ async function renderPatients(queryParams) {
       studiesConsented = patientRecordConsents.studies;
       console.log(JSON.stringify(patientRecordConsents));
     }
+  } else if (queryParams.create && queryParams.lookedUpEmail) {
+    patientRecord = {
+      telecomEmail: queryParams.lookedUpEmail
+    };
   }
 
   Handlebars.registerPartial(
@@ -665,10 +675,12 @@ async function renderPatients(queryParams) {
     ...queryParams,
     patients: patientsPaginated?.results,
     patientRecord: patientRecord,
+    hidePatientDetails: (queryParams.create && !queryParams.lookedUpEmail),
     page: page,
     pageSize: pageSize,
     totalPages: Math.ceil(patientsPaginated.count / pageSize),
     organizationForPatientsSelect: organizationForPatientsSelect,
+    selectedOrganization: selectedOrganization,
     studyForPatientsSelect: studyForPatientsSelect,
     studiesPendingConsent: studiesPendingConsent,
     studiesConsented: studiesConsented,
@@ -678,12 +690,38 @@ async function renderPatients(queryParams) {
   return content(renderParams);
 }
 
+async function globalLookupPatientByEmail(email, organizationId) {
+  const patientRecordResponse = await apiRequest(
+    "GET",
+    `patients/global_lookup`,
+    {email: email}
+  );
+  const patientRecord = await patientRecordResponse.json();
+  if (patientRecord && patientRecord[0] && patientRecord[0].organizations && patientRecord[0].organizations.length>0 ) {
+    const matchingOrganization = patientRecord[0].organizations.find(
+      (org) => org.id === organizationId
+    );
+    if(matchingOrganization){
+      return alert(`Patient with E-mail ${email} is already a member of ${matchingOrganization.name}`);
+    }
+    navReturnFromCrud();
+    await nav("patients", {
+      update: true,
+      id: patientRecord[0].id,
+      organizationId: organizationId,
+      addOrganizationId: true,
+    });
+  } else {
+    navReturnFromCrud();
+    await nav("patients", { create: true, organizationId: organizationId, lookedUpEmail: email });
+  }
+}
+
 async function createPatient(organizationId) {
   const patientRecord = {
     organizationId: organizationId,
     identifier:
-      document.getElementById("patientIdentifier").value ||
-      Math.random().toString().split(".")[1], // temporarily create one until we have form validation
+      document.getElementById("patientIdentifier").value || null,
     nameFamily: document.getElementById("patientFamilyName").value || null,
     nameGiven: document.getElementById("patientGivenName").value || null,
     birthDate: document.getElementById("patientBirthDate").value || null,
@@ -700,9 +738,15 @@ async function updatePatient(id) {
     nameFamily: document.getElementById("patientFamilyName").value || null,
     nameGiven: document.getElementById("patientGivenName").value || null,
     birthDate: document.getElementById("patientBirthDate").value || null,
-    telecomPhone: document.getElementById("patientTelecomPhone").value || null,
+    telecomPhone: document.getElementById("patientTelecomPhone").value || null
   };
-  const response = await apiRequest("PATCH", `patients/${id}`, patientRecord);
+  let response = await apiRequest("PATCH", `patients/${id}`, patientRecord);
+  if(response.ok && document.getElementById("addOrganizationId")){
+    response = await apiRequest(
+      "PATCH",
+      `patients/${id}/global_add_organization?organizationId=${document.getElementById("addOrganizationId").value}`
+    );
+  }
   if (response.ok) navReturnFromCrud();
 }
 

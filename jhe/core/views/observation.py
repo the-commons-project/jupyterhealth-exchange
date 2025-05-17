@@ -6,8 +6,8 @@ from rest_framework.viewsets import ModelViewSet
 from core.serializers import FHIRBundledObservationSerializer, FHIRObservationSerializer, ObservationSerializer
 from core.models import Observation, Study
 from rest_framework.response import Response
-from django.core.exceptions import PermissionDenied, BadRequest
 from core.admin_pagination import AdminListMixin
+from rest_framework.exceptions import ValidationError, PermissionDenied
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +40,13 @@ class FHIRObservationViewSet(ModelViewSet):
       coding_system_and_value = self.request.GET.get('code', None)
 
       if not (study_id or patient_id or patient_identifier_system_and_value):
-          raise BadRequest("Request parameter patient._has:Group:member:_id=<study_id> or patient=<patient_id> or patient.identifier=<system>|<value> must be provided.")
+          raise ValidationError("Request parameter patient._has:Group:member:_id=<study_id> or patient=<patient_id> or patient.identifier=<system>|<value> must be provided.")
       
       if study_id and (not Study.practitioner_authorized(self.request.user.id, study_id)):
           raise PermissionDenied("Current User does not have authorization to access this Study.")
 
       if study_id and patient_id and (not Study.has_patient(study_id, patient_id)):
-          raise BadRequest("The requested Patient is not part of the specified Study.")
+          raise ValidationError("The requested Patient is not part of the specified Study.")
 
       coding_system = None
       coding_value = None

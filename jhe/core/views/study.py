@@ -1,10 +1,11 @@
 import logging
+from pydantic import ValidationError
 from rest_framework.viewsets import ModelViewSet
 from core.serializers import PatientSerializer, StudyDataSourceSerializer, StudyPatientSerializer, StudyScopeRequestSerializer, StudySerializer, StudyOrganizationSerializer
 from core.models import Patient, Study, StudyDataSource, StudyPatient, StudyScopeRequest
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from django.core.exceptions import PermissionDenied, BadRequest
+from rest_framework.exceptions import PermissionDenied
 from core.admin_pagination import AdminListMixin
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ class StudyViewSet(AdminListMixin, ModelViewSet):
     def get_queryset(self):
         if self.detail:
             if Study.practitioner_authorized(self.request.user.id, self.kwargs['pk']):
-                return Study.objects.filter(id=self.kwargs['pk'])
+                return Study.objects.filter(pk=self.kwargs['pk'])
             else:
                 raise PermissionDenied("Current User does not have authorization to access this Study.")
         else:
@@ -41,11 +42,11 @@ class StudyViewSet(AdminListMixin, ModelViewSet):
             responses = []
             for patient_id in request.data['patient_ids']:
                 if request.method == 'POST':
-                    study = Study.objects.get(id=pk)
-                    patient = Patient.objects.get(id=patient_id)
+                    study = Study.objects.get(pk=pk)
+                    patient = Patient.objects.get(pk=patient_id)
                     patient_organization_links = patient.organization_links.all()
                     if study.organization_id not in patient_organization_links.values_list('organization_id', flat=True):
-                        raise BadRequest('Patient and study must be from the same Organization')
+                        raise ValidationError('Patient and study must be from the same Organization')
                     responses.append(
                         StudyPatient.objects.create(study_id=pk, patient_id=patient_id)
                     )

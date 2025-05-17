@@ -13,7 +13,6 @@ from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from django.core.exceptions import ValidationError
 
 from .tokens import account_activation_token
 from random import SystemRandom
@@ -134,7 +133,7 @@ class JheUser(AbstractUser):
       value = value()
     
     if value is not None and not hasattr(value, 'jhe_user'):
-      raise ValidationError("Expected Patient object or None")
+      raise BadRequest("Expected Patient object or None")
     self._patient = value
   
   def organization(self):
@@ -629,6 +628,11 @@ class PractitionerOrganization(models.Model):
 class PatientOrganization(models.Model):
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='organization_links')
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='patient_links')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['patient_id','organization_id'], name="core_patientorganization_unique_patient_id_organization_id")
+        ]
 
 class CodeableConcept(models.Model):
     coding_system = models.CharField()
@@ -1200,7 +1204,7 @@ class Observation(models.Model):
             raise(BadRequest("Subject is required and must be a reference to a Patient ID and start with 'Patient/'")) # TBD: move to view
         subject_patient_id = fhir_observation.subject.reference.split('/')[1]
         try:
-            subject_patient = Patient.objects.get(id=subject_patient_id)
+            subject_patient = Patient.objects.get(pk=subject_patient_id)
         except Patient.DoesNotExist:
             raise(BadRequest('Patient id={subject_patient_id} can not be found.'.format(subject_patient_id=subject_patient_id))) # TBD: move to view
         

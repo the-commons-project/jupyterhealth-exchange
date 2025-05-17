@@ -1,14 +1,13 @@
 import logging
 from core.serializers import CodeableConceptSerializer, FHIRBundledPatientSerializer, PatientSerializer, StudyPendingConsentsSerializer, StudyConsentsSerializer, StudyPatientScopeConsentSerializer
-from core.models import JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study
+from core.models import JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study, Organization, PatientOrganization
 from core.fhir_pagination import FHIRBundlePagination
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from django.utils.crypto import get_random_string
 from rest_framework.decorators import action
 from django.conf import settings
-from django.core.exceptions import PermissionDenied, BadRequest
 from datetime import datetime
 from core.admin_pagination import AdminListMixin
 
@@ -23,14 +22,12 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
 
     def get_queryset(self):
         if self.detail:
-            # if this is the patient accessing themselves, or an authorized practitioner
-            if (self.request.user.get_patient() and self.request.user.get_patient().id==int(self.kwargs['pk'])) or Patient.practitioner_authorized(self.request.user.id, self.kwargs['pk']):
-                return Patient.objects.filter(id=self.kwargs['pk'])
+            # if this is any practitioner (they don't need to be authorized just to view Patient details) or if this is the patient accessing themselves
+            if (self.request.user.is_practitioner() or (self.request.user.get_patient() and self.request.user.get_patient().id==int(self.kwargs['pk'])) ):
+                return Patient.objects.filter(pk=self.kwargs['pk'])
             else:
                 raise PermissionDenied("Current User does not have authorization to access this Patient.")
-        else:
-            return Patient.for_practitioner_organization_study(self.request.user.id, self.request.GET.get('organization_id', None), self.request.GET.get('study_id', None))
-
+        
     def create(self, request):
         patient = None
         jhe_user = None
@@ -56,6 +53,31 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
         patient.delete()
         return Response({'success': True})
     
+    # These global methods (no premission checks) are for adding an existing patient
+    # to another Organization (the exact email must be known)
+    @action(detail=False, methods=['GET'])
+    def global_lookup(self, request):
+        email = request.GET.get('email')
+        if not email:
+            raise ValidationError("email parameter required")
+        patients = Patient.objects.filter(jhe_user__email=email)
+        return Response(PatientSerializer(patients, many=True).data, status=200)
+    
+    @action(detail=True, methods=['PATCH'])
+    def global_add_organization(self, request, pk):
+        organization_id = request.GET.get('organization_id')
+        if not organization_id:
+            raise ValidationError("organizationId parameter required")
+        patient = self.get_object()
+        organization = Organization.objects.get(pk=organization_id)
+        if not organization:
+            raise ValidationError("Organization could not be found")
+        patient_organization = PatientOrganization.objects.create(
+            organization_id=organization.id,
+            patient_id=patient.id
+        )
+        return Response(PatientSerializer(patient, many=False).data, status=200)
+    
     @action(detail=True, methods=['GET'])
     def invitation_link(self, request, pk):
         patient = self.get_object()
@@ -68,12 +90,12 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
     @action(detail=True, methods=['GET','POST','PATCH','DELETE'])
     def consents(self, request, pk):
         # if this is a patient, check they are accessing their own consents
-        if (request.user.get_patient() != None) and (int(pk) != request.user.get_patient().id):
+        if (not request.user.is_practitioner()) and (int(pk) != request.user.get_patient().id):
             raise PermissionDenied("The Patient does not match the current patient user.")
         patient = self.get_object()
         if request.method == 'GET':
             # if this is a practitioner, check they're authorized
-            if (request.user.get_patient() == None) and not Patient.practitioner_authorized(request.user.id,int(pk)):
+            if (request.user.is_practitioner()) and not Patient.practitioner_authorized(request.user.id,int(pk)):
                 raise PermissionDenied("This Practitioner not authorized to access this Patient")
             if self.request.GET.get('reset')=='true': # used for dev an testing
                 reset_count = 0
@@ -149,7 +171,7 @@ class FHIRPatientViewSet(ModelViewSet):
         study_id = self.request.GET.get('_has:_group:member:_id', None)
 
         if not (study_id or patient_identifier_system_and_value):
-            raise BadRequest("Request parameter _has:Group:member:_id=<study_id> or patient.identifier=<system>|<value> must be provided.")
+            raise ValidationError("Request parameter _has:Group:member:_id=<study_id> or patient.identifier=<system>|<value> must be provided.")
         
         patient_identifier_system = None
         patient_identifier_value = None

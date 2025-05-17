@@ -9,7 +9,8 @@ from fhir.resources.resource import Resource
 import humps, logging, copy, http
 from rest_framework import status as http_status
 from django.db.utils import IntegrityError
-from django.core.exceptions import PermissionDenied, BadRequest
+from django.core.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class FHIRBase(viewsets.GenericViewSet):
         bundle_data = copy.deepcopy(request.data)
         for entry in bundle_data['entry']:
             if 'value_attachment' not in entry['resource'] or 'data' not in entry['resource']['value_attachment'] or entry['resource']['value_attachment']['data'] is None:
-                raise BadRequest("resource.valueAttachment.data must be not null.")
+                raise ValidationError("resource.valueAttachment.data must be not null.")
         fhir_bundle = Bundle.parse_obj(humps.camelize(request.data))
         # then create each record
         response_entries = []

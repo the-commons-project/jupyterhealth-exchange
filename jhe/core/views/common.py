@@ -79,7 +79,7 @@ def verify_email(request):
 def verify_email_confirm(request, user_id_base64, token):
     try:
         user_id = force_str(urlsafe_base64_decode(user_id_base64))
-        user = User.objects.get(id=user_id)
+        user = User.objects.get(pk=user_id)
     except(TypeError, ValueError, OverflowError, User.DoesNotExist):
         user = None
     if user is not None and account_activation_token.check_token(user, token):

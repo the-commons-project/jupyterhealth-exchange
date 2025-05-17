@@ -35,6 +35,7 @@
                   class="btn btn-sm btn-success"
                   onclick="nav('patients',{
                       create: true,
+                      patientLookup: true,
                       organizationId: {{@root.organizationId}},
                       {{#if @root.studyId}} studyId: {{@root.studyId}} {{/if}}
                   })">
@@ -171,6 +172,10 @@
         </div>
         <div class="modal-body">
           <div class="alert alert-warning validationError" style="display: none" role="alert"></div>
+          {{#if addOrganizationId}}
+            <div class="alert alert-success" role="alert">This Patient already exists.
+            Click the Update button below to add this Patient to the Organization <strong>{{selectedOrganization.name}}</strong></div>
+          {{/if}}
           <div class="container-fluid">
             {{#if delete}}
               <div class="alert alert-danger" role="alert">
@@ -195,90 +200,116 @@
                     </fieldset>
                   </div>
                 {{/unless}}
+                {{#if patientLookup}}
                 <div class="mb-3">
-                  <fieldset disabled>
-                    <label for="organizationId" class="form-label"
-                      >Organization ID</label
+                  <fieldset>
+                    <label for="patientEmailGlobalLookup" class="form-label"
+                      >Patient E-mail</label
                     >
                     <input
                       type="text"
                       class="form-control"
-                      id="organizationId"
-                      value="{{organizationId}}"
+                      id="patientEmailGlobalLookup"
+                      value="{{patientEmailGlobalLookup}}"
                     />
+                    <button
+                      style="display: inline-block"
+                      type="button"
+                      onclick="globalLookupPatientByEmail(document.getElementById('patientEmailGlobalLookup').value, {{organizationId}})"
+                      class="btn btn-sm btn-success align-middle mt-2"
+                    >
+                      Lookup
+                    </button>
                   </fieldset>
                 </div>
-                <div class="mb-3">
-                  <label for="patientIdentifier" class="form-label"
-                    >External Identifier*</label
-                  >
-                  <input
-                    type="text"
-                    class="form-control"
-                    id="patientIdentifier"
-                    placeholder="(Can be anything)"
-                    value="{{patientRecord.identifier}}"
-                  />
-                </div>
-                <div class="mb-3">
-                  <label for="patientFamilyName" class="form-label"
-                    >Family Name*</label
-                  >
-                  <input
-                    type="text"
-                    class="form-control"
-                    id="patientFamilyName"
-                    value="{{patientRecord.nameFamily}}"
-                  />
-                </div>
-                <div class="mb-3">
-                  <label for="patientGivenName" class="form-label"
-                    >Given Name*</label
-                  >
-                  <input
-                    type="text"
-                    class="form-control"
-                    id="patientGivenName"
-                    value="{{patientRecord.nameGiven}}"
-                  />
-                </div>
-                <div class="mb-3">
-                  <label for="patientBirthDate" class="form-label"
-                    >DOB*</label
-                  >
-                  <input
-                    type="text"
-                    class="form-control"
-                    id="patientBirthDate"
-                    value="{{patientRecord.birthDate}}"
-                    placeholder="YYYY-MM-DD"
-                  />
-                </div>
-                <div class="mb-3">
-                  <fieldset {{#unless create}} disabled {{/unless}}>
-                    <label for="patientTelecomEmail" class="form-label"
-                      >E-mail*</label
+                {{/if}}
+                {{#unless hidePatientDetails}}
+                  <div class="alert alert-info" role="alert">Creating Patient for <strong>{{selectedOrganization.name}}</strong></div>
+                  <div class="mb-3">
+                      <label for="patientTelecomEmail" class="form-label"
+                        >E-mail*</label
+                      >
+                      <input
+                        type="text"
+                        class="form-control"
+                        id="patientTelecomEmail"
+                        value="{{patientRecord.telecomEmail}}"
+                        disabled="disabled"
+                      />
+                  </div>
+                  <div class="mb-3">
+                    <label for="patientIdentifier" class="form-label"
+                      >External Identifier*</label
                     >
                     <input
                       type="text"
                       class="form-control"
-                      id="patientTelecomEmail"
-                      value="{{patientRecord.telecomEmail}}"
+                      id="patientIdentifier"
+                      value="{{patientRecord.identifier}}"
                     />
-                  </fieldset>
-                </div>
-                <div class="mb-3">
-                  <label for="patientTelecomPhone" class="form-label"
-                    >Cell</label
-                  >
-                  <input
-                    type="text"
-                    class="form-control"
-                    id="patientTelecomPhone"
-                    value="{{patientRecord.telecomPhone}}"
-                  />
-                </div>
+                  </div>
+                  <div class="mb-3">
+                    <label for="patientFamilyName" class="form-label"
+                      >Family Name*</label
+                    >
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="patientFamilyName"
+                      value="{{patientRecord.nameFamily}}"
+                    />
+                  </div>
+                  <div class="mb-3">
+                    <label for="patientGivenName" class="form-label"
+                      >Given Name*</label
+                    >
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="patientGivenName"
+                      value="{{patientRecord.nameGiven}}"
+                    />
+                  </div>
+                  <div class="mb-3">
+                    <label for="patientBirthDate" class="form-label"
+                      >DOB*</label
+                    >
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="patientBirthDate"
+                      value="{{patientRecord.birthDate}}"
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </div>
+                  <div class="mb-3">
+                    <label for="patientTelecomPhone" class="form-label"
+                      >Cell</label
+                    >
+                    <input
+                      type="text"
+                      class="form-control"
+                      id="patientTelecomPhone"
+                      value="{{patientRecord.telecomPhone}}"
+                    />
+                  </div>
+                {{/unless}}
               </fieldset>
+              {{#unless create}}
+              <div class="mb-5">
+                Organizations:
+                <ul>
+                {{#patientRecord.organizations}}
+                  <li>
+                    {{name}} ({{id}})
+                  </li>
+                {{/patientRecord.organizations}}
+                </ul>
+                {{#if addOrganizationId}}
+                  <input type="hidden" value="{{selectedOrganization.id}}" id="addOrganizationId"/>
+                {{/if}}
+              </div>
+              {{/unless}}
               {{#if read}}
                 <div class="mb-3">
                   <button
@@ -346,10 +377,12 @@
             class="btn btn-secondary"
             data-bs-dismiss="modal"
           >
-            Close
+            Cancel
           </button>
-          {{#if create}} 
-            <button type="button" class="btn btn-primary" onclick="createPatient({{organizationId}})">Create</button>
+          {{#if create}}
+            {{#unless patientLookup}}
+              <button type="button" class="btn btn-primary" onclick="createPatient({{organizationId}})">Create</button>
+            {{/unless}}
           {{/if}}
           {{#if update}} 
             <button type="button" class="btn btn-primary" onclick="updatePatient({{patientRecord.id}})">Update</button>

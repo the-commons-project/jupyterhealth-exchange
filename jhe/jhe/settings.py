@@ -196,7 +196,7 @@ PATIENT_AUTHORIZATION_CODE_VERIFIER = os.getenv('PATIENT_AUTHORIZATION_CODE_VERI
 
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend' if 'localhost' in SITE_URL else 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
 EMAIL_HOST_USER = os.getenv('SMTP_USER', 'your email address')
 EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASSWORD', 'your email password')
