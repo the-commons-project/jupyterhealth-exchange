@@ -9,7 +9,8 @@ from oauth2_provider.models import get_application_model
 from core.models import (
     JheUser, Organization, Patient, CodeableConcept, Study, StudyPatient,
     StudyPatientScopeConsent, DataSource, DataSourceSupportedScope,
-    Observation
+    Observation, StudyCollaborator, Practitioner, PractitionerOrganization,
+    Patient, PatientOrganization
 )
 
 # -----------------------------------------------------
@@ -76,10 +77,19 @@ class OrganizationMethodTests(TestCase):
     
     def test_for_practitioner(self):
         user = JheUser.objects.create_user(
-            email="user@example.com", password="password", identifier="user123"
+            email="user@example.com", 
+            password="password", 
+            identifier="user123",
+            user_type="practitioner"
         )
-        # Establish the relationship using the many-to-many field.
-        user.organizations.add(self.parent_org)
+
+        practitioner = Practitioner.objects.get(jhe_user=user)
+
+        PractitionerOrganization.objects.create(
+            practitioner=practitioner,
+            organization=self.parent_org
+        )
+
         orgs = list(Organization.for_practitioner(user.id))
         self.assertGreaterEqual(len(orgs), 1)
         self.assertTrue(any(org.id == self.parent_org.id for org in orgs))
@@ -95,7 +105,7 @@ class PatientMethodTests(TestCase):
         )
         self.org = Organization.objects.create(name="Hospital", type="prov")
         self.patient = Patient.objects.create(
-            jhe_user=self.user, organization=self.org, identifier="PAT001",
+            jhe_user=self.user, identifier="PAT001",
             name_family="Smith", name_given="Alice",
             birth_date="1985-05-05", telecom_phone="1234567890"
         )
@@ -115,21 +125,55 @@ class PatientMethodTests(TestCase):
         self.assertGreaterEqual(len(patients), 0)
     
     def test_count_for_practitioner_organization_study(self):
+        practitioner_user = JheUser.objects.create_user(
+            email="doctor@example.com", 
+            password="password", 
+            identifier="doc123",
+            user_type="practitioner"
+        )
+
+        practitioner = Practitioner.objects.get(jhe_user=practitioner_user)
+
+        PractitionerOrganization.objects.create(
+            practitioner=practitioner,
+            organization=self.org
+        )
+
         study = Study.objects.create(name="Study1", description="Desc", organization=self.org)
         StudyPatient.objects.create(study=study, patient=self.patient)
-        count = Patient.count_for_practitioner_organization_study(self.user.id)
+
+        PatientOrganization.objects.create(
+            patient=self.patient,
+            organization=self.org
+        )
+
+        count = Patient.count_for_practitioner_organization_study(practitioner_user.id)
         self.assertGreaterEqual(count, 0)
     
     def test_practitioner_authorized(self):
-        # Since the user has a patient and we create at least one study relation,
-        # practitioner_authorized should return True.
         study = Study.objects.create(name="Study1", description="Desc", organization=self.org)
         StudyPatient.objects.create(study=study, patient=self.patient)
-        
-        # user must be linked to the organization
-        self.user.organizations.add(self.org)
-        
-        authorized = Patient.practitioner_authorized(self.user.id)
+
+        PatientOrganization.objects.create(
+            patient=self.patient,
+            organization=self.org
+        )
+
+        practitioner_user = JheUser.objects.create_user(
+            email="practitioner@example.com", 
+            password="password", 
+            identifier="pract123",
+            user_type="practitioner"
+        )
+
+        practitioner = Practitioner.objects.get(jhe_user=practitioner_user)
+
+        PractitionerOrganization.objects.create(
+            practitioner=practitioner,
+            organization=self.org
+        )
+
+        authorized = Patient.practitioner_authorized(practitioner_user.id, self.patient.id)
         self.assertTrue(authorized)
 
 
@@ -141,9 +185,13 @@ class StudyMethodTests(TestCase):
         self.org = Organization.objects.create(name="Research Org", type="edu")
         self.study = Study.objects.create(name="Study A", description="A study", organization=self.org)
         self.user = JheUser.objects.create_user(
-            email="doc@example.com", password="password", identifier="doc123"
+            email="doc@example.com", password="password", identifier="doc123", user_type="practitioner"
         )
-        self.user.organizations.add(self.org)
+        self.practitioner = Practitioner.objects.get(jhe_user=self.user)
+        PractitionerOrganization.objects.create(
+            practitioner=self.practitioner,
+            organization=self.org
+        )
     
     def test_for_practitioner_organization(self):
         studies = list(Study.for_practitioner_organization(self.user.id))
@@ -163,7 +211,7 @@ class StudyMethodTests(TestCase):
             email="patient2@example.com", password="password", identifier="patient456"
         )
         patient = Patient.objects.create(
-            jhe_user=patient_user, organization=self.org, identifier="PAT002",
+            jhe_user=patient_user, identifier="PAT002",
             name_family="Jones", name_given="Bob", birth_date="1990-01-01", telecom_phone="0987654321"
         )
         StudyPatient.objects.create(study=self.study, patient=patient)
@@ -186,7 +234,7 @@ class StudyPatientScopeConsentMethodTests(TestCase):
             email="patient3@example.com", password="password", identifier="patient789"
         )
         self.patient = Patient.objects.create(
-            jhe_user=self.user, organization=self.org, identifier="PAT003",
+            jhe_user=self.user, identifier="PAT003",
             name_family="Brown", name_given="Charlie", birth_date="1980-01-01", telecom_phone="5550001234"
         )
         self.study = Study.objects.create(name="Study B", description="Desc", organization=self.org)
@@ -248,13 +296,31 @@ class DataSourceMethodTests(TestCase):
 class ObservationMethodTests(TestCase):
     def setUp(self):
         self.org = Organization.objects.create(name="Clinic", type="prov")
-        self.user = JheUser.objects.create_user(
-            email="patient4@example.com", password="password", identifier="patient000"
+        self.patient_user = JheUser.objects.create_user(
+            email="patient4@example.com", 
+            password="password", 
+            identifier="patient000",
+            user_type="patient",
         )
-        self.patient = Patient.objects.create(
-            jhe_user=self.user, organization=self.org, identifier="PAT004",
-            name_family="White", name_given="Daisy", birth_date="1975-07-07", telecom_phone="1112223333"
+        self.patient = Patient.objects.get(jhe_user=self.patient_user)
+        self.practitioner_user = JheUser.objects.create_user(
+            email="practitioner@clinic.com", 
+            password="password", 
+            identifier="pract000",
+            user_type="practitioner"
         )
+        self.practitioner = Practitioner.objects.get(jhe_user=self.practitioner_user)
+
+        PractitionerOrganization.objects.create(
+            practitioner=self.practitioner,
+            organization=self.org
+        )
+
+        PatientOrganization.objects.create(
+            patient=self.patient,
+            organization=self.org
+        )
+
         self.code = CodeableConcept.objects.create(
             coding_system="http://loinc.org", coding_code="1122-3", text="Test Measurement"
         )
@@ -265,37 +331,14 @@ class ObservationMethodTests(TestCase):
         )
     
     def test_for_practitioner_organization_study_patient(self):
-        # Call the method to ensure it returns a list (even if empty)
-        results = list(Observation.for_practitioner_organization_study_patient(self.user.id))
+        results = list(Observation.for_practitioner_organization_study_patient(self.practitioner_user.id))
         self.assertIsInstance(results, list)
     
     def test_practitioner_authorized(self):
-        # Link the user to the organization
-        self.user.organizations.add(self.org)
-        
-        # Create a study and link the patient to it
+        self.practitioner.organizations.add(self.org)
         study = Study.objects.create(name="Study for Auth", description="Desc", organization=self.org)
         study_patient = StudyPatient.objects.create(study=study, patient=self.patient)
         
-        # Create consent for the required code
-        StudyPatientScopeConsent.objects.create(
-            study_patient=study_patient,
-            scope_actions="rs",  # read/search permissions
-            scope_code=self.code,
-            consented=True,
-            consented_time=timezone.now()
-        )
-        
-        # Now the authorization check should pass
-        authorized = Observation.practitioner_authorized(self.user.id, self.observation.id)
-        self.assertTrue(authorized)
-    
-    def test_count_for_practitioner_organization_study_patient(self):
-        # Create a study and link the patient to it
-        study = Study.objects.create(name="Study for Observation", description="Desc", organization=self.org)
-        study_patient = StudyPatient.objects.create(study=study, patient=self.patient)
-        
-        # Create consent for the required code
         StudyPatientScopeConsent.objects.create(
             study_patient=study_patient,
             scope_actions="rs",
@@ -304,21 +347,34 @@ class ObservationMethodTests(TestCase):
             consented_time=timezone.now()
         )
         
-        # Get the count - in test environment, accept 0 as valid
-        count = Observation.count_for_practitioner_organization_study_patient(self.user.id)
+        authorized = Observation.practitioner_authorized(self.practitioner_user.id, self.observation.id)
+        self.assertTrue(authorized)
+    
+    def test_count_for_practitioner_organization_study_patient(self):
+        study = Study.objects.create(name="Study for Observation", description="Desc", organization=self.org)
+        study_patient = StudyPatient.objects.create(study=study, patient=self.patient)
+
+        StudyPatientScopeConsent.objects.create(
+            study_patient=study_patient,
+            scope_actions="rs",
+            scope_code=self.code,
+            consented=True,
+            consented_time=timezone.now()
+        )
+
+        count = Observation.count_for_practitioner_organization_study_patient(self.practitioner_user.id)
         self.assertGreaterEqual(count, 0)
     
     def test_fhir_search(self):
         try:
             results = Observation.fhir_search(
-                self.user.id, coding_system="http://loinc.org", coding_code="1122-3"
+                self.patient_user.id, coding_system="http://loinc.org", coding_code="1122-3"
             )
             self.assertIsInstance(list(results), list)
         except Exception as e:
             self.fail(f"fhir_search raised an exception: {e}")
     
     def test_fhir_create(self):
-        # Construct a minimal valid FHIR observation payload.
         fhir_data = {
             "resourceType": "Observation",
             "status": "final",
@@ -333,7 +389,6 @@ class ObservationMethodTests(TestCase):
                 "data": base64.b64encode(json.dumps({"value": 120, "unit": "mmHg"}).encode("ascii")).decode("ascii")
             }
         }
-        # Create a study and consent so that fhir_create passes the permission check.
         study = Study.objects.create(name="Study for FHIR", description="Desc", organization=self.org)
         study_patient = StudyPatient.objects.create(study=study, patient=self.patient)
         StudyPatientScopeConsent.objects.create(
@@ -341,7 +396,7 @@ class ObservationMethodTests(TestCase):
             consented=True, consented_time=timezone.now()
         )
         try:
-            created_obs = Observation.fhir_create(fhir_data, self.user)
+            created_obs = Observation.fhir_create(fhir_data, self.patient_user)
             self.assertIsNotNone(created_obs)
             self.assertEqual(created_obs.codeable_concept, self.code)
         except Exception as e:
@@ -354,3 +409,188 @@ class ObservationMethodTests(TestCase):
 # -----------------------------------------------------
 # TODO CustomPageNumberPagination Methods (serves all Admin APIs)
 # -----------------------------------------------------
+
+# -----------------------------------------------------
+# StudyCollaborator Methods
+# -----------------------------------------------------
+class StudyCollaboratorMethodTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="Research Org", type="edu")
+        
+        self.owner_user = JheUser.objects.create_user(
+            email="owner@example.com", 
+            password="password", 
+            identifier="owner123",
+            user_type="practitioner"
+        )
+        self.practitioner = Practitioner.objects.get(jhe_user=self.owner_user)
+        
+        PractitionerOrganization.objects.create(
+            practitioner=self.practitioner,
+            organization=self.org
+        )
+        
+        self.study = Study.objects.create(
+            name="Collaborative Study", 
+            description="A study with collaborators", 
+            organization=self.org
+        )
+        
+        self.collaborator_user = JheUser.objects.create_user(
+            email="collaborator@example.com",
+            password="password",
+            identifier="collab123"
+        )
+        
+        self.collaboration = StudyCollaborator.objects.create(
+            study=self.study,
+            jhe_user=self.collaborator_user,
+            granted_at=timezone.now()
+        )
+    
+    def test_study_collaborator_creation(self):
+        self.assertEqual(self.collaboration.study, self.study)
+        self.assertEqual(self.collaboration.jhe_user, self.collaborator_user)
+        self.assertIsNotNone(self.collaboration.granted_at)
+    
+    def test_study_accessible_by_collaborator(self):
+        accessible_studies = Study.objects.accessible_by(self.collaborator_user)
+        self.assertEqual(accessible_studies.count(), 1)
+        self.assertEqual(accessible_studies.first(), self.study)
+        
+        unshared_study = Study.objects.create(
+            name="Unshared Study", 
+            description="A study without collaborators", 
+            organization=self.org
+        )
+        
+        accessible_studies = Study.objects.accessible_by(self.collaborator_user)
+        self.assertEqual(accessible_studies.count(), 1)
+        self.assertNotIn(unshared_study, accessible_studies)
+    
+    def test_unique_constraint(self):
+        with self.assertRaises(Exception):
+            StudyCollaborator.objects.create(
+                study=self.study,
+                jhe_user=self.collaborator_user
+            )
+    
+    def test_study_collaborations_relation(self):
+        collaborations = self.study.collaborations.all()
+        self.assertEqual(collaborations.count(), 1)
+        self.assertEqual(collaborations.first(), self.collaboration)
+    
+    def test_user_study_collaborations_relation(self):
+        study_collaborations = self.collaborator_user.study_collaborations.all()
+        self.assertEqual(study_collaborations.count(), 1)
+        self.assertEqual(study_collaborations.first(), self.collaboration)
+        
+    def test_collaborators_across_organizations(self):
+        other_org = Organization.objects.create(name="Other Org", type="edu")
+        other_study = Study.objects.create(
+            name="Cross-Org Study",
+            description="A study in a different organization",
+            organization=other_org
+        )
+        
+        StudyCollaborator.objects.create(
+            study=other_study,
+            jhe_user=self.collaborator_user
+        )
+        
+        accessible_studies = Study.objects.accessible_by(self.collaborator_user)
+        self.assertEqual(accessible_studies.count(), 2)
+        self.assertIn(self.study, accessible_studies)
+        self.assertIn(other_study, accessible_studies)
+        
+    def test_permission_elevation_via_collaboration(self):
+        patient_user = JheUser.objects.create_user(
+            email="patient@example.com",
+            password="password",
+            identifier="patient123",
+            user_type="patient"
+        )
+        
+        patient_study = Study.objects.create(
+            name="Patient Study",
+            description="A study for patients",
+            organization=self.org
+        )
+        
+        StudyCollaborator.objects.create(
+            study=patient_study,
+            jhe_user=patient_user
+        )
+
+        accessible_studies = Study.objects.accessible_by(patient_user)
+        self.assertEqual(accessible_studies.count(), 1)
+        self.assertIn(patient_study, accessible_studies)
+
+        from django.http import Http404
+        from django.core.exceptions import ObjectDoesNotExist
+        
+        try:
+            authorized = Study.practitioner_authorized(patient_user.id, patient_study.id)
+            self.assertFalse(authorized)
+        except (Http404, ObjectDoesNotExist):
+            pass
+
+    def test_patient_collaborator_access_restrictions(self):
+        patient_user = JheUser.objects.create_user(
+            email="patient_collab@example.com",
+            password="password",
+            identifier="patcollab",
+            user_type="patient"
+        )
+        
+        patient = Patient.objects.get(jhe_user=patient_user)
+        patient_collab = StudyCollaborator.objects.create(
+            study=self.study,
+            jhe_user=patient_user,
+            granted_at=timezone.now()
+        )
+        
+        accessible_studies = Study.objects.accessible_by(patient_user)
+        self.assertIn(self.study, accessible_studies)
+        
+        mock_request = type('MockRequest', (), {'user': patient_user})()
+        
+        from core.views.collaborator import CollaboratorViewSet
+        collaborator_view = CollaboratorViewSet()
+        collaborator_view.request = mock_request
+        
+        from django.http import Http404
+        with self.assertRaises(Http404):
+            collaborator_view.user_can_manage_study(self.study.id)
+        
+        from django.core.exceptions import ObjectDoesNotExist
+        try:
+            is_authorized = Study.practitioner_authorized(patient_user.id, self.study.id)
+            self.assertFalse(is_authorized)
+        except (Http404, ObjectDoesNotExist):
+            pass
+        
+        patient_study = Study.objects.create(
+            name="Patient As Subject",
+            description="Study where patient is both collaborator and subject",
+            organization=self.org
+        )
+
+        study_patient = StudyPatient.objects.create(
+            study=patient_study,
+            patient=patient
+        )
+
+        StudyCollaborator.objects.create(
+            study=patient_study,
+            jhe_user=patient_user
+        )
+
+        self.assertTrue(patient_study in Study.objects.accessible_by(patient_user))
+   
+        try:
+            self.assertFalse(Study.practitioner_authorized(patient_user.id, patient_study.id))
+        except (Http404, ObjectDoesNotExist):
+            pass
+
+        self.assertTrue(Study.practitioner_authorized(self.owner_user.id, patient_study.id))

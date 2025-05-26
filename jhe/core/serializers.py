@@ -4,7 +4,7 @@ from rest_framework import serializers
 from core.models import (
   CodeableConcept, DataSource, DataSourceSupportedScope, Observation, Organization, JheUser,
   Patient, Study, StudyDataSource, StudyPatient, StudyPatientScopeConsent, StudyScopeRequest,
-  PractitionerOrganization, PatientOrganization
+  PractitionerOrganization, PatientOrganization, StudyCollaborator
 )
 from rest_framework import permissions
 
@@ -230,3 +230,23 @@ class FHIRBundledPatientSerializer(serializers.Serializer):
 
 class FHIRBundleSerializer(serializers.Serializer):
     _ = serializers.JSONField()
+
+class StudyCollaboratorSerializer(serializers.ModelSerializer):
+    user_email = serializers.SerializerMethodField()
+    
+    def get_user_email(self, obj):
+        return obj.jhe_user.email if obj.jhe_user else None
+    
+    class Meta:
+        model = StudyCollaborator
+        fields = ['id', 'study_id', 'jhe_user_id', 'user_email', 'granted_at']
+        read_only_fields = ['granted_at']
+
+class StudyCollaboratorDetailSerializer(serializers.ModelSerializer):
+    user = JheUserSerializer(source='jhe_user', read_only=True)
+    study = StudySerializer(read_only=True)
+    
+    class Meta:
+        model = StudyCollaborator
+        fields = ['id', 'study', 'user', 'granted_at']
+        read_only_fields = ['granted_at']
