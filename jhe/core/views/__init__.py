@@ -27,3 +27,7 @@ from .fhir_base import (
 from .data_source import (
     DataSourceViewSet
 )
+
+from .collaborator import (
+    CollaboratorViewSet
+)

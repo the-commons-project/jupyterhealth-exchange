@@ -21,6 +21,7 @@ from datetime import timedelta
 from django.db.utils import IntegrityError
 from django.db.models import Q
 import base64
+from django.forms.models import model_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +245,7 @@ class Organization(models.Model):
     def get_children(parent_id):
         return Organization.objects.filter(part_of=parent_id).order_by('name')
 
+    # start here from 5/20/25 for gh-issue-17
     @staticmethod
     def for_practitioner(practitioner_user_id):
         q = """
@@ -644,6 +646,30 @@ class CodeableConcept(models.Model):
             models.UniqueConstraint(fields=['coding_system','coding_code'], name="core_codeableconcept_coding_system_coding_code")
         ]
 
+class StudyManager(models.Manager):
+   def get_subtree_ids(self, root_ids):
+      seen, stack = set(root_ids), list(root_ids)
+      while stack:
+         parent = stack.pop()
+         children = Organization.objects.filter(part_of_id=parent).values_list('id', flat=True)
+
+         for child_id in children:
+            if child_id not in seen:
+               seen.add(child_id)
+               stack.append(child_id)
+      return list(seen)
+   def accessible_by(self, jhe_user):
+      org_ids = []
+      if jhe_user.is_practitioner():
+         org_ids = list(
+            jhe_user.practitioner_profile.organizations.values_list('id', flat=True)
+         )
+      all_orgs = self.get_subtree_ids(org_ids)
+      qs_owned = self.filter(organization_id__in=all_orgs)
+
+      qs_shared = self.filter(collaborations__jhe_user=jhe_user).distinct()
+      return qs_owned | qs_shared
+
 class Study(models.Model):
     name = models.CharField()
     description = models.TextField()
@@ -661,6 +687,8 @@ class Study(models.Model):
     ):
         practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
         practitioner_id = practitioner.id
+
+        print(f'practitioner: {practitioner.__dict__}')
 
         page     = int(page)
         pageSize = int(pageSize)
@@ -774,12 +802,37 @@ class Study(models.Model):
                 study_id_studies_map[study_with_scope.id].scope_consents.append(scope_consent)
             
         return list(study_id_studies_map.values())
+    
+    objects = StudyManager()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pending_scope_consents = []
         self.scope_consents = []
         self.data_sources = []
+
+# this is effectively an ACL for a study, allowing a user to collaborate on a study
+# later we will update this to use RBAC
+class StudyCollaborator(models.Model):
+   study = models.ForeignKey(
+      Study,
+      on_delete=models.CASCADE,
+      related_name='collaborations'
+   )
+   jhe_user = models.ForeignKey(
+      settings.AUTH_USER_MODEL,
+      on_delete=models.CASCADE,
+      related_name='study_collaborations'
+   )
+   # for now we are leaving out role, but we can add that during the implementation of GitHub Issue #7 for RBAC
+   # role = models.CustomRBACFields()
+   granted_at = models.DateTimeField(auto_now_add=True)
+
+   class Meta:
+      unique_together = ('study', 'jhe_user')
+      indexes = [
+         models.Index(fields=['study', 'jhe_user'], name='studycollab_study_user_idx')
+      ]
     
 class StudyPatient(models.Model):
     study = models.ForeignKey(Study, on_delete=models.CASCADE)
