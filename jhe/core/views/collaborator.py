@@ -12,10 +12,6 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 class CollaboratorViewSet(ModelViewSet):
-    """
-    API endpoint for managing study collaborators.
-    Allows listing, adding and removing collaborators from studies.
-    """
     model_class = StudyCollaborator
     serializer_class = StudyCollaboratorSerializer
     
@@ -25,13 +21,7 @@ class CollaboratorViewSet(ModelViewSet):
         return StudyCollaboratorSerializer
     
     def get_queryset(self):
-        """
-        Return collaborator relationships based on:
-        1. For list view - all collaborators for studies this user has access to
-        2. For detail view - specific collaborator if user has permission to access it
-        """
         if self.detail:
-            # Detailed view of a specific collaborator
             collaborator = get_object_or_404(StudyCollaborator, pk=self.kwargs['pk'])
             study = collaborator.study
             
@@ -41,7 +31,6 @@ class CollaboratorViewSet(ModelViewSet):
             else:
                 raise PermissionDenied("You don't have permission to view this collaborator.")
         else:
-            # List view - filter by study_id if provided
             study_id = self.request.query_params.get('study_id')
             if study_id:
                 if self.user_can_manage_study(study_id):
@@ -54,10 +43,8 @@ class CollaboratorViewSet(ModelViewSet):
                 return StudyCollaborator.objects.filter(study__in=accessible_studies)
     
     def user_can_manage_study(self, study_id):
-        """Check if the current user can manage collaborators for this study"""
         study = get_object_or_404(Study, pk=study_id)
         
-        # If user is practitioner and study is in their organization
         if Study.practitioner_authorized(self.request.user.id, study_id):
             return True
             
@@ -70,7 +57,6 @@ class CollaboratorViewSet(ModelViewSet):
         return is_collaborator
     
     def create(self, request):
-        """Add a new collaborator to a study"""
         study_id = request.data.get('study_id')
         user_email = request.data.get('email')
         
@@ -102,10 +88,8 @@ class CollaboratorViewSet(ModelViewSet):
         })
     
     def destroy(self, request, pk=None):
-        """Remove a collaborator from a study"""
         collaborator = self.get_object()
         
-        # Additional check to ensure user can manage this study
         if not self.user_can_manage_study(collaborator.study_id):
             raise PermissionDenied("You don't have permission to remove collaborators from this study")
             
@@ -124,7 +108,6 @@ class CollaboratorViewSet(ModelViewSet):
             
         collaborators = StudyCollaborator.objects.filter(study_id=study_id)
         
-        # Format response with user details
         result = []
         for collab in collaborators:
             result.append({
