@@ -667,8 +667,8 @@ class StudyManager(models.Manager):
       all_orgs = self.get_subtree_ids(org_ids)
       qs_owned = self.filter(organization_id__in=all_orgs)
 
-      qs_shared = self.filter(collaborations__jhe_user=jhe_user).distinct()
-      return qs_owned | qs_shared
+      qs_shared = self.filter(collaborations__jhe_user=jhe_user)
+      return qs_owned.distinct() | qs_shared.distinct()
 
 class Study(models.Model):
     name = models.CharField()
