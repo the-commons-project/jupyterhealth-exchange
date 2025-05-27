@@ -8,7 +8,7 @@
             <select
               id="organizationForPatients"
               class="form-control form-select"
-              onchange="nav('patients', null, {organizationId: this.value})"
+              onchange="nav('patients', null, {organizationId: this.value, page: 1})"
             >
               {{#organizationForPatientsSelect}} {{#if selected}}
                 <option value="{{id}}" selected>{{name}}</option>
@@ -21,7 +21,7 @@
             <select
               id="studyForPatients"
               class="form-control form-select"
-              onchange="this.value == 'all' ? nav('patients',{ organizationId: {{organizationId}} }) : nav('patients',{studyId: this.value, organizationId: {{organizationId}} })"
+              onchange="this.value == 'all' ? nav('patients',{ organizationId: {{organizationId}}, page: 1 }) : nav('patients',{studyId: this.value, organizationId: {{organizationId}}, page: 1 })"
             >
                 <option value="all">All Studies</option>
               {{#studyForPatientsSelect}} {{#if selected}}
