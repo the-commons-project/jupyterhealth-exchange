@@ -2,7 +2,9 @@ from core.models import (
   JheUser, Organization, JheUserOrganization, Patient,
   CodeableConcept, Study, StudyPatient, StudyPatientScopeConsent,
   StudyScopeRequest, DataSource, DataSourceSupportedScope,
-  StudyDataSource, Observation, ObservationIdentifier
+  StudyDataSource, Observation, ObservationIdentifier,
+  Practitioner, PractitionerOrganization,
+  Patient, PatientOrganization
 )
 from django.utils import timezone
 from django.test import TestCase
@@ -52,28 +54,6 @@ class OrganizationTest(TestCase):
     self.assertEqual(len(list(children)), 1)
     self.assertEqual(children[0], self.child_org)
 
-
-class JheUserOrganizationTest(TestCase):
-  def setUp(self):
-    self.user = JheUser.objects.create_user(
-      email='test@example.com',
-      password='testpassword',
-      identifier='test123'
-    )
-    self.organization = Organization.objects.create(
-      name='Test Organization',
-      type='prov'
-    )
-    self.user_org = JheUserOrganization.objects.create(
-      jhe_user=self.user,
-      organization=self.organization
-    )
-  
-  def test_user_organization_creation(self):
-    self.assertEqual(self.user_org.jhe_user, self.user)
-    self.assertEqual(self.user_org.organization, self.organization)
-
-
 class PatientTest(TestCase):
   def setUp(self):
     self.user = JheUser.objects.create_user(
@@ -81,28 +61,49 @@ class PatientTest(TestCase):
       password='testpassword',
       identifier='patient123'
     )
-    self.organization = Organization.objects.create(
-      name='Test Hospital',
+    self.organization1 = Organization.objects.create(
+      name='Test Hospital 1',
+      type='prov'
+    )
+    self.organization2 = Organization.objects.create(
+      name='Test Hospital 2',
       type='prov'
     )
     self.patient = Patient.objects.create(
       jhe_user=self.user,
-      organization=self.organization,
       identifier='PAT123',
       name_family='Doe',
       name_given='John',
       birth_date='1990-01-01',
       telecom_phone='555-123-4567'
     )
+    PatientOrganization.objects.create(
+      patient=self.patient,
+      organization=self.organization1
+    )
+    PatientOrganization.objects.create(
+      patient=self.patient,
+      organization=self.organization2
+    )
   
   def test_patient_creation(self):
     self.assertEqual(self.patient.jhe_user, self.user)
-    self.assertEqual(self.patient.organization, self.organization)
     self.assertEqual(self.patient.identifier, 'PAT123')
     self.assertEqual(self.patient.name_family, 'Doe')
     self.assertEqual(self.patient.name_given, 'John')
     self.assertEqual(str(self.patient.birth_date), '1990-01-01')
     self.assertEqual(self.patient.telecom_phone, '555-123-4567')
+  
+  def test_patient_organizations(self):
+    self.assertEqual(self.patient.organizations.count(), 2)
+    self.assertIn(self.organization1, self.patient.organizations.all())
+    self.assertIn(self.organization2, self.patient.organizations.all())
+    
+    patient_orgs = PatientOrganization.objects.filter(patient=self.patient)
+    self.assertEqual(patient_orgs.count(), 2)
+    org_ids = [po.organization_id for po in patient_orgs]
+    self.assertIn(self.organization1.id, org_ids)
+    self.assertIn(self.organization2.id, org_ids)
   
   def test_get_patient(self):
     patient = self.user.get_patient()
@@ -408,3 +409,128 @@ class ObservationIdentifierTest(TestCase):
     self.assertEqual(self.identifier.observation, self.observation)
     self.assertEqual(self.identifier.system, 'http://example.org/identifiers')
     self.assertEqual(self.identifier.value, 'OBS12345')
+
+
+class PractitionerTest(TestCase):
+    def setUp(self):
+        self.user = JheUser.objects.create_user(
+            email='practitioner@example.com',
+            password='testpassword',
+            identifier='pract123',
+            user_type='practitioner'
+        )
+        self.organization1 = Organization.objects.create(
+            name='Test Hospital 1',
+            type='prov'
+        )
+        self.organization2 = Organization.objects.create(
+            name='Test Hospital 2',
+            type='prov'
+        )
+        self.practitioner = Practitioner.objects.create(
+            jhe_user=self.user,
+            identifier='PRACT123',
+            name_family='Smith',
+            name_given='Jane',
+            birth_date='1985-05-15',
+            telecom_phone='555-987-6543'
+        )
+        PractitionerOrganization.objects.create(
+            practitioner=self.practitioner,
+            organization=self.organization1
+        )
+        PractitionerOrganization.objects.create(
+            practitioner=self.practitioner,
+            organization=self.organization2
+        )
+  
+    def test_practitioner_creation(self):
+        self.assertEqual(self.practitioner.jhe_user, self.user)
+        self.assertEqual(self.practitioner.identifier, 'PRACT123')
+        self.assertEqual(self.practitioner.name_family, 'Smith')
+        self.assertEqual(self.practitioner.name_given, 'Jane')
+        self.assertEqual(str(self.practitioner.birth_date), '1985-05-15')
+        self.assertEqual(self.practitioner.telecom_phone, '555-987-6543')
+  
+    def test_practitioner_organizations(self):
+        self.assertEqual(self.practitioner.organizations.count(), 2)
+        self.assertIn(self.organization1, self.practitioner.organizations.all())
+        self.assertIn(self.organization2, self.practitioner.organizations.all())
+        
+        practitioner_orgs = PractitionerOrganization.objects.filter(practitioner=self.practitioner)
+        self.assertEqual(practitioner_orgs.count(), 2)
+        org_ids = [po.organization_id for po in practitioner_orgs]
+        self.assertIn(self.organization1.id, org_ids)
+        self.assertIn(self.organization2.id, org_ids)
+  
+    def test_is_practitioner(self):
+        self.assertTrue(self.user.is_practitioner())
+        
+    def test_organization_property(self):
+        orgs = self.user.organization()
+        self.assertEqual(orgs.count(), 2)
+        self.assertIn(self.organization1, orgs)
+        self.assertIn(self.organization2, orgs)
+
+
+class OrganizationUserTest(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(
+            name='Test Hospital',
+            type='prov'
+        )
+        
+        self.patient_user = JheUser.objects.create_user(
+            email='patient@example.com',
+            password='testpassword',
+            identifier='patient123',
+            user_type='patient'
+        )
+        self.patient = Patient.objects.create(
+            jhe_user=self.patient_user,
+            identifier='PAT123',
+            name_family='Doe',
+            name_given='John',
+            birth_date='1990-01-01'
+        )
+        PatientOrganization.objects.create(
+            patient=self.patient,
+            organization=self.organization
+        )
+        
+        self.practitioner_user = JheUser.objects.create_user(
+            email='practitioner@example.com',
+            password='testpassword',
+            identifier='pract123',
+            user_type='practitioner'
+        )
+        self.practitioner = Practitioner.objects.create(
+            jhe_user=self.practitioner_user,
+            identifier='PRACT123',
+            name_family='Smith',
+            name_given='Jane',
+            birth_date='1985-05-15'
+        )
+        PractitionerOrganization.objects.create(
+            practitioner=self.practitioner,
+            organization=self.organization
+        )
+    
+    def test_organization_users_property(self):
+        users = self.organization.users
+        self.assertEqual(users.count(), 2)
+        user_ids = list(users.values_list('id', flat=True))
+        self.assertIn(self.patient_user.id, user_ids)
+        self.assertIn(self.practitioner_user.id, user_ids)
+    
+    def test_organization_practitioners(self):
+        # Test the related_name 'practitioners'
+        practitioners = self.organization.practitioners.all()
+        self.assertEqual(practitioners.count(), 1)
+        self.assertEqual(practitioners[0], self.practitioner)
+    
+    def test_organization_patients(self):
+        # Test the related_name 'patients'
+        patients = self.organization.patients.all()
+        self.assertEqual(patients.count(), 1)
+        self.assertEqual(patients[0], self.patient)
