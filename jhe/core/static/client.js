@@ -548,7 +548,7 @@ async function addUserToOrganization(userEmail, organizationId) {
       jheUserId: userRecordPaginated.results[0].id,
     }
   );
-  if (response.ok) navReload();
+  if (response.ok) navReturnFromCrud();
 }
 
 async function removeUserFromOrganization(userId, organizationId) {
@@ -560,7 +560,7 @@ async function removeUserFromOrganization(userId, organizationId) {
       jheUserId: userId,
     }
   );
-  if (response.ok) navReload();
+  if (response.ok) navReturnFromCrud();
 }
 
 // ==================================================
