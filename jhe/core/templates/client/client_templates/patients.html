@@ -1,65 +1,63 @@
 {% verbatim %}
 <script id="t-patients" type="text/template">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <table>
-      <tr>
-        <td class="pe-3">
-          <select
-            id="organizationForPatients"
-            class="form-control form-select"
-            onchange="nav('patients', null, {organizationId: this.value})"
-          >
-            {{#organizationForPatientsSelect}} {{#if selected}}
-              <option value="{{id}}" selected>{{name}}</option>
-            {{else}}
-              <option value="{{id}}">{{name}}</option>
-            {{/if}} {{/organizationForPatientsSelect}}
-          </select>
-        </td>
-        <td class="pe-3">
-          <select
-            id="studyForPatients"
-            class="form-control form-select"
-            onchange="this.value == 'all' ? nav('patients',{ organizationId: {{organizationId}} }) : nav('patients',{studyId: this.value, organizationId: {{organizationId}} })"
-          >
-              <option value="all">All Studies</option>
-            {{#studyForPatientsSelect}} {{#if selected}}
-              <option value="{{id}}" selected>{{name}}</option>
-            {{else}}
-              <option value="{{id}}">{{name}}</option>
-            {{/if}} {{/studyForPatientsSelect}}
-          </select>
-        </td>
-        <td class="pe-3">
-          <button type="button"
-                  class="btn btn-sm btn-success"
-                  onclick="nav('patients',{
-                      create: true,
-                      patientLookup: true,
-                      organizationId: {{@root.organizationId}},
-                      {{#if @root.studyId}} studyId: {{@root.studyId}} {{/if}}
-                  })">
-            Add Patient...
-          </button>
-        </td>
-        <td class="pe-3">
-          <button type="button"
-                  class="btn btn-sm btn-primary"
-                  onclick="selectPatientsForStudy({{@root.organizationId}})">
-            Add Patient(s) to Study...
-          </button>
-        </td>
+    <div>
+      <table>
+        <tr>
+          <td class="pe-3">
+            <select
+              id="organizationForPatients"
+              class="form-control form-select"
+              onchange="nav('patients', null, {organizationId: this.value, page: 1})"
+            >
+              {{#organizationForPatientsSelect}} {{#if selected}}
+                <option value="{{id}}" selected>{{name}}</option>
+              {{else}}
+                <option value="{{id}}">{{name}}</option>
+              {{/if}} {{/organizationForPatientsSelect}}
+            </select>
+          </td>
+          <td class="pe-3">
+            <select
+              id="studyForPatients"
+              class="form-control form-select"
+              onchange="this.value == 'all' ? nav('patients',{ organizationId: {{organizationId}}, page: 1 }) : nav('patients',{studyId: this.value, organizationId: {{organizationId}}, page: 1 })"
+            >
+                <option value="all">All Studies</option>
+              {{#studyForPatientsSelect}} {{#if selected}}
+                <option value="{{id}}" selected>{{name}}</option>
+              {{else}}
+                <option value="{{id}}">{{name}}</option>
+              {{/if}} {{/studyForPatientsSelect}}
+            </select>
+          </td>
+        </tr>
+      </table>
+      <div class="mt-2">
+        <button type="button"
+                class="btn btn-sm btn-success me-2"
+                onclick="nav('patients',{
+                    create: true,
+                    patientLookup: true,
+                    organizationId: {{@root.organizationId}},
+                    {{#if @root.studyId}} studyId: {{@root.studyId}} {{/if}}
+                })">
+          Add Patient...
+        </button>
+        <button type="button"
+                class="btn btn-sm btn-primary me-2"
+                onclick="selectPatientsForStudy({{@root.organizationId}})">
+          Add Patient(s) to Study...
+        </button>
         {{#if studyId}}
-        <td>
-          <button type="button"
-                  class="btn btn-sm btn-warning"
-                  onclick="removeSelectedPatientsFromStudy({{@root.studyId}})">
-            Remove Patient(s) from Study
-          </button>
-        </td>
+        <button type="button"
+                class="btn btn-sm btn-warning"
+                onclick="removeSelectedPatientsFromStudy({{@root.studyId}})">
+          Remove Patient(s) from Study
+        </button>
         {{/if}}
-      </tr>
-    </table>
+      </div>
+    </div>
     <div class="d-flex align-items-center">
       <span class="me-2">Page 
         <input 
