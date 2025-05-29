@@ -3,10 +3,7 @@ name: Django Backend Test
 run-name: Triggered by ${{ github.event_name }} to ${{ github.ref }}
 on:
   push:
-    branches: [
-      main
-      test/refactor-tests-for-gh-issue-10-model-changes-2
-      ]
+    branches: [ test/refactor-tests-for-gh-issue-10-model-changes-2 ]
   pull_request:
     branches: [main]
 
