@@ -256,6 +256,18 @@ class Organization(models.Model):
         
         return Organization.objects.raw(q, {'practitioner_user_id': practitioner_user_id})
 
+    @staticmethod
+    def for_patient(patient_user_id):
+        q = """
+            SELECT core_organization.*
+            FROM core_organization
+            JOIN core_patientorganization ON core_patientorganization.organization_id=core_organization.id
+            JOIN core_patient ON core_patient.id=core_patientorganization.patient_id
+            WHERE core_patient.jhe_user_id=%(patient_user_id)s
+            """
+        
+        return Organization.objects.raw(q, {'patient_user_id': patient_user_id})
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.children = []
