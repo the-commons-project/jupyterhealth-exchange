@@ -1,5 +1,9 @@
 import logging
+
+from rest_framework.permissions import IsAuthenticated
+
 from core.models import Organization, PractitionerOrganization, PatientOrganization
+from core.permissions import IsOrganizationManager
 from core.serializers import (
   OrganizationSerializer, OrganizationUsersSerializer, StudySerializer, PractitionerOrganizationSerializer,
   PatientOrganizationSerializer
@@ -55,10 +59,11 @@ class OrganizationViewSet(ModelViewSet):
         serializer = OrganizationUsersSerializer(users, many=True)
         return Response(serializer.data)
     
-    @action(detail=True, methods=['POST','DELETE'])
+    @action(detail=True, methods=['POST','DELETE'], permission_classes=[IsOrganizationManager])
     def user(self, request, pk):
       user_type = request.data.get('user_type', 'practitioner')  # Default to practitioner if not specified
       jhe_user_id = request.data.get('jhe_user_id')
+      organization_partitioner_role = request.data.get('organization_partitioner_role')
       
       if not jhe_user_id:
         return Response({"error": "jhe_user_id is required"}, status=400)
@@ -85,7 +90,8 @@ class OrganizationViewSet(ModelViewSet):
         if request.method == 'POST':
           relation = PractitionerOrganization.objects.create(
             organization_id=pk, 
-            practitioner=practitioner
+            practitioner=practitioner,
+            role=organization_partitioner_role
           )
           serializer = PractitionerOrganizationSerializer(relation)
         else:
