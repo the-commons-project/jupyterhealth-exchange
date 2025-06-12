@@ -531,7 +531,7 @@ async function deleteOrganization(id) {
   if (response.ok) navReturnFromCrud();
 }
 
-async function addUserToOrganization(userEmail, organizationId) {
+    async function addUserToOrganization(userEmail, organizationId, role) {
   if (!userEmail || !organizationId) return;
   const userRecordResponse = await apiRequest("GET", "users", {
     email: userEmail,
@@ -546,6 +546,7 @@ async function addUserToOrganization(userEmail, organizationId) {
     `organizations/${organizationId}/user`,
     {
       jheUserId: userRecordPaginated.results[0].id,
+      organizationPartitionerRole: role
     }
   );
   if (response.ok) navReturnFromCrud();

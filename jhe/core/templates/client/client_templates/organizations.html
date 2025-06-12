@@ -149,7 +149,8 @@
               </div>
               </fieldset> 
             </form>
-            {{#if read}} 
+            {{#if read}}
+             {{#if organizationRecord.isManager}}
               <p>
                 Users
                 <button
@@ -160,17 +161,42 @@
                   <i class="bi bi-file-earmark-plus"></i>
                 </button>
               </p>
+              {{/if}}
               <div id="organizationAddUserForm" class="mb-2" style="display: none">
-                  <input id="newUserEmail" style="display: inline-block; max-width: 300px" type="text" class="form-control align-middle" placeholder="Existing user E-mail Address" aria-label="First name">
-                  <button
-                    style="display: inline-block"
-                    type="button"
-                    onclick="addUserToOrganization(document.getElementById('newUserEmail').value, {{organizationRecord.id}})"
-                    class="btn btn-sm btn-success align-middle ms-1"
-                  >
-                    Add
-                  </button>
+              <div class="d-flex mb-2">
+                <input
+                  id="newUserEmail"
+                  type="text"
+                  class="form-control me-2"
+                  placeholder="Existing user E-mail Address"
+                  aria-label="Existing user E-mail Address"
+                  style="max-width: 300px;"
+                >
+                <button
+                  type="button"
+                  class="btn btn-sm btn-success"
+                  onclick="addUserToOrganization(
+                    document.getElementById('newUserEmail').value,
+                    {{organizationRecord.id}},
+                    document.querySelector('input[name=radioRole]:checked').value
+                  )"
+                >
+                  Add
+                </button>
               </div>
+
+              <div>
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="radio" name="radioRole" id="radioMember" value="member" checked>
+                  <label class="form-check-label" for="radioMember">Member</label>
+                </div>
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="radio" name="radioRole" id="radioManager" value="manager">
+                  <label class="form-check-label" for="radioManager">Manager</label>
+                </div>
+              </div>
+            </div>
+              {{#if organizationRecord.isManager}}
               <ul>
                 {{#each organizationRecord.users}}
                   <li>
@@ -185,6 +211,7 @@
                   </li>
                 {{/each}}
               </ul>
+              {{/if}}
               <p>
                 Studies
                 <button
