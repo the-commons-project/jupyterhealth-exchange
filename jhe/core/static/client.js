@@ -754,10 +754,10 @@ async function deletePatient(id) {
   if (await apiRequest("DELETE", `patients/${id}`)) navReturnFromCrud();
 }
 
-async function getInvitationLink(id) {
+async function getInvitationLink(id, sendEmail) {
   const invitationLinkResponse = await apiRequest(
     "GET",
-    `patients/${id}/invitation_link`
+    `patients/${id}/invitation_link?send_email=${sendEmail}`
   );
   const invitationLink = await invitationLinkResponse.json();
   document.getElementById("invitationLink").value =

@@ -312,11 +312,22 @@
                 <div class="mb-3">
                   <button
                     type="button"
-                    onclick="getInvitationLink({{patientRecord.id}})"
+                    onclick="getInvitationLink({{patientRecord.id}}, document.getElementById('InvitationSendEmail').checked)"
                     class="btn btn-sm btn-success mb-2"
                   >
                     Generate Invitation Link
                   </button>
+                    <div class="form-check form-check-inline mx-2">
+                      <input
+                        class="form-check-input"
+                        type="checkbox"
+                        id="InvitationSendEmail"
+                        checked
+                      />
+                      <label class="form-check-label" for="InvitationSendEmail">
+                        Send link by email
+                      </label>
+                    </div>
                   <button
                     type="button"
                     id="copyInvitationLink"
