@@ -1,15 +1,21 @@
 import logging
-from core.serializers import CodeableConceptSerializer, FHIRBundledPatientSerializer, PatientSerializer, StudyPendingConsentsSerializer, StudyConsentsSerializer, StudyPatientScopeConsentSerializer
-from core.models import JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study, Organization, PatientOrganization
-from core.fhir_pagination import FHIRBundlePagination
-from rest_framework.viewsets import ModelViewSet
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError, PermissionDenied
+from datetime import datetime
+
+from django.conf import settings
+from django.core.mail import EmailMessage
+from django.template.loader import render_to_string
 from django.utils.crypto import get_random_string
 from rest_framework.decorators import action
-from django.conf import settings
-from datetime import datetime
+from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework.response import Response
+from rest_framework.viewsets import ModelViewSet
+
 from core.admin_pagination import AdminListMixin
+from core.fhir_pagination import FHIRBundlePagination
+from core.models import JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study, Organization, \
+    PatientOrganization
+from core.serializers import CodeableConceptSerializer, FHIRBundledPatientSerializer, PatientSerializer, \
+    StudyPendingConsentsSerializer, StudyConsentsSerializer, StudyPatientScopeConsentSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +86,24 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
     
     @action(detail=True, methods=['GET'])
     def invitation_link(self, request, pk):
+        send_email = request.query_params.get('send_email') == "true"
         patient = self.get_object()
         grant = patient.jhe_user.create_authorization_code(1,settings.OIDC_CLIENT_REDIRECT_URI)
         url = settings.CH_INVITATION_LINK_PREFIX
         if not settings.CH_INVITATION_LINK_EXCLUDE_HOST:
             url = url + settings.SITE_URL.split('/')[2]+'|'
-        return Response({"invitation_link": url+grant.code})
+        invitation_link = url+grant.code
+        if send_email:
+            message = render_to_string('registration/invitation_email.html', {
+                'patient_name': patient.name_given,
+                'invitation_link': invitation_link,
+            })
+            email = EmailMessage(
+                "JHE Invitation", message, to=[patient.jhe_user.email]
+            )
+            email.content_subtype = 'html'
+            email.send()
+        return Response({"invitation_link": invitation_link})
 
     @action(detail=True, methods=['GET','POST','PATCH','DELETE'])
     def consents(self, request, pk):
