@@ -30,6 +30,7 @@ By setting these variables explicitly, you prevent incorrect path injections and
 1. Set up your Python environment - this project uses Django **version 5.2** which requires python  **3.10, 3.11, 3.12 or 3.13**
     - NB: If using pipenv it is recommended to run `pipenv sync` against the lock file to match package versions
 1. Create a new Postgres DB (currently only Postgres is supported because of json functions)
+1. Run the Django migration `python3 manage.py migrate` to create the database tables.
 1. Seed the DB by running the SQL commands found in `db/seed.sql`
 1. Make a copy of `env_example.txt`, update the `DB_*` properties to match the new DB and save it as `.env`
 1. Ensure the `.env` is loaded into your Python environment, eg for pipenv run `$ pipenv shell`
