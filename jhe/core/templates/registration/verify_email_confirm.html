@@ -1,19 +1,23 @@
-{% extends "partials/base_accounts.html" %}
+{% extends "partials/base_accounts_forms.html" %}
 
-{% block title %}Verify Email{% endblock %}
+{% block title %}
+Verify Email
+{% endblock %}
 
-{% block prompt %}Verify Email{% endblock %}
+{% block prompt %}
+Verify Email
+{% endblock %}
 
-{% block main %}
-
+{% block form_fields %}
 <div class="container">
-    {% if messages %}
-        {% for message in messages %}
-            <div class="alert">
-                {{ message }}
-            </div>
-        {% endfor %}
-    {% endif %}
+  {% if messages %} {% for message in messages %}
+  <div class="alert {% if message.tags %}alert-{{ message.tags }}{% endif %}">
+    {{ message }}
+  </div>
+  {% endfor %} {% endif %}
 </div>
 
+<div class="mt-4">
+  <a href="{% url 'login' %}" class="btn btn-primary">Back to Login</a>
+</div>
 {% endblock %}
