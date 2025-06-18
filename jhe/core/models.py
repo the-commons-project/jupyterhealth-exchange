@@ -631,8 +631,21 @@ class Patient(models.Model):
     Allows for a many-to-many relationship between organizations and practitioner users
 """
 class PractitionerOrganization(models.Model):
+    ROLE_MEMBER = 'member'
+    ROLE_MANAGER = 'manager'
+
+    ROLE_CHOICES = [
+        (ROLE_MEMBER, 'Member'),
+        (ROLE_MANAGER, 'Manager'),
+    ]
+
     practitioner = models.ForeignKey(Practitioner, on_delete=models.CASCADE, related_name='organization_links')
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='practitioner_links')
+
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default=ROLE_MEMBER )
+
+    class Meta:
+        unique_together = ('practitioner', 'organization')
 
 """
     Allows for a many-to-many relationship between organizations and patient users
