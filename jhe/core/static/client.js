@@ -556,7 +556,7 @@ async function removeUserFromOrganization(userId, organizationId) {
   if (!userId || !organizationId) return;
   const response = await apiRequest(
     "DELETE",
-    `organizations/${organizationId}/user`,
+    `organizations/${organizationId}/remove_user`,
     {
       jheUserId: userId,
     }
