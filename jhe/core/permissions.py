@@ -35,13 +35,16 @@ class IsOrganizationManager(permissions.IsAuthenticated):
 
 
 # RBAC
+# Only Manager can add practitioners
+# Both Manager and member can add patients
 ROLE_PERMISSIONS = {
     "manager": [
         "organization.add_practitioner",
         "organization.remove_practitioner",
+        "organization.add_patient",
     ],
     "member": [
-        "organization.add_practitioner",
+        "organization.add_patient",
     ],
 }
 
@@ -53,12 +56,14 @@ def IfUserCan(resource_and_action: str):
 
         def has_permission(self, request, view):
             # User has to be authenticated
+            organization_id = view.kwargs.get("pk") or request.data.get("organization_id")
+
             if super().has_permission(request, view):
                 if link := PractitionerOrganization.objects.filter(
                         practitioner__jhe_user=request.user,
-                        organization_id=view.kwargs.get("pk")
+                        organization_id=organization_id
                 ).first():
                     return f"{resource}.{action}" in ROLE_PERMISSIONS.get(link.role, [])
-            return None
+            return False
 
     return _IfUserCan
