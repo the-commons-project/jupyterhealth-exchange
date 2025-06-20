@@ -21,7 +21,6 @@ class PatientOrganizationSerializer(serializers.ModelSerializer):
         depth = 1
 
 class OrganizationSerializer(serializers.ModelSerializer):
-    is_manager = serializers.SerializerMethodField()
 
     def to_representation(self, instance):
         self.fields['children'] = OrganizationSerializer(many=True, read_only=True)
@@ -29,19 +28,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'type', 'part_of', 'is_manager']
-
-    def get_is_manager(self, obj):
-        """
-        Returns True if the current request.user is a manager
-        in this organization.
-        """
-        user = self.context['request'].user
-        return PractitionerOrganization.objects.filter(
-            practitioner__jhe_user=user,
-            organization=obj,
-            role=PractitionerOrganization.ROLE_MANAGER
-        ).exists()
+        fields = ['id', 'name', 'type', 'part_of']
 
 class OrganizationWithoutLineageSerializer(serializers.ModelSerializer):
     

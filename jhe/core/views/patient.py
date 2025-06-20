@@ -1,15 +1,20 @@
 import logging
-from core.serializers import CodeableConceptSerializer, FHIRBundledPatientSerializer, PatientSerializer, StudyPendingConsentsSerializer, StudyConsentsSerializer, StudyPatientScopeConsentSerializer
-from core.models import JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study, Organization, PatientOrganization
-from core.fhir_pagination import FHIRBundlePagination
-from rest_framework.viewsets import ModelViewSet
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError, PermissionDenied
+from datetime import datetime
+
+from django.conf import settings
 from django.utils.crypto import get_random_string
 from rest_framework.decorators import action
-from django.conf import settings
-from datetime import datetime
+from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework.response import Response
+from rest_framework.viewsets import ModelViewSet
+
 from core.admin_pagination import AdminListMixin
+from core.fhir_pagination import FHIRBundlePagination
+from core.models import JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study, Organization, \
+    PatientOrganization
+from core.permissions import IfUserCan
+from core.serializers import CodeableConceptSerializer, FHIRBundledPatientSerializer, PatientSerializer, \
+    StudyPendingConsentsSerializer, StudyConsentsSerializer, StudyPatientScopeConsentSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +25,15 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
     admin_query_method = Patient.__dict__['for_practitioner_organization_study']
     admin_count_method = Patient.__dict__['count_for_practitioner_organization_study']
 
+
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        """
+        if self.action == 'create':
+            return [IfUserCan('organization.add_patient')()]
+        return [permission() for permission in self.permission_classes]
+
     def get_queryset(self):
         if self.detail:
             # if this is any practitioner (they don't need to be authorized just to view Patient details) or if this is the patient accessing themselves
@@ -27,7 +41,7 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
                 return Patient.objects.filter(pk=self.kwargs['pk'])
             else:
                 raise PermissionDenied("Current User does not have authorization to access this Patient.")
-        
+
     def create(self, request):
         patient = None
         jhe_user = None
