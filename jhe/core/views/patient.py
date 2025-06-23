@@ -30,8 +30,8 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
         """
         Instantiates and returns the list of permissions that this view requires.
         """
-        if self.action == 'create':
-            return [IfUserCan('organization.add_patient')()]
+        if self.action in ['create', 'destroy', 'update', 'partial_update']:
+            return [IfUserCan('patient.manage_for_organization')()]
         return [permission() for permission in self.permission_classes]
 
     def get_queryset(self):

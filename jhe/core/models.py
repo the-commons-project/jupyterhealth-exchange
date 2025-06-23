@@ -633,10 +633,12 @@ class Patient(models.Model):
 class PractitionerOrganization(models.Model):
     ROLE_MEMBER = 'member'
     ROLE_MANAGER = 'manager'
+    ROLE_VIEWER = 'viewer'
 
     ROLE_CHOICES = [
         (ROLE_MEMBER, 'Member'),
         (ROLE_MANAGER, 'Manager'),
+        (ROLE_VIEWER, 'Viewer'),
     ]
 
     practitioner = models.ForeignKey(Practitioner, on_delete=models.CASCADE, related_name='organization_links')
