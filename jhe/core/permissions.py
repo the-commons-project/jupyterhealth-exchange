@@ -35,17 +35,22 @@ class IsOrganizationManager(permissions.IsAuthenticated):
 
 
 # RBAC
-# Only Manager can add practitioners
-# Both Manager and member can add patients
 ROLE_PERMISSIONS = {
+    "super_user": [
+        "data_source.manage",
+        "organization.manage_for_practitioners",
+        "patient.manage_for_organization",
+        "study.manage_for_organization"],
     "manager": [
-        "organization.add_practitioner",
-        "organization.remove_practitioner",
-        "organization.add_patient",
+        "organization.manage_for_practitioners",
+        "patient.manage_for_organization",
+        "study.manage_for_organization"
     ],
     "member": [
-        "organization.add_patient",
+        "patient.manage_for_organization",
+        "study.manage_for_organization"
     ],
+    "viewer": []
 }
 
 
@@ -54,16 +59,50 @@ def IfUserCan(resource_and_action: str):
 
     class _IfUserCan(permissions.IsAuthenticated):
 
-        def has_permission(self, request, view):
-            # User has to be authenticated
-            organization_id = view.kwargs.get("pk") or request.data.get("organization_id")
+        @staticmethod
+        def if_role_can(role: str, permission: str):
+            return permission in ROLE_PERMISSIONS.get(role, [])
 
+        @staticmethod
+        def get_role(view, request, resource):
+            organization_id = None
+            if request.user.is_superuser and resource in ["data_source", "organization", "practitioner", "patient"]:
+                return "super_user"
+
+            if view.action == 'create':
+                if resource == 'patient':
+                    organization_id = request.data.get('organization_id')
+                elif resource == 'study':
+                    organization_id = request.data.get('organization')
+                elif resource == 'organization':
+                    # sub organization creation
+                    organization_id = request.data.get("part_of")
+
+            else:
+                # case of delete, update, partial_update
+                if resource == 'patient':
+                    organization_id = request.query_params.get('organization_id')
+                elif resource == 'study':
+                    model_obj = view.model_class.objects.filter(id=view.kwargs.get("pk")).first()
+                    organization_id = model_obj.organization.id if model_obj else None
+                elif resource == 'organization':
+                    # get organization id or the parent organization id if nested
+                    model_obj = view.model_class.objects.filter(id=view.kwargs.get("pk")).first()
+                    organization_id = model_obj.part_of.id if (
+                            model_obj.part_of and model_obj.part_of.id != 0) else view.kwargs.get("pk")
+
+            link = PractitionerOrganization.objects.filter(
+                practitioner__jhe_user=request.user,
+                organization_id=organization_id
+            ).first()
+            return link.role if link else None
+
+        def has_permission(self, request, view):
+
+            # User has to be authenticated
             if super().has_permission(request, view):
-                if link := PractitionerOrganization.objects.filter(
-                        practitioner__jhe_user=request.user,
-                        organization_id=organization_id
-                ).first():
-                    return f"{resource}.{action}" in ROLE_PERMISSIONS.get(link.role, [])
+                role = self.get_role(view, request, resource)
+                return self.if_role_can(role, f"{resource}.{action}")
             return False
 
     return _IfUserCan

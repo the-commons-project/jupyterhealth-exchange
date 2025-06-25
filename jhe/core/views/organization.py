@@ -24,6 +24,15 @@ class OrganizationViewSet(ModelViewSet):
     model_class = Organization
     pagination_class = CustomPageNumberPagination
 
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        """
+        if self.action in ['create', 'destroy', 'update', 'partial_update']:
+            return [IfUserCan('organization.manage_for_practitioners')()]
+        return [permission() for permission in self.permission_classes]
+
+
     def get_queryset(self):
         param_part_of = self.request.query_params.get('part_of')
         if param_part_of:
@@ -59,7 +68,7 @@ class OrganizationViewSet(ModelViewSet):
     
     @action(
         detail=True, methods=['POST'],
-        permission_classes=[IfUserCan('organization.add_practitioner')]
+        permission_classes=[IfUserCan('organization.manage_for_practitioners')]
     )
     def user(self, request, pk):
       user_type = request.data.get('user_type', 'practitioner')  # Default to practitioner if not specified
@@ -91,7 +100,7 @@ class OrganizationViewSet(ModelViewSet):
 
     @action(
         detail=True, methods=['DELETE'],
-        permission_classes=[IfUserCan("organization.remove_practitioner")]
+        permission_classes=[IfUserCan("organization.manage_for_practitioners")]
     )
     def remove_user(self, request, pk):
         user_type = request.data.get('user_type', 'practitioner')  # Default to practitioner if not specified

@@ -741,7 +741,7 @@ async function updatePatient(id) {
     birthDate: document.getElementById("patientBirthDate").value || null,
     telecomPhone: document.getElementById("patientTelecomPhone").value || null
   };
-  let response = await apiRequest("PATCH", `patients/${id}`, patientRecord);
+  let response = await apiRequest("PATCH", `patients/${id}?organizationId=${document.getElementById('organizationForPatients')?.value}`, patientRecord);
   if(response.ok && document.getElementById("addOrganizationId")){
     response = await apiRequest(
       "PATCH",
@@ -752,7 +752,7 @@ async function updatePatient(id) {
 }
 
 async function deletePatient(id) {
-  if (await apiRequest("DELETE", `patients/${id}`)) navReturnFromCrud();
+  if (await apiRequest("DELETE", `patients/${id}?organizationId=${document.getElementById('organizationForPatients')?.value}`)) navReturnFromCrud();
 }
 
 async function getInvitationLink(id) {
@@ -1208,6 +1208,16 @@ async function createDataSource() {
   };
   if (await apiRequest("POST", `data_sources`, dataSourceRecord))
     navReturnFromCrud();
+}
+
+async function updateDataSource(id) {
+    const studyRecord = {
+    name: document.getElementById("dataSourceName").value || null,
+    type: document.getElementById("dataSourceType").value || null,
+  };
+  const response = await apiRequest("PATCH", `data_sources/${id}`, studyRecord);
+  if (response.ok) navReturnFromCrud();
+
 }
 
 async function deleteDataSource(id) {
