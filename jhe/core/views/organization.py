@@ -63,7 +63,7 @@ class OrganizationViewSet(ModelViewSet):
     def users(self, request, pk):
         organization = self.get_object()
         users = organization.users.order_by('last_name')
-        serializer = OrganizationUsersSerializer(users, many=True)
+        serializer = OrganizationUsersSerializer(users, many=True, context={"organization_id": organization.id})
         return Response(serializer.data)
     
     @action(

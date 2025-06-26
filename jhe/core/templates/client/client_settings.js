@@ -19,4 +19,25 @@ const CONSTANTS = {
   DATA_SOURCE_TYPES: {{ DATA_SOURCE_TYPES }}
 };
 
+
+// RBAC permissions
+window.ROLE_PERMISSIONS = {
+  "super_user": [
+    "data_source.manage",
+    "organization.manage_for_practitioners",
+    "patient.manage_for_organization",
+    "study.manage_for_organization"
+  ],
+  "manager": [
+    "organization.manage_for_practitioners",
+    "patient.manage_for_organization",
+    "study.manage_for_organization"
+  ],
+  "member": [
+    "patient.manage_for_organization",
+    "study.manage_for_organization"
+  ],
+  "viewer": []
+};
+
 {% endautoescape %}

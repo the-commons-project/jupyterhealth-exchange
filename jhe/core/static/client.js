@@ -362,6 +362,13 @@ async function signOut() {
   this.document.location = "/accounts/logout";
 }
 
+// ────────────────────────────────────────────────────
+// Permission helper (must appear before any render*())
+// ────────────────────────────────────────────────────
+function ifRoleCan(role, permission) {
+  return (window.ROLE_PERMISSIONS[role] || []).includes(permission)
+}
+
 // ==================================================
 // Organizations
 // ==================================================
@@ -398,7 +405,7 @@ async function renderOrganizations(queryParams) {
     organizationTreeChildren = organizationTree.children;
   }
 
-  let organizationRecord, partOfId, partOfName;
+  let organizationRecord, partOfId, partOfName, manageForPractitioners;
 
   if (queryParams.create) {
     if (
@@ -441,7 +448,12 @@ async function renderOrganizations(queryParams) {
       organizationRecord.type,
       ["root"]
     );
-
+    if (organizationRecord && organizationRecord.currentUserRole) {
+        manage_for_practitioners = ifRoleCan(
+        organizationRecord.currentUserRole,
+        'organization.manage_for_practitioners'
+      );
+    }
     if (
       organizationRecord.partOf == CONSTANTS.ORGANIZATION_TOP_LEVEL_PART_OF_ID
     ) {
@@ -486,6 +498,7 @@ async function renderOrganizations(queryParams) {
     topLevelOrganizationsSelect: topLevelOrganizationsSelect,
     children: organizationTreeChildren,
     organizationRecord: organizationRecord,
+    manageForPractitioners: manageForPractitioners,
   };
 
   return content(renderParams);

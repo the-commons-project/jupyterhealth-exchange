@@ -151,6 +151,7 @@
             </form>
             {{#if read}}
               <p>
+                  {{#if manageForPractitioners}}
                 Users
                 <button
                   type="button"
@@ -159,6 +160,7 @@
                 >
                   <i class="bi bi-file-earmark-plus"></i>
                 </button>
+                  {{/if}}
               </p>
               <div id="organizationAddUserForm" class="mb-2" style="display: none">
               <div class="d-flex mb-2">
@@ -202,6 +204,8 @@
                 {{#each organizationRecord.users}}
                   <li>
                     {{email}}
+                      <span class="text-capitalize" > {{ role }} </span>
+                      {{#if manageForPractitioners}}
                     <button
                       type="button"
                       onclick="removeUserFromOrganization({{id}},document.getElementById('organizationId').value)"
@@ -209,6 +213,7 @@
                     >
                       <i class="bi bi-trash"></i>
                     </button>
+                      {{/if}}
                   </li>
                 {{/each}}
               </ul>
