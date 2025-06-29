@@ -20,6 +20,7 @@ pydantic = "*"
 pydantic-core = "*"
 pyhumps = "*"
 coverage = "*"
+faker = "*"
 
 [dev-packages]
 
