@@ -28,6 +28,7 @@ class Command(BaseCommand):
         self.stdout.write("Seeding RBAC…")
         with transaction.atomic():
             self.reset_sequences()
+            self.generate_superuser()
             self.seed_codeable_concept()
             self.seed_data_source()
             self.seed_berkeley()
@@ -275,3 +276,10 @@ class Command(BaseCommand):
             patient.save()
             return patient
         return None
+
+    @staticmethod
+    def generate_superuser(email="sam@example.com"):
+        JheUser.objects.create_superuser(
+            email=email,
+            password="Jhe1234!",
+        )
