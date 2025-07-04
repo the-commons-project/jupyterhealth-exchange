@@ -3,6 +3,7 @@ from datetime import datetime
 
 from django.conf import settings
 from django.utils.crypto import get_random_string
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.response import Response
@@ -10,16 +11,17 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.admin_pagination import AdminListMixin
 from core.fhir_pagination import FHIRBundlePagination
-from core.models import JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study, Organization, \
-    PatientOrganization
+from core.models import (JheUser, CodeableConcept, Patient, StudyPatient, StudyPatientScopeConsent, Study, Organization,
+                         PatientOrganization, Observation, Practitioner)
 from core.permissions import IfUserCan
-from core.serializers import CodeableConceptSerializer, FHIRBundledPatientSerializer, PatientSerializer, \
-    StudyPendingConsentsSerializer, StudyConsentsSerializer, StudyPatientScopeConsentSerializer
+from core.serializers import (CodeableConceptSerializer, FHIRBundledPatientSerializer, PatientSerializer,
+                              StudyPendingConsentsSerializer, StudyConsentsSerializer,
+                              StudyPatientScopeConsentSerializer)
 
 logger = logging.getLogger(__name__)
 
 class PatientViewSet(AdminListMixin, ModelViewSet):
-    
+
     model_class = Patient
     serializer_class = PatientSerializer
     admin_query_method = Patient.__dict__['for_practitioner_organization_study']
@@ -42,7 +44,7 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
             else:
                 raise PermissionDenied("Current User does not have authorization to access this Patient.")
 
-    def create(self, request):
+    def create(self, request, *args, **kwargs):
         patient = None
         jhe_user = None
         if request.data['telecom_email']:
@@ -58,15 +60,37 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
             patient = Patient.objects.create(**request.data)
         else:
             raise ValidationError
-        
+
         serializer = PatientSerializer(patient)
         return Response(serializer.data)
-    
-    def destroy(self, request, pk=None):
-        patient = self.get_object()
-        patient.delete()
-        return Response({'success': True})
-    
+
+    def destroy(self, request, pk=None, *args, **kwargs):
+        if organization_id := request.query_params.get('organization_id'):
+            patient = self.get_object()
+            PatientOrganization.objects.filter(
+                patient=patient, organization_id=organization_id
+            ).delete()
+
+            StudyPatientScopeConsent.objects.filter(
+                study_patient__patient=patient,
+                study_patient__study__organization_id=organization_id,
+            ).delete()
+
+            StudyPatient.objects.filter(
+                patient=patient, study__organization_id=organization_id
+            ).delete()
+
+            if not PatientOrganization.objects.filter(patient=patient).exists():
+                Observation.objects.filter(subject_patient=patient).delete()
+                patient.delete()
+
+                if user := patient.jhe_user:
+                    if not Practitioner.objects.filter(jhe_user_id=user.id).exists():
+                        user.delete()
+
+            return Response({'success': True})
+        return Response({"detail": "organizationId required"}, status=status.HTTP_400_BAD_REQUEST )
+
     # These global methods (no premission checks) are for adding an existing patient
     # to another Organization (the exact email must be known)
     @action(detail=False, methods=['GET'])
@@ -76,7 +100,7 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
             raise ValidationError("email parameter required")
         patients = Patient.objects.filter(jhe_user__email=email)
         return Response(PatientSerializer(patients, many=True).data, status=200)
-    
+
     @action(detail=True, methods=['PATCH'])
     def global_add_organization(self, request, pk):
         organization_id = request.GET.get('organization_id')
@@ -91,7 +115,7 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
             patient_id=patient.id
         )
         return Response(PatientSerializer(patient, many=False).data, status=200)
-    
+
     @action(detail=True, methods=['GET'])
     def invitation_link(self, request, pk):
         patient = self.get_object()
@@ -168,12 +192,12 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
                                 scope_code_id=scope_code_id,
                             ).delete()
                         )
-            
+
             return Response({'study_scope_consents': StudyPatientScopeConsentSerializer(responses, many=True).data })
 
 
 class FHIRPatientViewSet(ModelViewSet):
-    
+
     serializer_class = FHIRBundledPatientSerializer
     pagination_class = FHIRBundlePagination
 
@@ -186,7 +210,7 @@ class FHIRPatientViewSet(ModelViewSet):
 
         if not (study_id or patient_identifier_system_and_value):
             raise ValidationError("Request parameter _has:Group:member:_id=<study_id> or patient.identifier=<system>|<value> must be provided.")
-        
+
         patient_identifier_system = None
         patient_identifier_value = None
         if patient_identifier_system_and_value:
@@ -196,7 +220,7 @@ class FHIRPatientViewSet(ModelViewSet):
 
         if study_id and (not Study.practitioner_authorized(self.request.user.id, study_id)):
             raise PermissionDenied("Current User does not have authorization to access this Study.")
-        
+
         if patient_identifier_system_and_value and (not Patient.practitioner_authorized(self.request.user.id, None, None, patient_identifier_value)):
             raise PermissionDenied("Current User does not have authorization to access this Patient.")
 
