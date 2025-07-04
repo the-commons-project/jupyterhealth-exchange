@@ -1,26 +1,30 @@
-from fhir.resources.observation import Observation as FHIRObservation
-from fhir.resources.patient import Patient as FHIRPatient
-import json, logging, humps
-from django.db import models, connection
-from django.contrib.auth.models import AbstractUser
-from django.utils.translation import gettext_lazy as _
+import base64
+import humps
+import json
+import logging
+from datetime import timedelta
+from random import SystemRandom
+
+from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
+from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import PermissionDenied, BadRequest
+from django.core.mail import EmailMessage
+from django.db import models, connection
+from django.db.models import Q
+from django.db.utils import IntegrityError
+from django.shortcuts import get_object_or_404
+from django.template.loader import render_to_string
+from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
-from django.core.mail import EmailMessage
-from django.core.exceptions import PermissionDenied, BadRequest
-from django.template.loader import render_to_string
-from django.conf import settings
-from django.utils import timezone
-from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
+from fhir.resources.observation import Observation as FHIRObservation
+from fhir.resources.patient import Patient as FHIRPatient
+from oauth2_provider.models import get_grant_model
 
 from .tokens import account_activation_token
-from random import SystemRandom
-from oauth2_provider.models import get_grant_model
-from datetime import timedelta
-from django.db.utils import IntegrityError
-from django.db.models import Q
-import base64
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,27 @@ class JheUser(AbstractUser):
 
   def __str__(self):
     return self.email
+
+
+  def delete(self, *args, **kwargs):
+      """
+      To bypass the below exception as core_jheuser_groups Django built-in model has been removed.
+
+      django.db.utils.ProgrammingError: relation "core_jheuser_groups" does not exist
+      LINE 1: DELETE FROM "core_jheuser_groups" WHERE "core_jheuser_groups...
+      """
+      with connection.cursor() as cursor:
+          cursor.execute(
+              "DELETE FROM core_jheuser WHERE id = %s",
+              [self.id]
+          )
+          deleted = cursor.rowcount
+
+      if deleted:
+          return deleted
+      else:
+          raise ObjectDoesNotExist(f"JheUser with id={self.id} did not exist")
+
 
   def save(self, *args, **kwargs):
     is_new = self._state.adding  # lives on internal ModelState object; Django's built-in flag for "has this object been added to the database yet?"
