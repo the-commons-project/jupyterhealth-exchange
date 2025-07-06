@@ -1,0 +1,2545 @@
+openapi: 3.0.3
+info:
+  title: JupyterHealth Exchange
+  version: 1.0.0
+  description: Django app sharing user-consented medical data via web REST FHIR.
+paths:
+  /api/v1/data_sources:
+    get:
+      operationId: api_v1_data_sources_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDataSourceList'
+          description: ''
+    post:
+      operationId: api_v1_data_sources_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+          description: ''
+  /api/v1/data_sources/{id}:
+    get:
+      operationId: api_v1_data_sources_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this data source.
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+          description: ''
+    put:
+      operationId: api_v1_data_sources_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this data source.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+          description: ''
+    patch:
+      operationId: api_v1_data_sources_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this data source.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDataSource'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDataSource'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDataSource'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+          description: ''
+    delete:
+      operationId: api_v1_data_sources_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this data source.
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/data_sources/{id}/supported_scopes:
+    get:
+      operationId: api_v1_data_sources_supported_scopes_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this data source.
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+          description: ''
+    post:
+      operationId: api_v1_data_sources_supported_scopes_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this data source.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSource'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+          description: ''
+    delete:
+      operationId: api_v1_data_sources_supported_scopes_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this data source.
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/data_sources/all_scopes:
+    get:
+      operationId: api_v1_data_sources_all_scopes_retrieve
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSource'
+          description: ''
+  /api/v1/observations:
+    get:
+      operationId: api_v1_observations_list
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Observation'
+          description: ''
+  /api/v1/organizations:
+    get:
+      operationId: api_v1_organizations_list
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOrganizationList'
+          description: ''
+    post:
+      operationId: api_v1_organizations_create
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Organization'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Organization'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Organization'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+  /api/v1/organizations/{id}:
+    get:
+      operationId: api_v1_organizations_retrieve
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+    put:
+      operationId: api_v1_organizations_update
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Organization'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Organization'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Organization'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+    patch:
+      operationId: api_v1_organizations_partial_update
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedOrganization'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedOrganization'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedOrganization'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+    delete:
+      operationId: api_v1_organizations_destroy
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/organizations/{id}/remove_user:
+    delete:
+      operationId: api_v1_organizations_remove_user_destroy
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/organizations/{id}/studies:
+    get:
+      operationId: api_v1_organizations_studies_retrieve
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+  /api/v1/organizations/{id}/tree:
+    get:
+      operationId: api_v1_organizations_tree_retrieve
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+  /api/v1/organizations/{id}/user:
+    post:
+      operationId: api_v1_organizations_user_create
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Organization'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Organization'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Organization'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+  /api/v1/organizations/{id}/users:
+    get:
+      operationId: api_v1_organizations_users_retrieve
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this organization.
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+  /api/v1/organizations/types:
+    get:
+      operationId: api_v1_organizations_types_retrieve
+      description: |-
+        This viewset automatically provides `list`, `create`, `retrieve`,
+        `update` and `destroy` actions.
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: ''
+  /api/v1/patients:
+    get:
+      operationId: api_v1_patients_list
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPatientList'
+          description: ''
+    post:
+      operationId: api_v1_patients_create
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Patient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Patient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Patient'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+  /api/v1/patients/{id}:
+    get:
+      operationId: api_v1_patients_retrieve
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+    put:
+      operationId: api_v1_patients_update
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Patient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Patient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Patient'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+    patch:
+      operationId: api_v1_patients_partial_update
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+    delete:
+      operationId: api_v1_patients_destroy
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/patients/{id}/consents:
+    get:
+      operationId: api_v1_patients_consents_retrieve
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+    post:
+      operationId: api_v1_patients_consents_create
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Patient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Patient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Patient'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+    patch:
+      operationId: api_v1_patients_consents_partial_update
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+    delete:
+      operationId: api_v1_patients_consents_destroy
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/patients/{id}/global_add_organization:
+    patch:
+      operationId: api_v1_patients_global_add_organization_partial_update
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPatient'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+  /api/v1/patients/{id}/invitation_link:
+    get:
+      operationId: api_v1_patients_invitation_link_retrieve
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+  /api/v1/patients/global_lookup:
+    get:
+      operationId: api_v1_patients_global_lookup_retrieve
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patient'
+          description: ''
+  /api/v1/studies:
+    get:
+      operationId: api_v1_studies_list
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStudyOrganizationList'
+          description: ''
+    post:
+      operationId: api_v1_studies_create
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Study'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Study'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Study'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Study'
+          description: ''
+  /api/v1/studies/{id}:
+    get:
+      operationId: api_v1_studies_retrieve
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudyOrganization'
+          description: ''
+    put:
+      operationId: api_v1_studies_update
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Study'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Study'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Study'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Study'
+          description: ''
+    patch:
+      operationId: api_v1_studies_partial_update
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedStudy'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedStudy'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedStudy'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Study'
+          description: ''
+    delete:
+      operationId: api_v1_studies_destroy
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/studies/{id}/data_sources:
+    get:
+      operationId: api_v1_studies_data_sources_retrieve
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudyOrganization'
+          description: ''
+    post:
+      operationId: api_v1_studies_data_sources_create
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Study'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Study'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Study'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Study'
+          description: ''
+    delete:
+      operationId: api_v1_studies_data_sources_destroy
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/studies/{id}/patients:
+    get:
+      operationId: api_v1_studies_patients_retrieve
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudyOrganization'
+          description: ''
+    post:
+      operationId: api_v1_studies_patients_create
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Study'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Study'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Study'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Study'
+          description: ''
+    delete:
+      operationId: api_v1_studies_patients_destroy
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/studies/{id}/scope_requests:
+    get:
+      operationId: api_v1_studies_scope_requests_retrieve
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudyOrganization'
+          description: ''
+    post:
+      operationId: api_v1_studies_scope_requests_create
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Study'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Study'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Study'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Study'
+          description: ''
+    delete:
+      operationId: api_v1_studies_scope_requests_destroy
+      description: |-
+        Mixin that provides a standardized list implementation for admin APIs.
+        Expects the model class to expose a query method and a count method.
+
+        Subclasses should define:
+          - model_class (the model to query),
+          - serializer_class,
+          - admin_query_method, and
+          - admin_count_method.
+
+        Override get_query_args(request) if needed.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/users:
+    get:
+      operationId: api_v1_users_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedJheUserList'
+          description: ''
+    post:
+      operationId: api_v1_users_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/JheUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JheUser'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JheUser'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JheUser'
+          description: ''
+  /api/v1/users/{id}:
+    get:
+      operationId: api_v1_users_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JheUser'
+          description: ''
+    put:
+      operationId: api_v1_users_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/JheUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JheUser'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JheUser'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JheUser'
+          description: ''
+    patch:
+      operationId: api_v1_users_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedJheUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedJheUser'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedJheUser'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JheUser'
+          description: ''
+    delete:
+      operationId: api_v1_users_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - api
+      responses:
+        '204':
+          description: No response body
+  /api/v1/users/organizations:
+    get:
+      operationId: api_v1_users_organizations_retrieve
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JheUser'
+          description: ''
+  /api/v1/users/profile:
+    get:
+      operationId: api_v1_users_profile_retrieve
+      tags:
+      - api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JheUser'
+          description: ''
+  /fhir/r5/:
+    post:
+      operationId: fhir_r5_create
+      tags:
+      - fhir
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FHIRBundle'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FHIRBundle'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FHIRBundle'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRBundle'
+          description: ''
+  /fhir/r5/Observation:
+    get:
+      operationId: fhir_r5_Observation_list
+      parameters:
+      - name: _count
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: _page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - fhir
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFHIRBundledObservationList'
+          description: ''
+    post:
+      operationId: fhir_r5_Observation_create
+      tags:
+      - fhir
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FHIRObservation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FHIRObservation'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FHIRObservation'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRObservation'
+          description: ''
+  /fhir/r5/Observation/{id}:
+    get:
+      operationId: fhir_r5_Observation_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - fhir
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRBundledObservation'
+          description: ''
+    put:
+      operationId: fhir_r5_Observation_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - fhir
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FHIRObservation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FHIRObservation'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FHIRObservation'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRObservation'
+          description: ''
+    patch:
+      operationId: fhir_r5_Observation_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - fhir
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFHIRObservation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFHIRObservation'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFHIRObservation'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRObservation'
+          description: ''
+    delete:
+      operationId: fhir_r5_Observation_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - fhir
+      responses:
+        '204':
+          description: No response body
+  /fhir/r5/Patient:
+    get:
+      operationId: fhir_r5_Patient_list
+      parameters:
+      - name: _count
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: _page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - fhir
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFHIRBundledPatientList'
+          description: ''
+    post:
+      operationId: fhir_r5_Patient_create
+      tags:
+      - fhir
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FHIRBundledPatient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FHIRBundledPatient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FHIRBundledPatient'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRBundledPatient'
+          description: ''
+  /fhir/r5/Patient/{id}:
+    get:
+      operationId: fhir_r5_Patient_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - fhir
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRBundledPatient'
+          description: ''
+    put:
+      operationId: fhir_r5_Patient_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - fhir
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FHIRBundledPatient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FHIRBundledPatient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FHIRBundledPatient'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRBundledPatient'
+          description: ''
+    patch:
+      operationId: fhir_r5_Patient_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - fhir
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFHIRBundledPatient'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFHIRBundledPatient'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFHIRBundledPatient'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FHIRBundledPatient'
+          description: ''
+    delete:
+      operationId: fhir_r5_Patient_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - fhir
+      responses:
+        '204':
+          description: No response body
+components:
+  schemas:
+    BlankEnum:
+      enum:
+      - ''
+    CodeableConcept:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        coding_system:
+          type: string
+        coding_code:
+          type: string
+        text:
+          type: string
+      required:
+      - coding_code
+      - coding_system
+      - id
+      - text
+    DataSource:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          nullable: true
+        type:
+          $ref: '#/components/schemas/DataSourceTypeEnum'
+        supported_scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodeableConcept'
+          readOnly: true
+      required:
+      - id
+      - supported_scopes
+    DataSourceTypeEnum:
+      enum:
+      - personal_device
+      type: string
+      description: '* `personal_device` - Personal Device'
+    FHIRBundle:
+      type: object
+      properties:
+        _:
+          title: ' '
+      required:
+      - _
+    FHIRBundledObservation:
+      type: object
+      properties:
+        resource:
+          allOf:
+          - $ref: '#/components/schemas/FHIRObservation'
+          readOnly: true
+      required:
+      - resource
+    FHIRBundledPatient:
+      type: object
+      properties:
+        resource:
+          allOf:
+          - $ref: '#/components/schemas/FHIRPatient'
+          readOnly: true
+      required:
+      - resource
+    FHIRObservation:
+      type: object
+      properties:
+        resource_type:
+          type: string
+        id:
+          type: string
+        meta: {}
+        identifier: {}
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        subject: {}
+        code: {}
+        value_attachment: {}
+      required:
+      - code
+      - id
+      - meta
+      - resource_type
+      - subject
+      - value_attachment
+    FHIRPatient:
+      type: object
+      properties:
+        resource_type:
+          type: string
+        id:
+          type: string
+        meta: {}
+        identifier: {}
+        name: {}
+        birth_date:
+          type: string
+          format: date
+        telecom: {}
+      required:
+      - birth_date
+      - id
+      - meta
+      - name
+      - resource_type
+      - telecom
+    JheUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        patient:
+          allOf:
+          - $ref: '#/components/schemas/Patient'
+          readOnly: true
+        user_type:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/UserTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+      required:
+      - email
+      - id
+      - patient
+    NullEnum:
+      enum:
+      - null
+    Observation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        subject_patient_id:
+          type: integer
+          readOnly: true
+        patient_name_family:
+          type: string
+        patient_name_given:
+          type: string
+        codeable_concept_id:
+          type: integer
+          readOnly: true
+        coding_system:
+          type: string
+        coding_code:
+          type: string
+        coding_text:
+          type: string
+        last_updated:
+          type: string
+          format: date-time
+          readOnly: true
+        value_attachment_data: {}
+      required:
+      - codeable_concept_id
+      - coding_code
+      - coding_system
+      - coding_text
+      - id
+      - last_updated
+      - patient_name_family
+      - patient_name_given
+      - subject_patient_id
+      - value_attachment_data
+    Organization:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/Type6b4Enum'
+        part_of:
+          type: integer
+          nullable: true
+        current_user_role:
+          type: string
+          readOnly: true
+      required:
+      - current_user_role
+      - id
+      - name
+      - type
+    OrganizationWithoutLineage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/Type6b4Enum'
+      required:
+      - id
+      - name
+      - type
+    PaginatedDataSourceList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataSource'
+    PaginatedFHIRBundledObservationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?_page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?_page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FHIRBundledObservation'
+    PaginatedFHIRBundledPatientList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?_page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?_page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FHIRBundledPatient'
+    PaginatedJheUserList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/JheUser'
+    PaginatedOrganizationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Organization'
+    PaginatedPatientList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Patient'
+    PaginatedStudyOrganizationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudyOrganization'
+    PatchedDataSource:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          nullable: true
+        type:
+          $ref: '#/components/schemas/DataSourceTypeEnum'
+        supported_scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodeableConcept'
+          readOnly: true
+    PatchedFHIRBundledPatient:
+      type: object
+      properties:
+        resource:
+          allOf:
+          - $ref: '#/components/schemas/FHIRPatient'
+          readOnly: true
+    PatchedFHIRObservation:
+      type: object
+      properties:
+        resource_type:
+          type: string
+        id:
+          type: string
+        meta: {}
+        identifier: {}
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        subject: {}
+        code: {}
+        value_attachment: {}
+    PatchedJheUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        patient:
+          allOf:
+          - $ref: '#/components/schemas/Patient'
+          readOnly: true
+        user_type:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/UserTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+    PatchedOrganization:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/Type6b4Enum'
+        part_of:
+          type: integer
+          nullable: true
+        current_user_role:
+          type: string
+          readOnly: true
+    PatchedPatient:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        jhe_user_id:
+          type: integer
+          nullable: true
+          readOnly: true
+        identifier:
+          type: string
+          nullable: true
+        name_family:
+          type: string
+        name_given:
+          type: string
+        birth_date:
+          type: string
+          format: date
+        telecom_phone:
+          type: string
+          nullable: true
+        telecom_email:
+          type: string
+          readOnly: true
+        organizations:
+          type: string
+          readOnly: true
+    PatchedStudy:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        description:
+          type: string
+        organization:
+          type: integer
+        icon_url:
+          type: string
+          nullable: true
+    Patient:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        jhe_user_id:
+          type: integer
+          nullable: true
+          readOnly: true
+        identifier:
+          type: string
+          nullable: true
+        name_family:
+          type: string
+        name_given:
+          type: string
+        birth_date:
+          type: string
+          format: date
+        telecom_phone:
+          type: string
+          nullable: true
+        telecom_email:
+          type: string
+          readOnly: true
+        organizations:
+          type: string
+          readOnly: true
+      required:
+      - birth_date
+      - id
+      - jhe_user_id
+      - name_family
+      - name_given
+      - organizations
+      - telecom_email
+    StatusEnum:
+      enum:
+      - registered
+      - preliminary
+      - final
+      - amended
+      - corrected
+      - appended
+      - cancelled
+      - entered-in-error
+      - unknown
+      type: string
+      description: |-
+        * `registered` - registered
+        * `preliminary` - preliminary
+        * `final` - final
+        * `amended` - amended
+        * `corrected` - corrected
+        * `appended` - appended
+        * `cancelled` - cancelled
+        * `entered-in-error` - Entered in Error
+        * `unknown` - Unknown
+    Study:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        description:
+          type: string
+        organization:
+          type: integer
+        icon_url:
+          type: string
+          nullable: true
+      required:
+      - description
+      - id
+      - name
+      - organization
+    StudyOrganization:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        description:
+          type: string
+        organization:
+          allOf:
+          - $ref: '#/components/schemas/OrganizationWithoutLineage'
+          readOnly: true
+        icon_url:
+          type: string
+          nullable: true
+      required:
+      - description
+      - id
+      - name
+      - organization
+    Type6b4Enum:
+      enum:
+      - root
+      - prov
+      - dept
+      - team
+      - govt
+      - ins
+      - pay
+      - edu
+      - reli
+      - crs
+      - cg
+      - bus
+      - other
+      - laboratory
+      - imaging
+      - pharmacy
+      - health-information-network
+      - health-data-aggregator
+      type: string
+      description: |-
+        * `root` - ROOT
+        * `prov` - Healthcare Provider
+        * `dept` - Hospital Department
+        * `team` - Organizational team
+        * `govt` - Government
+        * `ins` - Insurance Company
+        * `pay` - Payer
+        * `edu` - Educational Institute
+        * `reli` - Religious Institution
+        * `crs` - Clinical Research Sponsor
+        * `cg` - Community Group
+        * `bus` - Non-Healthcare Business or Corporation
+        * `other` - Other
+        * `laboratory` - Laboratory
+        * `imaging` - Imaging Center
+        * `pharmacy` - Pharmacy
+        * `health-information-network` - Health Information Network
+        * `health-data-aggregator` - Health Data Aggregator
+    UserTypeEnum:
+      enum:
+      - patient
+      - practitioner
+      type: string
+      description: |-
+        * `patient` - Patient
+        * `practitioner` - Practitioner
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows: {}
