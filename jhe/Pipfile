@@ -21,6 +21,7 @@ pydantic-core = "*"
 pyhumps = "*"
 coverage = "*"
 faker = "*"
+drf-spectacular = "*"
 
 [dev-packages]
 
