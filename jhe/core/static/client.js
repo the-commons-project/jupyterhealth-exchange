@@ -405,7 +405,7 @@ async function renderOrganizations(queryParams) {
     organizationTreeChildren = organizationTree.children;
   }
 
-  let organizationRecord, partOfId, partOfName, manageForPractitioners;
+  let organizationRecord, partOfId, partOfName, canManagePractitionersInOrg;
 
   if (queryParams.create) {
     if (
@@ -449,7 +449,7 @@ async function renderOrganizations(queryParams) {
       ["root"]
     );
     if (organizationRecord && organizationRecord.currentUserRole) {
-        manage_for_practitioners = ifRoleCan(
+        canManagePractitionersInOrg = ifRoleCan(
         organizationRecord.currentUserRole,
         'organization.manage_for_practitioners'
       );
@@ -498,7 +498,7 @@ async function renderOrganizations(queryParams) {
     topLevelOrganizationsSelect: topLevelOrganizationsSelect,
     children: organizationTreeChildren,
     organizationRecord: organizationRecord,
-    manageForPractitioners: manageForPractitioners,
+    manageForPractitioners: canManagePractitionersInOrg,
   };
 
   return content(renderParams);
