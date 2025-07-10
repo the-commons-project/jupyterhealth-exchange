@@ -1,3 +1,4 @@
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db import connection
 from django.db import transaction
@@ -24,15 +25,26 @@ fake = Faker()
 class Command(BaseCommand):
     help = 'Seed the database'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--flush-db",
+            action='store_true',
+            help="Flush the entire database before seeding as already seeding won't work with already populated DB.",
+        )
+
     def handle(self, *args, **options):
         self.stdout.write("Seeding RBAC…")
+        if options['flush_db']:
+            self.stdout.write("Flushing the database…")
+            call_command('flush', '--noinput')
         with transaction.atomic():
             self.reset_sequences()
             self.generate_superuser()
             self.seed_codeable_concept()
             self.seed_data_source()
-            self.seed_berkeley()
-            self.seed_ucsf()
+            root_organization = self.create_root_organization()
+            self.seed_berkeley(root_organization)
+            self.seed_ucsf(root_organization)
 
         self.stdout.write(self.style.SUCCESS("Seeding complete."))
 
@@ -89,14 +101,19 @@ class Command(BaseCommand):
                 name=name, type=type
             )
 
-    def seed_berkeley(self):
+    @staticmethod
+    def create_root_organization():
+        return Organization.objects.create(id=0, name='ROOT', type='root')
 
-        ucb = Organization.objects.create(name="University of California Berkeley", type="edu", part_of=None)
+    def seed_berkeley(self, root_organization):
+
+        ucb = Organization.objects.create(name="University of California Berkeley", type="edu",
+                                          part_of=root_organization)
         ccdss = Organization.objects.create(name="College of Computing, Data Science and Society", type="edu",
                                             part_of=ucb)
         bids = Organization.objects.create(name="Berkeley Institute for Data Science (BIDS)", type="edu", part_of=ccdss)
 
-        mary = self.create_user("mary@example.com")
+        mary = self.create_user_with_profile("mary@example.com")
 
         manager_links = [
             PractitionerOrganization(
@@ -108,13 +125,13 @@ class Command(BaseCommand):
         ]
         PractitionerOrganization.objects.bulk_create(manager_links)
 
-        megan = self.create_user("megan@example.com")
+        megan = self.create_user_with_profile("megan@example.com")
         PractitionerOrganization.objects.create(practitioner=megan, organization=bids, role="member")
 
-        victor = self.create_user("victor@example.com")
+        victor = self.create_user_with_profile("victor@example.com")
         PractitionerOrganization.objects.create(practitioner=victor, organization=bids, role="viewer")
 
-        tom = self.create_user("tom@example.com")
+        tom = self.create_user_with_profile("tom@example.com")
         PractitionerOrganization.objects.create(practitioner=tom, organization=bids, role="viewer")
 
         # 3) Create BIDS studies
@@ -136,9 +153,9 @@ class Command(BaseCommand):
         StudyScopeRequest.objects.create(study=bp_hr, scope_code=hr_code)
         StudyScopeRequest.objects.create(study=bp, scope_code=bp_code)
 
-        peter = self.create_user("peter@example.com", user_type="patient")
+        peter = self.create_user_with_profile("peter@example.com", user_type="patient")
         peter.organizations.add(bids)
-        pamela = self.create_user("pamela@example.com", user_type="patient")
+        pamela = self.create_user_with_profile("pamela@example.com", user_type="patient")
         pamela.organizations.add(bids)
 
         sp_peter_bp_hr = StudyPatient.objects.create(study=bp_hr, patient=peter)
@@ -171,15 +188,16 @@ class Command(BaseCommand):
                 value_attachment_data={scope_code.text: "placeholder"}
             )
 
-    def seed_ucsf(self):
+    def seed_ucsf(self, root_organization):
 
-        ucsf = Organization.objects.create(name="University of California San Francisco", type="edu", part_of=None)
+        ucsf = Organization.objects.create(name="University of California San Francisco", type="edu",
+                                           part_of=root_organization)
         med = Organization.objects.create(name="Department of Medicine", type="edu", part_of=ucsf)
         cardio = Organization.objects.create(name="Cardiology", type="edu", part_of=med)
         mosl = Organization.objects.create(name="Moslehi Lab", type="laboratory", part_of=cardio)
         olgin = Organization.objects.create(name="Olgin Lab", type="laboratory", part_of=cardio)
 
-        mark = self.create_user("mark@example.com", user_type="practitioner")
+        mark = self.create_user_with_profile("mark@example.com", user_type="practitioner")
         practitioner_org_links = [
             PractitionerOrganization(
                 practitioner=mark,
@@ -218,11 +236,11 @@ class Command(BaseCommand):
         StudyScopeRequest.objects.create(study=mosl_bt, scope_code=bt_code)
         StudyScopeRequest.objects.create(study=olgin_o2, scope_code=o2_code)
 
-        percy = self.create_user("percy@example.com", user_type="patient")
+        percy = self.create_user_with_profile("percy@example.com", user_type="patient")
         percy.organizations.add(mosl)
-        paul = self.create_user("paul@example.com", user_type="patient")
+        paul = self.create_user_with_profile("paul@example.com", user_type="patient")
         paul.organizations.add(olgin)
-        pat = self.create_user("pat@example.com", user_type="patient")
+        pat = self.create_user_with_profile("pat@example.com", user_type="patient")
         pat.organizations.add(cardio, olgin)
 
         sp_percy_bt = StudyPatient.objects.create(study=mosl_bt, patient=percy)
@@ -257,10 +275,10 @@ class Command(BaseCommand):
                 value_attachment_data={scope_code.text: "placeholder"}
             )
 
-    def create_user(self, email, user_type="practitioner"):
-        user = JheUser(email=email, password=get_random_string(length=16),
-                       first_name=email.split('@')[0], last_name=fake.last_name(),
-                       user_type=user_type)
+    def create_user_with_profile(self, email, user_type="practitioner", password='Jhe1234!'):
+        user = JheUser.objects.create_user(email=email, password=password or get_random_string(length=16),
+                                           first_name=email.split('@')[0], last_name=fake.last_name(),
+                                           user_type=user_type)
         user.identifier = f'fhir-{str(user.id)[-1] * 3}'
         user.save()
         if user_type == "practitioner":
@@ -278,8 +296,8 @@ class Command(BaseCommand):
         return None
 
     @staticmethod
-    def generate_superuser(email="sam@example.com"):
+    def generate_superuser(email="sam@example.com", password='Jhe1234!'):
         JheUser.objects.create_superuser(
             email=email,
-            password="Jhe1234!",
+            password=password,
         )
