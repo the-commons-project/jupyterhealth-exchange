@@ -546,11 +546,11 @@ async function deleteOrganization(id) {
 
     async function addUserToOrganization(userEmail, organizationId, role) {
   if (!userEmail || !organizationId) return;
-  const userRecordResponse = await apiRequest("GET", "users", {
+  const userRecordResponse = await apiRequest("GET", "users/search_by_email", {
     email: userEmail,
   });
   const userRecordPaginated = await userRecordResponse.json();
-  if (userRecordPaginated.results.length == 0) {
+  if (userRecordPaginated.id === undefined) {
     alert("No User with this E-mail exists.");
     return;
   }
@@ -558,7 +558,7 @@ async function deleteOrganization(id) {
     "POST",
     `organizations/${organizationId}/user`,
     {
-      jheUserId: userRecordPaginated.results[0].id,
+      jheUserId: userRecordPaginated.id,
       organizationPartitionerRole: role
     }
   );
