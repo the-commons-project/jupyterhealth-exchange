@@ -25,12 +25,15 @@ urlpatterns = [
     # Home
     path('', common.home, name='home'),
     # Django auth and accounts
+
+    path("accounts/login/", common.LoginView.as_view(), name="login"),
     path('accounts/signup/', common.signup, name='signup'),
     path('accounts/logout/', common.logout, name='logout'),
     path('accounts/profile/', common.profile, name='profile'),
     path('accounts/verify_email/', common.verify_email, name='verify_email'),
     path('accounts/verify_email_done', common.verify_email_done, name='verify_email_done'),
-    path('accounts/verify_email_confirm/<user_id_base64>/<token>/', common.verify_email_confirm, name='verify_email_confirm'),
+    path('accounts/verify_email_confirm/<user_id_base64>/<token>/', common.verify_email_confirm,
+         name='verify_email_confirm'),
     path('accounts/verify_email_complete/', common.verify_email_complete, name='verify_email_complete'),
     # Client Auth
     path('auth/callback/', common.client_auth_callback, name='client_auth_callback'),
@@ -40,7 +43,8 @@ urlpatterns = [
     path('smart/launch', common.smart_launch, name='smart-launch'),
     path('smart/callback/', common.smart_callback, name='smart-callback'),
     # Client UI
-    path('portal/settings.js', TemplateView.as_view(template_name='client/client_settings.js', content_type='text/javascript')),
+    path('portal/settings.js',
+         TemplateView.as_view(template_name='client/client_settings.js', content_type='text/javascript')),
     # path('portal/', common.portal, name='portal'),
     re_path(r'^portal/(?P<path>([^/]+/)*)$', common.portal, name='portal'),
     # Admin API

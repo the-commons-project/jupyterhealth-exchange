@@ -1,17 +1,21 @@
-from ..forms import UserRegistrationForm
-from django.contrib.auth import authenticate, get_user_model, login
+import logging
+import urllib
+
+import jwt
+import requests
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth import login
+from django.contrib.auth import logout as django_logout
+from django.contrib.auth.views import LoginView as BaseLoginView
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
+
+from ..forms import UserRegistrationForm
 from ..tokens import account_activation_token
-from django.contrib import messages
-from django.contrib.auth import logout as django_logout
-from django.conf import settings
-from django.contrib.auth import login
-import logging
-import requests
-import urllib
-import jwt
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +23,15 @@ User = get_user_model()
 
 def home(request):
     return render(request, 'home/home.html')
+
+class LoginView(BaseLoginView):
+    def post(self, request, *args, **kwargs):
+        username = self.request.POST.get('username', '').strip()
+        domain = username.split("@")[-1] if '@' in username else ''
+
+        if domain in settings.SSO_VALID_DOMAINS:
+            return redirect(reverse("saml_signin"))
+        return super().post(request, *args, **kwargs)
 
 def logout(request):
     django_logout(request)
@@ -86,7 +99,7 @@ def verify_email_confirm(request, user_id_base64, token):
         user.email_is_verified = True
         user.save()
         messages.success(request, 'Your email has been verified.')
-        return redirect('verify_email_complete')   
+        return redirect('verify_email_complete')
     else:
         messages.warning(request, 'The link is invalid.')
     return render(request, 'registration/verify_email_confirm.html')

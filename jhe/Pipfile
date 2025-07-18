@@ -21,6 +21,7 @@ pydantic-core = "*"
 pyhumps = "*"
 coverage = "*"
 faker = "*"
+grafana-django-saml2-auth = "*"
 
 [dev-packages]
 
