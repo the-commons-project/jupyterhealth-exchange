@@ -55,21 +55,24 @@ class Command(BaseCommand):
     @staticmethod
     def reset_sequences(restart_with=10001):
         with connection.cursor() as cursor:
-            # Fetching all sequence present in public schema
-            cursor.execute("""
-                           SELECT c.relname AS sequence_name
-                           FROM pg_class c
-                                    JOIN pg_namespace n ON n.oid = c.relnamespace
-                           WHERE c.relkind = 'S'
-                             AND n.nspname = 'public';
-                           """)
-            seqs = [row[0] for row in cursor.fetchall()]
+            seqs = [
+                "core_jheuser_id_seq",
+                "core_organization_id_seq",
+                "core_study_id_seq",
+                "core_patient_id_seq",
+                "core_codeableconcept_id_seq",
+                "core_observation_id_seq",
+                "core_datasource_id_seq",
+                "core_practitioner_id_seq"
+            ]
 
             for seq in seqs:
                 cursor.execute(
                     f"ALTER SEQUENCE {seq} RESTART WITH %s;",
                     [restart_with]
                 )
+                restart_with = restart_with + 10000
+
 
     @staticmethod
     def seed_codeable_concept():
@@ -296,7 +299,7 @@ class Command(BaseCommand):
         return None
 
     @staticmethod
-    def generate_superuser(email="sam@example.com", password='Jhe1234!'):
+    def generate_superuser(email="super@example.com", password='Jhe1234!'):
         JheUser.objects.create_superuser(
             email=email,
             password=password,
