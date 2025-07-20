@@ -75,6 +75,12 @@ class JheUser(AbstractUser):
     return self.email
 
 
+  def has_module_perms(self, app_label):
+      if self.is_superuser:
+        return super().has_module_perms(app_label)
+      return False
+
+
   def delete(self, *args, **kwargs):
       """
       To bypass the below exception as core_jheuser_groups Django built-in model has been removed.
