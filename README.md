@@ -35,7 +35,7 @@ By setting these variables explicitly, you prevent incorrect path injections and
 1. Run the Django migration `python3 manage.py migrate` to create the database tables.
 1. Seed the database by running the Django management command `python3 manage.py seed_db`
 1. Start the server with `$ python manage.py runserver`
-1. Browse to http://localhost:8000/admin and enter the credentials `sam@example.com` `Jhe1234!`
+1. Browse to http://localhost:8000/admin and enter the credentials `super@example.com` `Jhe1234!`
 1. Browse to *Applications* under *Django OAuth Toolkit* and create a new application
    - Leave *User* empty
    - Set *Redirect URLs* to include `http://localhost:8000/auth/callback` and any other hosts
