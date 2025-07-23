@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db import connection
@@ -5,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from faker import Faker
+from oauth2_provider.models import get_application_model
 
 from core.models import (
     CodeableConcept,
@@ -45,6 +47,7 @@ class Command(BaseCommand):
             root_organization = self.create_root_organization()
             self.seed_berkeley(root_organization)
             self.seed_ucsf(root_organization)
+            self.seed_oauth_application()
 
         self.stdout.write(self.style.SUCCESS("Seeding complete."))
 
@@ -72,7 +75,6 @@ class Command(BaseCommand):
                     [restart_with]
                 )
                 restart_with = restart_with + 10000
-
 
     @staticmethod
     def seed_codeable_concept():
@@ -278,6 +280,28 @@ class Command(BaseCommand):
                 value_attachment_data={scope_code.text: "placeholder"}
             )
 
+    @staticmethod
+    def seed_oauth_application(name='JHE Dev'):
+
+        application = get_application_model()
+        application.objects.create(
+            id=1,
+            client_id=settings.OIDC_CLIENT_ID,
+            redirect_uris=f'{settings.SITE_URL}/auth/callback',
+            client_type='public',
+            authorization_grant_type='authorization-code',
+            client_secret='pbkdf2_sha256$870000$Hrxk93CVKgRSGJdyusw4go$umXWiaCn152vXWiXl1bQZwupccDt18QiQcotff+hBmQ=',
+            name=name,
+            user_id=None,
+            skip_authorization=True,
+            created=timezone.now(),
+            updated=timezone.now(),
+            algorithm='RS256',
+            post_logout_redirect_uris='',
+            hash_client_secret=True,
+            allowed_origins='',
+        )
+
     def create_user_with_profile(self, email, user_type="practitioner", password='Jhe1234!'):
         user = JheUser.objects.create_user(email=email, password=password or get_random_string(length=16),
                                            first_name=email.split('@')[0], last_name=fake.last_name(),
@@ -299,7 +323,7 @@ class Command(BaseCommand):
         return None
 
     @staticmethod
-    def generate_superuser(email="super@example.com", password='Jhe1234!'):
+    def generate_superuser(email="sam@example.com", password='Jhe1234!'):
         JheUser.objects.create_superuser(
             email=email,
             password=password,
