@@ -81,7 +81,7 @@ class Command(BaseCommand):
         codes = [
             ('https://w3id.org/openmhealth', 'omh:blood-glucose:4.0', 'Blood glucose'),
             ('https://w3id.org/openmhealth', 'omh:blood-pressure:4.0', 'Blood pressure'),
-            ('https://w3id.org/openmhealth', 'omh:body-temperature:3.0', 'Body temperature'),
+            ('https://w3id.org/openmhealth', 'omh:body-temperature:4.0', 'Body temperature'),
             ('https://w3id.org/openmhealth', 'omh:heart-rate:2.0', 'Heart Rate'),
             ('https://w3id.org/openmhealth', 'omh:oxygen-saturation:2.0', 'Oxygen saturation'),
             ('https://w3id.org/openmhealth', 'omh:respiratory-rate:2.0', 'Respiratory rate'),
@@ -218,7 +218,7 @@ class Command(BaseCommand):
         PractitionerOrganization.objects.create(practitioner=tom, organization=olgin, role="manager")
 
         rr_code = CodeableConcept.objects.get(coding_code='omh:respiratory-rate:2.0')
-        bt_code = CodeableConcept.objects.get(coding_code='omh:body-temperature:3.0')
+        bt_code = CodeableConcept.objects.get(coding_code='omh:body-temperature:4.0')
         o2_code = CodeableConcept.objects.get(coding_code='omh:oxygen-saturation:2.0')
 
         cardio_rr = Study.objects.create(

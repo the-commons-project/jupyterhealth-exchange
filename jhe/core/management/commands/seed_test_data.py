@@ -172,7 +172,7 @@ MOCK_PATIENTS = [
     }
 ]
 
-DEFAULT_DATA_SOURCE_ID = 10001
+DEFAULT_DATA_SOURCE_ID = 70002
 
 
 class Command(BaseCommand):
@@ -185,7 +185,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--csv-file",
             type=str,
-            default=Path.cwd() / "data/iglu_example_data_hall.csv",
+            default=Path.cwd() / "../data/iglu/iglu_example_data_hall.csv",
             help="Path to the IGLU-style CSV of test measurements",
         )
 
