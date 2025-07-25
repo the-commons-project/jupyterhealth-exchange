@@ -16,11 +16,6 @@ from core.models import (
 )
 
 MHEALTH_GLUCOSE_TEMPLATE = {
-    "body": {
-        "blood_glucose": {"unit": "MGDL", "value": None},
-        "effective_time_frame": {"date_time": None},
-        "temporal_relationship_to_meal": "unknown",
-    },
     "header": {
         "modality": "self-reported",
         "schema_id": {"name": "blood-glucose", "version": "4.0", "namespace": "omh"},
@@ -28,6 +23,11 @@ MHEALTH_GLUCOSE_TEMPLATE = {
         "external_datasheets": [{"datasheet_type": "manufacturer", "datasheet_reference": "Dexcom"}],
         "source_creation_date_time": None,
     },
+    "body": {
+        "blood_glucose": {"unit": "MGDL", "value": None},
+        "effective_time_frame": {"date_time": None},
+        "temporal_relationship_to_meal": "unknown",
+    }
 }
 MOCK_PATIENTS = [
     {
