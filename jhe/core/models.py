@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 from datetime import timedelta
+from pathlib import Path
 from random import SystemRandom
 
 import humps
@@ -22,6 +23,7 @@ from django.utils.http import urlsafe_base64_encode
 from django.utils.translation import gettext_lazy as _
 from fhir.resources.observation import Observation as FHIRObservation
 from fhir.resources.patient import Patient as FHIRPatient
+from jsonschema import validate
 from oauth2_provider.models import get_grant_model
 
 from .tokens import account_activation_token
@@ -82,6 +84,12 @@ class JheUser(AbstractUser):
 
   def __str__(self):
     return self.email
+
+
+  def has_module_perms(self, app_label):
+      if self.is_superuser:
+        return super().has_module_perms(app_label)
+      return False
 
 
   def delete(self, *args, **kwargs):
@@ -1342,7 +1350,19 @@ class Observation(models.Model):
                 )
 
         return observation
-    
+
+    @staticmethod
+    def validate_outer_schema(instance_data):
+        schemas = ['data-point-1.0.json', 'data-series-1.0.json']
+        for schema in schemas:
+            schema = json.loads((settings.DATA_DIR_PATH.metadata_dir / schema).read_text())
+            try:
+                validate(instance=instance_data, schema=schema)
+                return True
+            except Exception as e:
+                raise e
+        return None
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # FHIR serialization support
@@ -1352,6 +1372,23 @@ class Observation(models.Model):
         self.value_attachment = None
         self.subject = None
         self.code = None
+
+    def clean(self):
+        try:
+            value_attachment_data = list(self.value_attachment_data.values())[0]
+            self.validate_outer_schema(instance_data=value_attachment_data)
+
+            header_schema = json.loads((settings.DATA_DIR_PATH.metadata_dir / 'header-1.0.json').read_text())
+            validate(instance=value_attachment_data.get('header'), schema=header_schema)
+
+            body_schema = json.loads((settings.DATA_DIR_PATH.json_schema_dir / f"schema-{self.codeable_concept.coding_code.replace(':', '_').replace('.', '-')}.json").read_text())
+            validate(instance=value_attachment_data.get('body'), schema=body_schema)
+        except Exception as error:
+            raise error
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
 class ObservationIdentifier(models.Model):
     observation = models.ForeignKey(Observation, on_delete=models.CASCADE)

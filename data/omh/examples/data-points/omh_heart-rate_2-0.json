@@ -1,0 +1,27 @@
+{
+  "header": {
+    "uuid": "aaaa1234-1a2b-3c4d-5e6f-000000000004",
+    "schema_id": {
+      "name": "heart-rate",
+      "version": "2.0",
+      "namespace": "omh"
+    },
+    "source_creation_date_time": "2025-01-01T01:04:01-08:00",
+    "modality": "self-reported",
+    "external_datasheets": [
+      {
+        "datasheet_type": "manufacturer",
+        "datasheet_reference": "iHealth"
+      }
+    ]
+  },
+  "body": {
+    "heart_rate": {
+      "value": 67.5,
+      "unit": "beats/min"
+    },
+    "effective_time_frame": {
+      "date_time": "2025-01-01T00:04:00-08:00"
+    }
+  }
+}

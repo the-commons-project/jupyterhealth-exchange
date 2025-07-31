@@ -12,8 +12,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
-from pathlib import Path
 import os
+from dataclasses import dataclass
+from pathlib import Path, PosixPath
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -83,7 +85,8 @@ REST_FRAMEWORK = {
         'djangorestframework_camel_case.parser.CamelCaseJSONParser',
     ),
     'JSON_UNDERSCOREIZE': {
-        'ignore_keys': ('response_type','client_id','redirect_uri','code_challenge','code_challenge_method','grant_type','code_verifier')
+        'ignore_keys': ('response_type','client_id','redirect_uri','code_challenge','code_challenge_method','grant_type','code_verifier'),
+        'ignore_fields': ('value_attachment_data',),
     },
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -300,3 +303,14 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+@dataclass
+class DataDirPath:
+    data_dir: PosixPath = (Path(BASE_DIR).parent / "data")
+    metadata_dir: PosixPath = data_dir / 'omh/json-schemas/metadata'
+    data_point_dir: PosixPath = data_dir / 'omh/examples/data-points'
+    json_schema_dir: PosixPath = data_dir / 'omh/json-schemas/data'
+
+
+DATA_DIR_PATH = DataDirPath()

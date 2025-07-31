@@ -1,7 +1,9 @@
 import copy
 import csv
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
+from uuid import uuid4
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -16,18 +18,18 @@ from core.models import (
 )
 
 MHEALTH_GLUCOSE_TEMPLATE = {
-    "body": {
-        "blood_glucose": {"unit": "MGDL", "value": None},
-        "effective_time_frame": {"date_time": None},
-        "temporal_relationship_to_meal": "unknown",
-    },
     "header": {
         "modality": "self-reported",
+        "uuid": "aaaa1234-1a2b-3c4d-5e6f-000000000001",
         "schema_id": {"name": "blood-glucose", "version": "4.0", "namespace": "omh"},
         "creation_date_time": None,
         "external_datasheets": [{"datasheet_type": "manufacturer", "datasheet_reference": "Dexcom"}],
         "source_creation_date_time": None,
     },
+    "body": {
+        "blood_glucose": {"unit": "mg/dL", "value": None},
+        "effective_time_frame": {"date_time": None},
+    }
 }
 MOCK_PATIENTS = [
     {
@@ -172,7 +174,7 @@ MOCK_PATIENTS = [
     }
 ]
 
-DEFAULT_DATA_SOURCE_ID = 10001
+DEFAULT_DATA_SOURCE_ID = 70002
 
 
 class Command(BaseCommand):
@@ -185,7 +187,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--csv-file",
             type=str,
-            default=Path.cwd() / "data/iglu_example_data_hall.csv",
+            default=Path.cwd() / "../data/iglu/iglu_example_data_hall.csv",
             help="Path to the IGLU-style CSV of test measurements",
         )
 
@@ -258,16 +260,18 @@ class Command(BaseCommand):
 
                     payload = copy.deepcopy(MHEALTH_GLUCOSE_TEMPLATE)
                     payload['body']['blood_glucose']['value'] = float(gl_value)
-                    payload['body']['effective_time_frame']['date_time'] = iso_ts
+                    payload['body']['effective_time_frame']['date_time'] = (dt - timedelta(hours=1)).strftime(
+                        '%Y-%m-%dT%H:%M:%SZ')
                     payload['header']['creation_date_time'] = iso_ts
                     payload['header']['source_creation_date_time'] = iso_ts
+                    payload['header']['uuid'] = str(uuid4())
 
                     Observation.objects.create(
                         subject_patient=sp.patient,
                         codeable_concept=concept,
                         data_source_id=DEFAULT_DATA_SOURCE_ID,
                         status='final',
-                        value_attachment_data=payload,
+                        value_attachment_data={'Blood glucose': payload},
                     )
                     created += 1
 
