@@ -1,37 +1,52 @@
-from fhir.resources.observation import Observation as FHIRObservation
-from fhir.resources.patient import Patient as FHIRPatient
-import json, logging, humps
-from django.db import models, connection
-from django.contrib.auth.models import AbstractUser
-from django.utils.translation import gettext_lazy as _
+import base64
+import json
+import logging
+from datetime import timedelta
+from pathlib import Path
+from random import SystemRandom
+
+import humps
+from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
+from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import PermissionDenied, BadRequest
+from django.core.mail import EmailMessage
+from django.db import models, connection
+from django.db.models import Q
+from django.db.utils import IntegrityError
+from django.shortcuts import get_object_or_404
+from django.template.loader import render_to_string
+from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
-from django.core.mail import EmailMessage
-from django.core.exceptions import PermissionDenied, BadRequest
-from django.template.loader import render_to_string
-from django.conf import settings
-from django.utils import timezone
-from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
+from fhir.resources.observation import Observation as FHIRObservation
+from fhir.resources.patient import Patient as FHIRPatient
+from jsonschema import validate
+from oauth2_provider.models import get_grant_model
 
 from .tokens import account_activation_token
-from random import SystemRandom
-from oauth2_provider.models import get_grant_model
-from datetime import timedelta
-from django.db.utils import IntegrityError
-from django.db.models import Q
-import base64
 
 logger = logging.getLogger(__name__)
 
 
 class JheUserManager(BaseUserManager):
-  def create_user(self, email, password, user_type=None, **extra_fields):
+  def create_user(self, email, password=None, user_type=None, **extra_fields):
+    """
+     Args:
+         email (str): A valid email.
+         password (str): A valid password or no password for SSO users.
+         user_type: Practitioner or Patient.
+    """
     if not email:
       raise ValueError(_('The Email must be set'))
     email = self.normalize_email(email)
     user = self.model(email=email, user_type=user_type, **extra_fields)
-    user.set_password(password)
+    if password:
+        user.set_password(password)
+    else:
+        user.set_unusable_password()
     user.save()
     return user
 
@@ -69,6 +84,33 @@ class JheUser(AbstractUser):
 
   def __str__(self):
     return self.email
+
+
+  def has_module_perms(self, app_label):
+      if self.is_superuser:
+        return super().has_module_perms(app_label)
+      return False
+
+
+  def delete(self, *args, **kwargs):
+      """
+      To bypass the below exception as core_jheuser_groups Django built-in model has been removed.
+
+      django.db.utils.ProgrammingError: relation "core_jheuser_groups" does not exist
+      LINE 1: DELETE FROM "core_jheuser_groups" WHERE "core_jheuser_groups...
+      """
+      with connection.cursor() as cursor:
+          cursor.execute(
+              "DELETE FROM core_jheuser WHERE id = %s",
+              [self.id]
+          )
+          deleted = cursor.rowcount
+
+      if deleted:
+          return deleted
+      else:
+          raise ObjectDoesNotExist(f"JheUser with id={self.id} did not exist")
+
 
   def save(self, *args, **kwargs):
     is_new = self._state.adding  # lives on internal ModelState object; Django's built-in flag for "has this object been added to the database yet?"
@@ -1308,7 +1350,19 @@ class Observation(models.Model):
                 )
 
         return observation
-    
+
+    @staticmethod
+    def validate_outer_schema(instance_data):
+        schemas = ['data-point-1.0.json', 'data-series-1.0.json']
+        for schema in schemas:
+            schema = json.loads((settings.DATA_DIR_PATH.metadata_dir / schema).read_text())
+            try:
+                validate(instance=instance_data, schema=schema)
+                return True
+            except Exception as e:
+                raise e
+        return None
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # FHIR serialization support
@@ -1318,6 +1372,23 @@ class Observation(models.Model):
         self.value_attachment = None
         self.subject = None
         self.code = None
+
+    def clean(self):
+        try:
+            value_attachment_data = list(self.value_attachment_data.values())[0]
+            self.validate_outer_schema(instance_data=value_attachment_data)
+
+            header_schema = json.loads((settings.DATA_DIR_PATH.metadata_dir / 'header-1.0.json').read_text())
+            validate(instance=value_attachment_data.get('header'), schema=header_schema)
+
+            body_schema = json.loads((settings.DATA_DIR_PATH.json_schema_dir / f"schema-{self.codeable_concept.coding_code.replace(':', '_').replace('.', '-')}.json").read_text())
+            validate(instance=value_attachment_data.get('body'), schema=body_schema)
+        except Exception as error:
+            raise error
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
 class ObservationIdentifier(models.Model):
     observation = models.ForeignKey(Observation, on_delete=models.CASCADE)

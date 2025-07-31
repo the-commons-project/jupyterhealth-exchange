@@ -1,4 +1,4 @@
-JHE_VERSION = 'v0.0.3'
+JHE_VERSION = 'v0.0.4'
 
 """
 Django settings for jhe project.
@@ -12,8 +12,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
-from pathlib import Path
 import os
+from dataclasses import dataclass
+from pathlib import Path, PosixPath
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -41,12 +43,10 @@ OIDC_CLIENT_ID = os.getenv('OIDC_CLIENT_ID') # TBD: Multi-tenancy lookup based o
 OIDC_CLIENT_REDIRECT_URI = SITE_URL + os.getenv('OIDC_CLIENT_REDIRECT_URI_PATH')
 
 ALLOWED_HOSTS = [
-    'localhost',
-    SITE_URL.split('/')[2].split(':')[0]
+    [i for i in SITE_URL.split('/') if i][-1].split(':')[0]
 ]
 
 CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:8000',
     SITE_URL
 ]
 
@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'oauth2_provider',
     'rest_framework',
     'drf_spectacular',
+    'django_saml2_auth',
 ]
 
 REST_FRAMEWORK = {
@@ -85,7 +86,8 @@ REST_FRAMEWORK = {
         'djangorestframework_camel_case.parser.CamelCaseJSONParser',
     ),
     'JSON_UNDERSCOREIZE': {
-        'ignore_keys': ('response_type','client_id','redirect_uri','code_challenge','code_challenge_method','grant_type','code_verifier')
+        'ignore_keys': ('response_type','client_id','redirect_uri','code_challenge','code_challenge_method','grant_type','code_verifier'),
+        'ignore_fields': ('value_attachment_data',),
     },
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -225,7 +227,59 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+SSO_VALID_DOMAINS = os.getenv("SSO_VALID_DOMAINS", "").split(",")
+SAML2_AUTH = {
+    "METADATA_AUTO_CONF_URL": os.getenv('IDENTITY_PROVIDER_METADATA_URL'),
+    "ASSERTION_URL": SITE_URL,
+    "ENTITY_ID": f"{SITE_URL}/sso/acs/",
 
+    # Attributes according to the Identity Provider.
+    "ATTRIBUTES_MAP": {
+        "email": "email",
+        "first_name": "firstName",
+        "last_name": "lastName",
+    },
+    "CREATE_USER": True,
+
+    "AUTHN_REQUESTS_SIGNED": not DEBUG,
+    'TOKEN_REQUIRED': not DEBUG,
+    "SIGN_REQUEST": not DEBUG,
+
+    # Landing page after login
+    "DEFAULT_NEXT_URL": "/",
+    'ALLOWED_REDIRECT_HOSTS': ALLOWED_HOSTS,
+
+    'DEBUG': DEBUG,
+
+    'LOGGING': {
+        'version': 1,
+        'formatters': {
+            'simple': {
+                'format': '[%(asctime)s] [%(levelname)s] [%(name)s.%(funcName)s] %(message)s',
+            },
+        },
+        'handlers': {
+            'stdout': {
+                'class': 'logging.StreamHandler',
+                'stream': 'ext://sys.stdout',
+                'level': 'DEBUG',
+                'formatter': 'simple',
+            },
+        },
+        'loggers': {
+            'saml2': {
+                'level': 'DEBUG'
+            },
+        },
+        'root': {
+            'level': 'DEBUG',
+            'handlers': [
+                'stdout',
+            ],
+        },
+    },
+
+}
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/
@@ -253,6 +307,7 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+<<<<<<< HEAD
 # Spectacular schema
 SPECTACULAR_SETTINGS = {
     'TITLE': 'JupyterHealth Exchange',
@@ -260,3 +315,14 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
+=======
+@dataclass
+class DataDirPath:
+    data_dir: PosixPath = (Path(BASE_DIR).parent / "data")
+    metadata_dir: PosixPath = data_dir / 'omh/json-schemas/metadata'
+    data_point_dir: PosixPath = data_dir / 'omh/examples/data-points'
+    json_schema_dir: PosixPath = data_dir / 'omh/json-schemas/data'
+
+
+DATA_DIR_PATH = DataDirPath()
+>>>>>>> main

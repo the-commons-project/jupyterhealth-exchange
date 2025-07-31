@@ -22,6 +22,9 @@ pyhumps = "*"
 coverage = "*"
 faker = "*"
 drf-spectacular = "*"
+grafana-django-saml2-auth = "*"
+pre-commit = "*"
+jsonschema = "*"
 
 [dev-packages]
 

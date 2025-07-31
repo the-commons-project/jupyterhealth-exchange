@@ -16,7 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
-from django.urls import path, include
+from django.urls import path, include, re_path
+import django_saml2_auth.views
 
 from drf_spectacular.views import SpectacularRedocView, SpectacularSwaggerView
 
@@ -25,8 +26,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
     path('accounts/', include('django.contrib.auth.urls')),
-
     path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
-
+    path("sso/", include("django_saml2_auth.urls")),
+    re_path(r'^saml/login/$', django_saml2_auth.views.signin, name='saml_signin'),
 ]
