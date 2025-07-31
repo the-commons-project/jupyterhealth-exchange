@@ -55,12 +55,14 @@ By setting these variables explicitly, you prevent incorrect path injections and
 1. Create an RS256 Private Key (step by step [here](https://django-oauth-toolkit.readthedocs.io/en/latest/oidc.html#creating-rsa-private-key))
 1. Create a new static PKCE verifier - a random alphanumeric string 44 chars long, and then create the challenge [here](https://tonyxu-io.github.io/pkce-generator).
 1. Return to the `.env` file
-    - Update `OIDC_CLIENT_ID` with the newly created app Client ID
-    - Update the `OIDC_RSA_PRIVATE_KEY` with the newly created Private Key
-    - Update `PATIENT_AUTHORIZATION_CODE_CHALLENGE` and `PATIENT_AUTHORIZATION_CODE_VERIFIER` with PKCE static values generated above
-    - Restart the python environment and Django server
-1. Browse to http://localhost:8000/ and log in with the credentials `mary@example.com` `Jhe1234!`and you should be directed to the `/portal/organizations` path with some example Organizations is the dropdown. Click on the "Observations" tab and choose the "Berkeley Institute for Data Science (BIDS)" Organization from the dropdown and you should see some test data.
-
+   - Update `OIDC_CLIENT_ID` with the newly created app Client ID
+   - Update the `OIDC_RSA_PRIVATE_KEY` with the newly created Private Key
+   - Update `PATIENT_AUTHORIZATION_CODE_CHALLENGE` and `PATIENT_AUTHORIZATION_CODE_VERIFIER` with PKCE static values generated above
+   - Restart the python environment and Django server
+1. Browse to http://localhost:8000/ and log in with the credentials `mary@example.com` `Jhe1234!`and you should be directed to the `/portal/organizations` path with some example Organizations is the dropdown
+1. Before the each commit always make sure to execute `pre-commit run --all-files` to make sure the PEP8 standards.
+1. Git hook for the pre-commit can also be installed `pre-commit install` to automate the process.
+1. If a hook fails, fix the issues, stage the changes, and commit again — the commit only succeeds when hooks pass.
 > [!WARNING]
 > The `OIDC_RSA_PRIVATE_KEY`, `PATIENT_AUTHORIZATION_CODE_CHALLENGE`, and `PATIENT_AUTHORIZATION_CODE_VERIFIER` provided in `dot_env_example.txt` are public demo keys for development only and must not be used in production.
 
