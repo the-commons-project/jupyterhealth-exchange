@@ -16,7 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
-from django.urls import path, include
+from django.urls import path, include, re_path
+import django_saml2_auth.views
 
 urlpatterns = [
     path('', include('core.urls')),
@@ -24,4 +25,6 @@ urlpatterns = [
     path('o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
     path('accounts/', include('django.contrib.auth.urls')),
     path('email_auth/', include('allauth.urls')),
+    path("sso/", include("django_saml2_auth.urls")),
+    re_path(r'^saml/login/$', django_saml2_auth.views.signin, name='saml_signin'),
 ]

@@ -362,6 +362,13 @@ async function signOut() {
   this.document.location = "/accounts/logout";
 }
 
+// ────────────────────────────────────────────────────
+// Permission helper (must appear before any render*())
+// ────────────────────────────────────────────────────
+function ifRoleCan(role, permission) {
+  return (window.ROLE_PERMISSIONS[role] || []).includes(permission)
+}
+
 // ==================================================
 // Organizations
 // ==================================================
@@ -398,7 +405,7 @@ async function renderOrganizations(queryParams) {
     organizationTreeChildren = organizationTree.children;
   }
 
-  let organizationRecord, partOfId, partOfName;
+  let organizationRecord, partOfId, partOfName, canManagePractitionersInOrg;
 
   if (queryParams.create) {
     if (
@@ -441,7 +448,12 @@ async function renderOrganizations(queryParams) {
       organizationRecord.type,
       ["root"]
     );
-
+    if (organizationRecord && organizationRecord.currentUserRole) {
+        canManagePractitionersInOrg = ifRoleCan(
+        organizationRecord.currentUserRole,
+        'organization.manage_for_practitioners'
+      );
+    }
     if (
       organizationRecord.partOf == CONSTANTS.ORGANIZATION_TOP_LEVEL_PART_OF_ID
     ) {
@@ -486,6 +498,7 @@ async function renderOrganizations(queryParams) {
     topLevelOrganizationsSelect: topLevelOrganizationsSelect,
     children: organizationTreeChildren,
     organizationRecord: organizationRecord,
+    manageForPractitioners: canManagePractitionersInOrg,
   };
 
   return content(renderParams);
@@ -531,13 +544,13 @@ async function deleteOrganization(id) {
   if (response.ok) navReturnFromCrud();
 }
 
-async function addUserToOrganization(userEmail, organizationId) {
+    async function addUserToOrganization(userEmail, organizationId, role) {
   if (!userEmail || !organizationId) return;
-  const userRecordResponse = await apiRequest("GET", "users", {
+  const userRecordResponse = await apiRequest("GET", "users/search_by_email", {
     email: userEmail,
   });
   const userRecordPaginated = await userRecordResponse.json();
-  if (userRecordPaginated.results.length == 0) {
+  if (userRecordPaginated.id === undefined) {
     alert("No User with this E-mail exists.");
     return;
   }
@@ -545,7 +558,8 @@ async function addUserToOrganization(userEmail, organizationId) {
     "POST",
     `organizations/${organizationId}/user`,
     {
-      jheUserId: userRecordPaginated.results[0].id,
+      jheUserId: userRecordPaginated.id,
+      organizationPartitionerRole: role
     }
   );
   if (response.ok) navReturnFromCrud();
@@ -555,7 +569,7 @@ async function removeUserFromOrganization(userId, organizationId) {
   if (!userId || !organizationId) return;
   const response = await apiRequest(
     "DELETE",
-    `organizations/${organizationId}/user`,
+    `organizations/${organizationId}/remove_user`,
     {
       jheUserId: userId,
     }
@@ -740,7 +754,7 @@ async function updatePatient(id) {
     birthDate: document.getElementById("patientBirthDate").value || null,
     telecomPhone: document.getElementById("patientTelecomPhone").value || null
   };
-  let response = await apiRequest("PATCH", `patients/${id}`, patientRecord);
+  let response = await apiRequest("PATCH", `patients/${id}?organizationId=${document.getElementById('organizationForPatients')?.value}`, patientRecord);
   if(response.ok && document.getElementById("addOrganizationId")){
     response = await apiRequest(
       "PATCH",
@@ -751,7 +765,7 @@ async function updatePatient(id) {
 }
 
 async function deletePatient(id) {
-  if (await apiRequest("DELETE", `patients/${id}`)) navReturnFromCrud();
+  if (await apiRequest("DELETE", `patients/${id}?organizationId=${document.getElementById('organizationForPatients')?.value}`)) navReturnFromCrud();
 }
 
 async function getInvitationLink(id, sendEmail) {
@@ -1207,6 +1221,16 @@ async function createDataSource() {
   };
   if (await apiRequest("POST", `data_sources`, dataSourceRecord))
     navReturnFromCrud();
+}
+
+async function updateDataSource(id) {
+    const studyRecord = {
+    name: document.getElementById("dataSourceName").value || null,
+    type: document.getElementById("dataSourceType").value || null,
+  };
+  const response = await apiRequest("PATCH", `data_sources/${id}`, studyRecord);
+  if (response.ok) navReturnFromCrud();
+
 }
 
 async function deleteDataSource(id) {

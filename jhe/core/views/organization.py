@@ -1,5 +1,7 @@
 import logging
+
 from core.models import Organization, PractitionerOrganization, PatientOrganization
+from core.permissions import IfUserCan
 from core.serializers import (
   OrganizationSerializer, OrganizationUsersSerializer, StudySerializer, PractitionerOrganizationSerializer,
   PatientOrganizationSerializer
@@ -21,6 +23,15 @@ class OrganizationViewSet(ModelViewSet):
     serializer_class = OrganizationSerializer
     model_class = Organization
     pagination_class = CustomPageNumberPagination
+
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        """
+        if self.action in ['create', 'destroy', 'update', 'partial_update']:
+            return [IfUserCan('organization.manage_for_practitioners')()]
+        return [permission() for permission in self.permission_classes]
+
 
     def get_queryset(self):
         param_part_of = self.request.query_params.get('part_of')
@@ -52,13 +63,17 @@ class OrganizationViewSet(ModelViewSet):
     def users(self, request, pk):
         organization = self.get_object()
         users = organization.users.order_by('last_name')
-        serializer = OrganizationUsersSerializer(users, many=True)
+        serializer = OrganizationUsersSerializer(users, many=True, context={"organization_id": organization.id})
         return Response(serializer.data)
     
-    @action(detail=True, methods=['POST','DELETE'])
+    @action(
+        detail=True, methods=['POST'],
+        permission_classes=[IfUserCan('organization.manage_for_practitioners')]
+    )
     def user(self, request, pk):
       user_type = request.data.get('user_type', 'practitioner')  # Default to practitioner if not specified
       jhe_user_id = request.data.get('jhe_user_id')
+      organization_partitioner_role = request.data.get('organization_partitioner_role')
       
       if not jhe_user_id:
         return Response({"error": "jhe_user_id is required"}, status=400)
@@ -66,36 +81,49 @@ class OrganizationViewSet(ModelViewSet):
       jhe_user = get_object_or_404(JheUser, pk=jhe_user_id)
       
       if user_type.lower() == 'patient':
-        if request.method == 'POST':
           relation = PatientOrganization.objects.create(
-            organization_id=pk, 
+            organization_id=pk,
             patient_id=jhe_user_id
           )
           serializer = PatientOrganizationSerializer(relation)
-        else:
-          relation = PatientOrganization.objects.filter(
-            organization_id=pk, 
-            patient_id=jhe_user_id
-          ).delete()
-          return Response(status=204)
       else:  # practitioner
         practitioner = jhe_user.practitioner
         if not practitioner:
             return Response({"error": "Practitioner not found"}, status=404)
-        if request.method == 'POST':
-          relation = PractitionerOrganization.objects.create(
-            organization_id=pk, 
-            practitioner=practitioner
+        relation = PractitionerOrganization.objects.create(
+            organization_id=pk,
+            practitioner=practitioner,
+            role=organization_partitioner_role
           )
-          serializer = PractitionerOrganizationSerializer(relation)
-        else:
-          relation = PractitionerOrganization.objects.filter(
-            organization_id=pk, 
-            practitioner=practitioner
-          ).delete()
-          return Response(status=204)
-      
+        serializer = PractitionerOrganizationSerializer(relation)
       return Response(serializer.data)
+
+    @action(
+        detail=True, methods=['DELETE'],
+        permission_classes=[IfUserCan("organization.manage_for_practitioners")]
+    )
+    def remove_user(self, request, pk):
+        user_type = request.data.get('user_type', 'practitioner')  # Default to practitioner if not specified
+        jhe_user_id = request.data.get('jhe_user_id')
+        if not jhe_user_id:
+            return Response({"error": "jhe_user_id is required"}, status=400)
+
+        if user_type.lower() == 'patient':
+            PatientOrganization.objects.filter(
+                organization_id=pk,
+                patient_id=jhe_user_id
+            ).delete()
+            return Response(status=204)
+        else:
+            jhe_user = get_object_or_404(JheUser, pk=jhe_user_id)
+            practitioner = jhe_user.practitioner
+            if not practitioner:
+                return Response({"error": "Practitioner not found"}, status=404)
+            PractitionerOrganization.objects.filter(
+                organization_id=pk,
+                practitioner=practitioner
+            ).delete()
+            return Response(status=204)
 
     @action(detail=True, methods=['GET'])
     def studies(self, request, pk):

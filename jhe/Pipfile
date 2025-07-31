@@ -21,6 +21,11 @@ pydantic-core = "*"
 pyhumps = "*"
 coverage = "*"
 django-allauth = "*"
+faker = "*"
+grafana-django-saml2-auth = "*"
+pre-commit = "*"
+jsonschema = "*"
+
 
 [dev-packages]
 

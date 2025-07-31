@@ -1,0 +1,27 @@
+{
+  "header": {
+    "uuid": "aaaa1234-1a2b-3c4d-5e6f-000000000001",
+    "schema_id": {
+      "name": "blood-glucose",
+      "version": "4.0",
+      "namespace": "omh"
+    },
+    "source_creation_date_time": "2025-01-01T01:01:01-08:00",
+    "modality": "self-reported",
+    "external_datasheets": [
+      {
+        "datasheet_type": "manufacturer",
+        "datasheet_reference": "iHealth"
+      }
+    ]
+  },
+  "body": {
+    "blood_glucose": {
+      "unit": "mg/dl",
+      "value": 129
+    },
+    "effective_time_frame": {
+      "date_time": "2025-01-01T00:01:00-08:00"
+    }
+  }
+}
