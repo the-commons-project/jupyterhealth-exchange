@@ -69,6 +69,7 @@ INSTALLED_APPS = [
 
     'oauth2_provider',
     'rest_framework',
+    'drf_spectacular',
     'django_saml2_auth',
 ]
 
@@ -108,7 +109,8 @@ REST_FRAMEWORK = {
     },
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
-    )
+    ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 MIDDLEWARE = [
@@ -324,6 +326,15 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+<<<<<<< HEAD
+# Spectacular schema
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'JupyterHealth Exchange',
+    'DESCRIPTION': 'Django app sharing user-consented medical data via web REST FHIR.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+=======
 @dataclass
 class DataDirPath:
     data_dir: PosixPath = (Path(BASE_DIR).parent / "data")
@@ -333,3 +344,4 @@ class DataDirPath:
 
 
 DATA_DIR_PATH = DataDirPath()
+>>>>>>> main

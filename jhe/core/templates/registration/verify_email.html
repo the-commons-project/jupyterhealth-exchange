@@ -1,5 +1,20 @@
-<h1>You need to verify your email</h1>
-<form method="post">
-    {% csrf_token %}
-    <input class="btn btn-primary max-btn" type="submit" value="Verify">
-</form>
+{% extends "partials/base_accounts_forms.html" %}
+
+{% block title %}
+Verify Email
+{% endblock %}
+
+{% block prompt %}
+Verify Your Email
+{% endblock %}
+
+{% block form_fields %}
+<div class="alert alert-info">
+  Please verify your email address to complete your registration.
+</div>
+
+<button class="w-100 btn btn-lg btn-primary mt-5" type="submit">
+  Send Verification Email
+</button>
+<div class="mt-4"><a href="{% url 'login' %}">Back to Login</a></div>
+{% endblock %}
