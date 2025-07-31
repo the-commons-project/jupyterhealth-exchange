@@ -1,3 +1,8 @@
+import json
+import random
+from datetime import timedelta
+from uuid import uuid4
+
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
@@ -110,6 +115,28 @@ class Command(BaseCommand):
     def create_root_organization():
         return Organization.objects.create(id=0, name='ROOT', type='root')
 
+    @staticmethod
+    def generate_placeholder(consent):
+
+        data_point = (settings.DATA_DIR_PATH.data_point_dir / (
+                consent.scope_code.coding_code.replace(":", '_').replace('.', '-') + ".json"))
+        if not data_point.exists():
+            return "placeholder"
+
+        placeholder = json.loads(data_point.read_text())
+
+        placeholder.get('header')['uuid'] = str(uuid4())
+        placeholder.get('header')['uuid'] = str(timezone.now())
+
+        body = placeholder.get('body')
+        for key in ('body_temperature', 'oxygen_saturation', 'respiratory_rate'):
+            field = body.get(key)
+            if field and 'value' in field:
+                field['value'] += random.randint(1, 10)
+
+        body['effective_time_frame'] = {"date_time": str(timezone.now() + timedelta(hours=1))}
+        return placeholder
+
     def seed_berkeley(self, root_organization):
 
         ucb = Organization.objects.create(name="University of California Berkeley", type="edu",
@@ -190,7 +217,7 @@ class Command(BaseCommand):
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
-                value_attachment_data={scope_code.text: "placeholder"}
+                value_attachment_data={scope_code.text: self.generate_placeholder(consent)}
             )
 
     def seed_ucsf(self, root_organization):
@@ -277,7 +304,7 @@ class Command(BaseCommand):
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
-                value_attachment_data={scope_code.text: "placeholder"}
+                value_attachment_data={scope_code.text: self.generate_placeholder(consent)}
             )
 
     @staticmethod

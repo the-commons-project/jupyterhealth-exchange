@@ -10,13 +10,13 @@
   ],
   "definitions": {
     "unit_value": {
-      "$ref": "unit-value-1.x.json"
+      "$ref": "https://opensource.ieee.org/omh/1752/-/raw/main/schemas/utility/unit-value-1.0.json"
     },
     "time_frame": {
-      "$ref": "time-frame-1.x.json"
+      "$ref": "https://w3id.org/ieee/ieee-1752-schema/time-frame-1.0.json"
     },
     "descriptive_statistic": {
-      "$ref": "descriptive-statistic-1.x.json"
+      "$ref": "https://w3id.org/ieee/ieee-1752-schema/descriptive-statistic.json"
     }
   },
   "properties": {
