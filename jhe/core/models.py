@@ -32,12 +32,21 @@ logger = logging.getLogger(__name__)
 
 
 class JheUserManager(BaseUserManager):
-  def create_user(self, email, password, user_type=None, **extra_fields):
+  def create_user(self, email, password=None, user_type=None, **extra_fields):
+    """
+     Args:
+         email (str): A valid email.
+         password (str): A valid password or no password for SSO users.
+         user_type: Practitioner or Patient.
+    """
     if not email:
       raise ValueError(_('The Email must be set'))
     email = self.normalize_email(email)
     user = self.model(email=email, user_type=user_type, **extra_fields)
-    user.set_password(password)
+    if password:
+        user.set_password(password)
+    else:
+        user.set_unusable_password()
     user.save()
     return user
 
