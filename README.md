@@ -30,6 +30,16 @@ By setting these variables explicitly, you prevent incorrect path injections and
 > [!TIP]
 >**Quick start:** For local development, Skip the steps 8–12 as the `seed_db` command will register the Django OAuth2 application. Also, Pre‑generated values of  `OIDC_RSA_PRIVATE_KEY`, `PATIENT_AUTHORIZATION_CODE_CHALLENGE`, and `PATIENT_AUTHORIZATION_CODE_VERIFIER` are provided in `dot_env_example.txt` for dev/demo use only.
 
+### Single Sign-On (SSO) Feature Flag
+
+SSO is **disabled by default**. Toggle it via the `.env` variable:
+
+```env
+# Default: SSO disabled. Change to 1 to enable.
+SSO_ENABLED=0
+```
+
+
 1. Set up your Python environment - this project uses Django **version 5.2** which requires python  **3.10, 3.11, 3.12 or 3.13**
 
     - NB: If using pipenv it is recommended to run `pipenv sync` against the lock file to match package versions

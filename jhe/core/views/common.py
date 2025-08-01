@@ -31,7 +31,7 @@ class LoginView(BaseLoginView):
         username = self.request.POST.get("username", "").strip()
         domain = username.split("@")[-1] if "@" in username else ""
 
-        if domain in settings.SSO_VALID_DOMAINS:
+        if settings.SSO_ENABLED and domain in settings.SSO_VALID_DOMAINS:
             return redirect(reverse("saml_signin"))
         return super().post(request, *args, **kwargs)
 
