@@ -151,12 +151,6 @@ WSGI_APPLICATION = 'jhe.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
 
 DB_USER_SECRET_NAME = os.environ.get('DATABASE_USER_SECRET_NAME', 'DATABASE_USER')
 DB_PASSWORD_SECRET_NAME = os.environ.get('DATABASE_PASSWORD_SECRET_NAME', 'DATABASE_PASSWORD')
@@ -326,7 +320,6 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-<<<<<<< HEAD
 # Spectacular schema
 SPECTACULAR_SETTINGS = {
     'TITLE': 'JupyterHealth Exchange',
@@ -334,7 +327,8 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
-=======
+
+
 @dataclass
 class DataDirPath:
     data_dir: PosixPath = (Path(BASE_DIR).parent / "data")
@@ -344,4 +338,3 @@ class DataDirPath:
 
 
 DATA_DIR_PATH = DataDirPath()
->>>>>>> main
