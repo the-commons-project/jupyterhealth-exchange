@@ -1,18 +1,18 @@
 name: Jhe Dev Deploy
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 env:
   FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 jobs:
   deploy:
-      name: Jhe app
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v3
-        - uses: superfly/flyctl-actions/setup-flyctl@master
-        - run: |
-            echo "Debug: show where Dockerfile is"
-            ls -R . | head -100
-        - run: flyctl deploy -a ${{ secrets.APP_NAME }} --remote-only --dockerfile ./jhe/Dockerfile
+    name: Jhe app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy
+        working-directory: ./jhe
+        run: |
+          pwd
+          flyctl deploy -a jhe --remote-only --dockerfile ./Dockerfile
