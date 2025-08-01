@@ -350,7 +350,7 @@ class Command(BaseCommand):
         return None
 
     @staticmethod
-    def generate_superuser(email="sam@example.com", password='Jhe1234!'):
+    def generate_superuser(email="super@example.com", password='Jhe1234!'):
         JheUser.objects.create_superuser(
             email=email,
             password=password,
