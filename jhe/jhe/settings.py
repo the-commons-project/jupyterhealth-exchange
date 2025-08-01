@@ -237,6 +237,8 @@ AUTH_PASSWORD_VALIDATORS = [
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
+
+SSO_ENABLED = int(os.getenv("SSO_ENABLED", 0))
 SSO_VALID_DOMAINS = os.getenv("SSO_VALID_DOMAINS", "").split(",")
 SAML2_AUTH = {
     "METADATA_AUTO_CONF_URL": os.getenv("IDENTITY_PROVIDER_METADATA_URL"),
