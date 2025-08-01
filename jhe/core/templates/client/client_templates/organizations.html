@@ -1,5 +1,5 @@
 {% verbatim %}
-<script id="t-organizations" type="text/template"> 
+<script id="t-organizations" type="text/template">
   <form style="display: flex">
     <select
       id="topLevelOrganization"
@@ -148,7 +148,7 @@
                   />
                 </fieldset>
               </div>
-              </fieldset> 
+              </fieldset>
             </form>
             {{#if read}}
               <p>
@@ -235,7 +235,7 @@
                   </li>
                 {{/each}}
               </ul>
-            {{/if}} 
+            {{/if}}
           </div>
         </div>
         <div class="modal-footer">
@@ -246,15 +246,15 @@
           >
             Cancel
           </button>
-          {{#if create}} 
+          {{#if create}}
             <button type="button" class="btn btn-primary" onclick="createOrganization({{organizationRecord.partOfId}})">Create</button>
           {{/if}}
-          {{#if update}} 
+          {{#if update}}
             <button type="button" class="btn btn-primary" onclick="updateOrganization({{organizationRecord.id}})">Update</button>
           {{/if}}
-          {{#if delete}} 
+          {{#if delete}}
             <button type="button" class="btn btn-danger" onclick="deleteOrganization({{organizationRecord.id}})">Delete</button>
-          {{/if}} 
+          {{/if}}
         </div>
       </div>
     </div>
@@ -266,7 +266,7 @@
     <li>
       <i class="bi bi-arrow-return-right"></i>
       {{name}}
-      
+
       {{> crudButton iconRead=true recordId=id
         onclick="nav('organizations',{
           tloId: document.getElementById('topLevelOrganization').value,

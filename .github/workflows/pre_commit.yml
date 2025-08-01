@@ -23,4 +23,3 @@ jobs:
 
       - name: Execute pre-commit
         run: pre-commit run --all-files --config jhe/.pre-commit-config.yaml
-

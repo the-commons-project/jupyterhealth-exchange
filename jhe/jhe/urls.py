@@ -14,21 +14,30 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
-from django.contrib.auth import views as auth_views
+from django.contrib.auth import views as auth_views  # noqa
 from django.urls import path, include, re_path
 import django_saml2_auth.views
 
 from drf_spectacular.views import SpectacularRedocView, SpectacularSwaggerView
 
 urlpatterns = [
-    path('', include('core.urls')),
-    path('admin/', admin.site.urls),
-    path('o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
-    path('accounts/', include('django.contrib.auth.urls')),
-    path('email_auth/', include('allauth.urls')),
-    path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-    path('api/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    path("", include("core.urls")),
+    path("admin/", admin.site.urls),
+    path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
+    path("accounts/", include("django.contrib.auth.urls")),
+    path("email_auth/", include("allauth.urls")),
+    path(
+        "api/schema/swagger-ui/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
+    path(
+        "api/schema/redoc/",
+        SpectacularRedocView.as_view(url_name="schema"),
+        name="redoc",
+    ),
     path("sso/", include("django_saml2_auth.urls")),
-    re_path(r'^saml/login/$', django_saml2_auth.views.signin, name='saml_signin'),
+    re_path(r"^saml/login/$", django_saml2_auth.views.signin, name="saml_signin"),
 ]

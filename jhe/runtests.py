@@ -1,5 +1,5 @@
 # https://docs.djangoproject.com/en/5.2/topics/testing/advanced/#testing-reusable-applications
-#!/usr/bin/env python
+# !/usr/bin/env python
 import os
 import sys
 
