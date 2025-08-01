@@ -12,4 +12,7 @@ jobs:
       steps:
         - uses: actions/checkout@v3
         - uses: superfly/flyctl-actions/setup-flyctl@master
-        - run: flyctl deploy -a ${{ secrets.APP_NAME }} --remote-only --dockerfile jhe/Dockerfile
+        - run: |
+            echo "Debug: show where Dockerfile is"
+            ls -R . | head -100
+        - run: flyctl deploy -a ${{ secrets.APP_NAME }} --remote-only --dockerfile ./jhe/Dockerfile
