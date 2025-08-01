@@ -13,6 +13,4 @@ jobs:
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: Deploy
         working-directory: ./jhe
-        run: |
-          pwd
-          flyctl deploy -a jhe --remote-only --dockerfile ./Dockerfile
+        run: flyctl deploy -a jhe --remote-only --dockerfile ./Dockerfile
