@@ -34,20 +34,20 @@
       </tr>
     </table>
     <div class="d-flex align-items-center">
-      <span class="me-2">Page 
-        <input 
-          type="number" 
-          class="form-control form-control-sm d-inline-block" 
-          style="width: 60px;" 
-          value="{{page}}" 
-          min="1" 
+      <span class="me-2">Page
+        <input
+          type="number"
+          class="form-control form-control-sm d-inline-block"
+          style="width: 60px;"
+          value="{{page}}"
+          min="1"
           max="{{totalPages}}"
           onchange="nav('observations', null, {...getCurrentParams(), page: this.value})"
           onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('observations', null, {...getCurrentParams(), page: this.value}) }"
         /> of {{totalPages}}
       </span>
-      <select 
-        class="form-select form-select-sm me-2" 
+      <select
+        class="form-select form-select-sm me-2"
         style="width: auto;"
         onchange="nav('observations', null, {...getCurrentParams(), pageSize: this.value, page: 1})"
       >

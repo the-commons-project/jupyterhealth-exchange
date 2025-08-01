@@ -1,29 +1,13 @@
-from .jhe_user import (
-    JheUserViewSet
-)
+from .jhe_user import JheUserViewSet  # noqa
 
-from .organization import (
-    OrganizationViewSet
-)
+from .organization import OrganizationViewSet  # noqa
 
-from .patient import (
-    PatientViewSet,
-    FHIRPatientViewSet
-)
+from .patient import PatientViewSet, FHIRPatientViewSet  # noqa
 
-from .study import (
-    StudyViewSet
-)
+from .study import StudyViewSet  # noqa
 
-from .observation import (
-    ObservationViewSet,
-    FHIRObservationViewSet
-)
+from .observation import ObservationViewSet, FHIRObservationViewSet  # noqa
 
-from .fhir_base import (
-    FHIRBase
-)
+from .fhir_base import FHIRBase  # noqa
 
-from .data_source import (
-    DataSourceViewSet
-)
+from .data_source import DataSourceViewSet  # noqa

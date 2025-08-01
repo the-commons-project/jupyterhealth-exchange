@@ -59,20 +59,20 @@
       </div>
     </div>
     <div class="d-flex align-items-center">
-      <span class="me-2">Page 
-        <input 
-          type="number" 
-          class="form-control form-control-sm d-inline-block" 
-          style="width: 60px;" 
-          value="{{page}}" 
-          min="1" 
+      <span class="me-2">Page
+        <input
+          type="number"
+          class="form-control form-control-sm d-inline-block"
+          style="width: 60px;"
+          value="{{page}}"
+          min="1"
           max="{{totalPages}}"
           onchange="nav('patients', null, {...getCurrentParams(), page: this.value})"
           onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('patients', null, {...getCurrentParams(), page: this.value}) }"
         /> of {{totalPages}}
       </span>
-      <select 
-        class="form-select form-select-sm me-2" 
+      <select
+        class="form-select form-select-sm me-2"
         style="width: auto;"
         onchange="nav('patients', null, {...getCurrentParams(), pageSize: this.value, page: 1})"
       >
@@ -376,7 +376,7 @@
                   {{/studiesConsented}}
                   </ul>
                 </div>
-              {{/if}} 
+              {{/if}}
             </form>
           </div>
         </div>
@@ -393,12 +393,12 @@
               <button type="button" class="btn btn-primary" onclick="createPatient({{organizationId}})">Create</button>
             {{/unless}}
           {{/if}}
-          {{#if update}} 
+          {{#if update}}
             <button type="button" class="btn btn-primary" onclick="updatePatient({{patientRecord.id}})">Update</button>
           {{/if}}
-          {{#if delete}} 
+          {{#if delete}}
             <button type="button" class="btn btn-danger" onclick="deletePatient({{patientRecord.id}})">Delete</button>
-          {{/if}} 
+          {{/if}}
         </div>
       </div>
     </div>

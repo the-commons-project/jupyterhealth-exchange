@@ -1,20 +1,17 @@
-common_exclude: &common_exclude >
-  (?x)^(
-    migrations/
-    |data/
-  )
 repos:
   - repo: https://github.com/psf/black
     rev: 25.1.0
     hooks:
       - id: black
-        exclude: *common_exclude
+        args: [--line-length=120]
+        exclude: '(^|.*/)(migrations|data)/'
 
   - repo: https://github.com/PyCQA/flake8
     rev: 7.3.0
     hooks:
       - id: flake8
-        exclude: *common_exclude
+        args: ["--max-line-length=120"]
+        exclude: '(^|.*/)(migrations|data)/'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
