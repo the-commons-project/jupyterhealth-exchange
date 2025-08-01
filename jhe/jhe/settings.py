@@ -326,7 +326,6 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-<<<<<<< HEAD
 # Spectacular schema
 SPECTACULAR_SETTINGS = {
     'TITLE': 'JupyterHealth Exchange',
@@ -334,7 +333,6 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
-=======
 @dataclass
 class DataDirPath:
     data_dir: PosixPath = (Path(BASE_DIR).parent / "data")
@@ -344,4 +342,3 @@ class DataDirPath:
 
 
 DATA_DIR_PATH = DataDirPath()
->>>>>>> main
