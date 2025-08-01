@@ -11,6 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Create .env in jhe
+        working-directory: ./jhe
+        run: |
+          cat <<EOF > .env
+          SITE_URL=${{ secrets.SITE_URL }}
+          OIDC_CLIENT_AUTHORITY_PATH=${{ secrets.OIDC_CLIENT_AUTHORITY_PATH }}
+          EOF
       - name: Deploy
         working-directory: ./jhe
-        run: flyctl deploy -a jhe --remote-only --dockerfile ./Dockerfile
+        run: |
+          ls -a
+          flyctl deploy -a jhe --remote-only --dockerfile ./Dockerfile
