@@ -215,7 +215,6 @@ class JheUser(AbstractUser):
 
 
 class Organization(models.Model):
-
     # https://build.fhir.org/valueset-organizations-type.html
     ORGANIZATION_TYPE_CHOICES = {
         "root": "ROOT",
@@ -245,7 +244,6 @@ class Organization(models.Model):
     # Helper method to return all users in this organization
     @property
     def users(self):
-
         patient_user_ids = (
             PatientOrganization.objects.filter(organization=self)
             .select_related("patient__jhe_user")
@@ -277,9 +275,10 @@ class Organization(models.Model):
         q = """
             SELECT core_organization.*
             FROM core_organization
-            JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
-            JOIN core_practitioner ON core_practitioner.id=core_practitionerorganization.practitioner_id
-            WHERE core_practitioner.jhe_user_id=%(practitioner_user_id)s
+                     JOIN core_practitionerorganization
+                          ON core_practitionerorganization.organization_id = core_organization.id
+                     JOIN core_practitioner ON core_practitioner.id = core_practitionerorganization.practitioner_id
+            WHERE core_practitioner.jhe_user_id = %(practitioner_user_id)s
             """
 
         return Organization.objects.raw(q, {"practitioner_user_id": practitioner_user_id})
@@ -289,9 +288,9 @@ class Organization(models.Model):
         q = """
             SELECT core_organization.*
             FROM core_organization
-            JOIN core_patientorganization ON core_patientorganization.organization_id=core_organization.id
-            JOIN core_patient ON core_patient.id=core_patientorganization.patient_id
-            WHERE core_patient.jhe_user_id=%(patient_user_id)s
+                     JOIN core_patientorganization ON core_patientorganization.organization_id = core_organization.id
+                     JOIN core_patient ON core_patient.id = core_patientorganization.patient_id
+            WHERE core_patient.jhe_user_id = %(patient_user_id)s
             """
 
         return Organization.objects.raw(q, {"patient_user_id": patient_user_id})
@@ -386,10 +385,11 @@ class Patient(models.Model):
         q = """
             SELECT DISTINCT(core_codeableconcept.*)
             FROM core_codeableconcept
-            JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.scope_code_id=core_codeableconcept.id
-            JOIN core_studypatient ON core_studypatient.id=core_studypatientscopeconsent.study_patient_id
+                     JOIN core_studypatientscopeconsent
+                          ON core_studypatientscopeconsent.scope_code_id = core_codeableconcept.id
+                     JOIN core_studypatient ON core_studypatient.id = core_studypatientscopeconsent.study_patient_id
             WHERE core_studypatientscopeconsent.consented IS TRUE
-            AND core_studypatient.patient_id=%(patient_id)s
+              AND core_studypatient.patient_id = %(patient_id)s
             """
 
         return CodeableConcept.objects.raw(q, {"patient_id": self.id})
@@ -538,11 +538,12 @@ class Patient(models.Model):
         q = """
             SELECT core_patient.*
             FROM core_patient
-            JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
-            JOIN core_study ON core_study.id=core_studypatient.study_id
-            JOIN core_organization ON core_organization.id=core_study.organization_id
-            JOIN core_patientorganization ON core_patientorganization.organization_id=core_organization.id
-            WHERE core_patientorganization.jhe_user_id=%(jhe_user_id)s AND core_study.id=%(study_id)s
+                     JOIN core_studypatient ON core_studypatient.patient_id = core_patient.id
+                     JOIN core_study ON core_study.id = core_studypatient.study_id
+                     JOIN core_organization ON core_organization.id = core_study.organization_id
+                     JOIN core_patientorganization ON core_patientorganization.organization_id = core_organization.id
+            WHERE core_patientorganization.jhe_user_id = %(jhe_user_id)s
+              AND core_study.id = %(study_id)s
             """
         return Patient.objects.raw(q, {"jhe_user_id": jhe_user_id, "study_id": study_id})
 
@@ -826,7 +827,7 @@ class Study(models.Model):
         if pending:
             sql_scope_code = "NULL"
 
-        q = """ # noqa
+        q = """
             SELECT
                 core_study.id,
                 core_studyscoperequest.scope_code_id as scope_code_id,
@@ -835,13 +836,14 @@ class Study(models.Model):
                 core_codeableconcept.text as code_text,
                 core_studypatientscopeconsent.consented,
                 core_studypatientscopeconsent.consented_time
-            FROM core_studyscoperequest
-            JOIN core_codeableconcept ON core_codeableconcept.id=core_studyscoperequest.scope_code_id
-            JOIN core_study ON core_study.id=core_studyscoperequest.study_id
-            JOIN core_studypatient ON core_studypatient.study_id=core_study.id
-            LEFT JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.study_patient_id=core_studypatient.id
-                AND core_studypatientscopeconsent.scope_code_id=core_studyscoperequest.scope_code_id
-            WHERE core_studypatientscopeconsent.scope_code_id IS {sql_scope_code} AND core_studypatient.patient_id=%(patient_id)s;
+        FROM core_studyscoperequest
+        JOIN core_codeableconcept ON core_codeableconcept.id=core_studyscoperequest.scope_code_id
+        JOIN core_study ON core_study.id=core_studyscoperequest.study_id
+        JOIN core_studypatient ON core_studypatient.study_id=core_study.id
+        LEFT JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.study_patient_id=core_studypatient.id
+        AND core_studypatientscopeconsent.scope_code_id=core_studyscoperequest.scope_code_id
+        WHERE core_studypatientscopeconsent.scope_code_id IS {sql_scope_code} AND
+         core_studypatient.patient_id=%(patient_id)s;
             """.format(
             sql_scope_code=sql_scope_code
         )
@@ -908,13 +910,15 @@ class StudyPatientScopeConsent(models.Model):
 
     @staticmethod
     def patient_scopes(jhe_user_id):
-
         q = """
-            SELECT DISTINCT core_codeableconcept.* FROM core_codeableconcept
-            JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.scope_code_id=core_codeableconcept.id
-            JOIN core_studypatient ON core_studypatient.id=core_studypatientscopeconsent.study_patient_id
-            JOIN core_patient ON core_patient.id=core_studypatient.patient_id
-            WHERE core_studypatientscopeconsent.consented IS TRUE AND core_patient.jhe_user_id=%(jhe_user_id)s;
+            SELECT DISTINCT core_codeableconcept.*
+            FROM core_codeableconcept
+                     JOIN core_studypatientscopeconsent
+                          ON core_studypatientscopeconsent.scope_code_id = core_codeableconcept.id
+                     JOIN core_studypatient ON core_studypatient.id = core_studypatientscopeconsent.study_patient_id
+                     JOIN core_patient ON core_patient.id = core_studypatient.patient_id
+            WHERE core_studypatientscopeconsent.consented IS TRUE
+              AND core_patient.jhe_user_id = %(jhe_user_id)s;
             """
 
         return CodeableConcept.objects.raw(q, {{"jhe_user_id": jhe_user_id}})
@@ -980,8 +984,9 @@ class DataSource(models.Model):
         q = """
             SELECT core_codeableconcept.*
             FROM core_codeableconcept
-            JOIN core_datasourcesupportedscope ON core_datasourcesupportedscope.scope_code_id=core_codeableconcept.id
-            WHERE core_datasourcesupportedscope.data_source_id=%(data_source_id)s
+                     JOIN core_datasourcesupportedscope
+                          ON core_datasourcesupportedscope.scope_code_id = core_codeableconcept.id
+            WHERE core_datasourcesupportedscope.data_source_id = %(data_source_id)s
             ORDER BY text
             """
 
@@ -1071,7 +1076,7 @@ class Observation(models.Model):
                 observation_id=int(observation_id)
             )
 
-        q = """ # noqa
+        q = """
         SELECT DISTINCT(core_observation.*),
         core_observation.value_attachment_data as value_attachment_data_json,
         core_codeableconcept.coding_system as coding_system,
@@ -1100,8 +1105,6 @@ class Observation(models.Model):
             study_sql_where=study_sql_where,
             patient_id_sql_where=patient_id_sql_where,
             observation_sql_where=observation_sql_where,
-            pageSize=pageSize,
-            offset=offset,
         )
 
         practitioner = Practitioner.objects.get(jhe_user_id=jhe_user_id)
@@ -1173,7 +1176,7 @@ class Observation(models.Model):
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # pagination: https://github.com/mattbuck85/django-paginator-rawqueryset
-        q = """ # noqa
+        q = """
             SELECT  'Observation' as resource_type,
                     'final' as status,
                     core_observation.id as id,
@@ -1219,7 +1222,7 @@ class Observation(models.Model):
             JOIN core_organization ON core_organization.id=core_study.organization_id
             JOIN core_patientorganization ON core_patientorganization.organization_id=core_organization.id
             WHERE core_patientorganization.patient_id={patient_user_id}
-            AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
+AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
             {study_sql_where}
             {patient_id_sql_where}
             {patient_identifier_value_sql_where}
@@ -1472,7 +1475,12 @@ class Observation(models.Model):
 
     def clean(self):
         try:
-            value_attachment_data = list(self.value_attachment_data.values())[0]
+            value_attachment_data = (
+                list(self.value_attachment_data.values())[0]
+                if self.value_attachment_data.keys() != {"header", "body"}
+                else self.value_attachment_data
+            )
+
             self.validate_outer_schema(instance_data=value_attachment_data)
 
             header_schema = json.loads((settings.DATA_DIR_PATH.metadata_dir / "header-1.0.json").read_text())

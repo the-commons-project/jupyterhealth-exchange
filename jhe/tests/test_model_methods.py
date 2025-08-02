@@ -1,9 +1,9 @@
-import json
 import base64
+import json
 
+from django.core import mail
 from django.test import TestCase
 from django.utils import timezone
-from django.core import mail
 from oauth2_provider.models import get_application_model
 
 from core.models import (
@@ -21,6 +21,7 @@ from core.models import (
     PractitionerOrganization,
     PatientOrganization,
 )
+from utils import generate_observation_value_attachment_data
 
 
 # -----------------------------------------------------
@@ -353,9 +354,9 @@ class ObservationMethodTests(TestCase):
         PatientOrganization.objects.create(patient=self.patient, organization=self.org)
 
         self.code = CodeableConcept.objects.create(
-            coding_system="http://loinc.org",
-            coding_code="1122-3",
-            text="Test Measurement",
+            coding_system="https://w3id.org/openmhealth",
+            coding_code="omh:blood-pressure:4.0",
+            text="Blood pressure",
         )
         self.ds = DataSource.objects.create(name="Monitor", type="personal_device")
         self.observation = Observation.objects.create(
@@ -363,7 +364,7 @@ class ObservationMethodTests(TestCase):
             codeable_concept=self.code,
             data_source=self.ds,
             status="final",
-            value_attachment_data={"value": 100, "unit": "mmHg"},
+            value_attachment_data={self.code.text: generate_observation_value_attachment_data(self.code.coding_code)},
         )
 
     def test_for_practitioner_organization_study_patient(self):
@@ -448,11 +449,13 @@ class ObservationMethodTests(TestCase):
         fhir_data = {
             "resourceType": "Observation",
             "status": "final",
-            "code": {"coding": [{"system": "http://loinc.org", "code": "1122-3"}]},
+            "code": {"coding": [{"system": "https://w3id.org/openmhealth", "code": "omh:blood-pressure:4.0"}]},
             "subject": {"reference": f"Patient/{self.patient.id}"},
             "device": {"reference": f"Device/{self.ds.id}"},
             "valueAttachment": {
-                "data": base64.b64encode(json.dumps({"value": 120, "unit": "mmHg"}).encode("ascii")).decode("ascii")
+                "data": base64.b64encode(
+                    json.dumps(generate_observation_value_attachment_data("omh:blood-pressure:4.0")).encode("ascii")
+                ).decode("ascii")
             },
         }
         # Create a study and consent so that fhir_create passes the permission check.
