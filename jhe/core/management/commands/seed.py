@@ -129,7 +129,7 @@ class Command(BaseCommand):
     @staticmethod
     def generate_placeholder(consent):
 
-        data_point = settings.DATA_DIR_PATH.data_point_dir / (
+        data_point = settings.DATA_DIR_PATH.examples_data_point / (
             consent.scope_code.coding_code.replace(":", "_").replace(".", "-") + ".json"
         )
         if not data_point.exists():
@@ -235,7 +235,7 @@ class Command(BaseCommand):
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
-                value_attachment_data={scope_code.text: self.generate_placeholder(consent)},
+                value_attachment_data=self.generate_placeholder(consent),
             )
 
     def seed_ucsf(self, root_organization):
@@ -329,7 +329,7 @@ class Command(BaseCommand):
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
-                value_attachment_data={scope_code.text: self.generate_placeholder(consent)},
+                value_attachment_data=self.generate_placeholder(consent),
             )
 
     @staticmethod
@@ -358,7 +358,7 @@ class Command(BaseCommand):
         user = JheUser.objects.create_user(
             email=email,
             password=password or get_random_string(length=16),
-            first_name=email.split("@")[0],
+            first_name=email.split("@")[0].capitalize(),
             last_name=fake.last_name(),
             user_type=user_type,
         )

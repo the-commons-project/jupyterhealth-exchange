@@ -4,7 +4,7 @@ from pathlib import Path, PosixPath
 
 from dotenv import load_dotenv
 
-JHE_VERSION = "v0.0.4"
+JHE_VERSION = "v0.0.6"
 
 """
 Django settings for jhe project.
@@ -321,9 +321,10 @@ SPECTACULAR_SETTINGS = {
 @dataclass
 class DataDirPath:
     data_dir: PosixPath = Path(BASE_DIR).parent / "data"
-    metadata_dir: PosixPath = data_dir / "omh/json-schemas/metadata"
-    data_point_dir: PosixPath = data_dir / "omh/examples/data-points"
-    json_schema_dir: PosixPath = data_dir / "omh/json-schemas/data"
+    schemas_metadata: PosixPath = data_dir / "omh/json-schemas/metadata"
+    schemas_data: PosixPath = data_dir / "omh/json-schemas/data"
+    schemas_utility: PosixPath = data_dir / "omh/json-schemas/utility"
+    examples_data_point: PosixPath = data_dir / "omh/examples/data-points"
 
 
 DATA_DIR_PATH = DataDirPath()

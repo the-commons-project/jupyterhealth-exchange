@@ -22,7 +22,8 @@ from django.utils.http import urlsafe_base64_encode
 from django.utils.translation import gettext_lazy as _
 from fhir.resources.observation import Observation as FHIRObservation
 from fhir.resources.patient import Patient as FHIRPatient
-from jsonschema import validate
+from jsonschema import ValidationError
+from core.utils import validate_with_registry
 from oauth2_provider.models import get_grant_model
 
 from .tokens import account_activation_token
@@ -826,7 +827,8 @@ class Study(models.Model):
         if pending:
             sql_scope_code = "NULL"
 
-        q = """ # noqa
+        # noqa
+        q = """
             SELECT
                 core_study.id,
                 core_studyscoperequest.scope_code_id as scope_code_id,
@@ -1071,7 +1073,8 @@ class Observation(models.Model):
                 observation_id=int(observation_id)
             )
 
-        q = """ # noqa
+        # noqa
+        q = """
         SELECT DISTINCT(core_observation.*),
         core_observation.value_attachment_data as value_attachment_data_json,
         core_codeableconcept.coding_system as coding_system,
@@ -1450,15 +1453,16 @@ class Observation(models.Model):
 
     @staticmethod
     def validate_outer_schema(instance_data):
-        schemas = ["data-point-1.0.json", "data-series-1.0.json"]
-        for schema in schemas:
-            schema = json.loads((settings.DATA_DIR_PATH.metadata_dir / schema).read_text())
+        for name in ("data-point-1.0.json", "data-series-1.0.json"):
+            schema = json.loads((settings.DATA_DIR_PATH.schemas_metadata / name).read_text())
             try:
-                validate(instance=instance_data, schema=schema)
+                validate_with_registry(instance=instance_data, schema=schema)
                 return True
-            except Exception as e:
-                raise e
-        return None
+            except ValidationError:
+                # Not a match; try the next outer schema
+                continue
+        # Neither matched as a valid outer schema
+        return False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1472,19 +1476,19 @@ class Observation(models.Model):
 
     def clean(self):
         try:
-            value_attachment_data = list(self.value_attachment_data.values())[0]
+            value_attachment_data = self.value_attachment_data
             self.validate_outer_schema(instance_data=value_attachment_data)
 
-            header_schema = json.loads((settings.DATA_DIR_PATH.metadata_dir / "header-1.0.json").read_text())
-            validate(instance=value_attachment_data.get("header"), schema=header_schema)
+            header_schema = json.loads((settings.DATA_DIR_PATH.schemas_metadata / "header-1.0.json").read_text())
+            validate_with_registry(instance=value_attachment_data.get("header"), schema=header_schema)
 
             body_schema = json.loads(
                 (
-                    settings.DATA_DIR_PATH.json_schema_dir
+                    settings.DATA_DIR_PATH.schemas_data
                     / f"schema-{self.codeable_concept.coding_code.replace(':', '_').replace('.', '-')}.json"
                 ).read_text()
             )
-            validate(instance=value_attachment_data.get("body"), schema=body_schema)
+            validate_with_registry(instance=value_attachment_data.get("body"), schema=body_schema)
         except Exception as error:
             raise error
 

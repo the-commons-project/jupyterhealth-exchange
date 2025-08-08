@@ -2,10 +2,14 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+# import faulthandler, sys, threading, time
+
 
 
 def main():
     """Run administrative tasks."""
+    # faulthandler.enable()
+    # faulthandler.dump_traceback_later(10, repeat=True)
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "jhe.settings")
     try:
         from django.core.management import execute_from_command_line

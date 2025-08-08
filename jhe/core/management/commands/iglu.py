@@ -1,7 +1,6 @@
 import copy
 import csv
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,13 +10,18 @@ from django.utils.crypto import get_random_string
 
 from core.models import (
     JheUser,
+    Organization,
     StudyPatient,
     CodeableConcept,
     Observation,
     Study,
+    StudyPatientScopeConsent,
+    StudyScopeRequest,
+    StudyDataSource,
+    DataSource,
 )
 
-MHEALTH_GLUCOSE_TEMPLATE = {
+OMH_BLOOD_GLUCOSE_TEMPLATE = {
     "header": {
         "modality": "self-reported",
         "uuid": "aaaa1234-1a2b-3c4d-5e6f-000000000001",
@@ -34,10 +38,10 @@ MHEALTH_GLUCOSE_TEMPLATE = {
 MOCK_PATIENTS = [
     {
         "name_family": "Nguyen",
-        "name_given": "Minh",
+        "name_given": "May",
         "birth_date": "1984-07-11",
         "telecom_phone": "265-642-0143",
-        "email": "minh.nguyen@example.com",
+        "email": "may.nguyen@example.com",
     },
     {
         "name_family": "Smith",
@@ -97,10 +101,10 @@ MOCK_PATIENTS = [
     },
     {
         "name_family": "Dubois",
-        "name_given": "Émile",
+        "name_given": "Emile",
         "birth_date": "1981-06-03",
         "telecom_phone": "400-870-0162",
-        "email": "émile.dubois@example.com",
+        "email": "emile.dubois@example.com",
     },
     {
         "name_family": "Singh",
@@ -174,8 +178,6 @@ MOCK_PATIENTS = [
     },
 ]
 
-DEFAULT_DATA_SOURCE_ID = 70002
-
 
 class Command(BaseCommand):
     help = (
@@ -186,34 +188,61 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--csv-file",
-            type=str,
+            type=Path,
             default=Path.cwd() / "../data/iglu/iglu_example_data_hall.csv",
-            help="Path to the IGLU-style CSV of test measurements",
+            help="Path to the IGLU CSV of test measurements",
         )
 
     def handle(self, *args, **options):
-        csv_path = options["csv_file"]
+        csv_path: Path = options["csv_file"]
         if not csv_path.exists():
             self.stderr.write(self.style.ERROR(f"File not found: {csv_path}"))
             return
 
-        schema = MHEALTH_GLUCOSE_TEMPLATE["header"]["schema_id"]
+        # Resolve scope code for OMH blood glucose 4.0
+        schema = OMH_BLOOD_GLUCOSE_TEMPLATE["header"]["schema_id"]
         coding_code = f"{schema['namespace']}:{schema['name']}:{schema['version']}"
-
         try:
-            concept = CodeableConcept.objects.get(coding_code=coding_code)
+            bg_scope_code = CodeableConcept.objects.get(coding_code=coding_code)
         except CodeableConcept.DoesNotExist:
             self.stderr.write(self.style.ERROR(f"Missing CodeableConcept '{coding_code}'"))
             return
 
-        study_qs = Study.objects.filter(studyscoperequest__scope_code=concept)
-        default_study = study_qs.first() or Study.objects.first()
-        if default_study is None:
-            self.stderr.write(self.style.ERROR("No Study available to attach patients and observations"))
+        # Find an org by name fragment
+        organization = Organization.objects.filter(name__icontains="BIDS").first()
+        if not organization:
+            self.stderr.write(self.style.ERROR("Missing Organization with name containing 'BIDS'"))
             return
 
-        created = skipped = 0
+        # Data source by name
+        try:
+            data_source = DataSource.objects.get(name="Dexcom")
+        except DataSource.DoesNotExist:
+            self.stderr.write(self.style.ERROR("Missing DataSource with name 'Dexcom'"))
+            return
+
+        # Create/get a study
+        iglu_study, _ = Study.objects.get_or_create(
+            organization=organization,
+            name="Iglu CGM Test Data",
+            defaults={
+                "description": "Test data from iglu project: https://github.com/irinagain/iglu",
+                "icon_url": None,
+            },
+        )
+
+        # Ensure required scope and device
+        study_scope_request, _ = StudyScopeRequest.objects.get_or_create(
+            study=iglu_study,
+            scope_code=bg_scope_code,
+            defaults={"scope_actions": "rs"},
+        )
+        StudyDataSource.objects.get_or_create(study=iglu_study, data_source=data_source)
+
+        created = 0
+        skipped = 0
         mock_pool = MOCK_PATIENTS.copy()
+        subject_cache = {}  # subject_id -> (patient, study_patient)
 
         with transaction.atomic():
             with open(csv_path, newline="") as csvfile:
@@ -221,56 +250,100 @@ class Command(BaseCommand):
                 next(reader, None)  # skip header
 
                 for row in reader:
-                    subject_id = row[1].strip()
-                    raw_time = row[2].strip()
-                    gl_value = row[3].strip()
-
+                    # Expect columns: [*, subject_id, timestamp, glucose, ...]
                     try:
-                        sp = StudyPatient.objects.get(patient__identifier=subject_id)
-                    except StudyPatient.DoesNotExist:
-                        if not mock_pool:
-                            self.stdout.write(self.style.ERROR(f"No mock patient left for '{subject_id}'"))
-                            skipped += 1
-                            continue
-                        mp = mock_pool.pop(0)
-                        user = JheUser.objects.create(
-                            email=mp["email"],
-                            password=get_random_string(16),
-                            first_name=mp["name_given"],
-                            last_name=mp["name_family"],
-                            user_type="patient",
-                            identifier=subject_id,
+                        subject_id = row[1].strip()
+                        raw_time = row[2].strip()
+                        gl_value = row[3].strip()
+                    except (IndexError, AttributeError):
+                        self.stdout.write(self.style.WARNING(f"Skip: bad row: {row!r}"))
+                        skipped += 1
+                        continue
+
+                    # Find or create patient once per subject_id
+                    if subject_id not in subject_cache:
+                        sp = (
+                            StudyPatient.objects
+                            .filter(patient__identifier=subject_id, study=iglu_study)
+                            .select_related("patient")
+                            .first()
                         )
-                        pat = user.patient_profile
-                        pat.birth_date = mp["birth_date"]
-                        pat.telecom_phone = mp["telecom_phone"]
-                        pat.save()
+                        if sp:
+                            patient = sp.patient
+                            study_patient = sp
+                        else:
+                            if not mock_pool:
+                                self.stdout.write(self.style.ERROR(f"No mock Patient left for '{subject_id}'"))
+                                skipped += 1
+                                continue
+                            mp = mock_pool.pop(0)
 
-                        sp = StudyPatient.objects.create(study=default_study, patient=pat)
+                            # Create user/patient (use manager to hash password & set flags)
+                            user = JheUser.objects.create_user(
+                                email=mp["email"],
+                                password=get_random_string(16),
+                                first_name=mp["name_given"],
+                                last_name=mp["name_family"],
+                                user_type="patient",
+                                identifier=subject_id,
+                            )
+                            patient = user.patient_profile
+                            patient.birth_date = mp["birth_date"]
+                            patient.telecom_phone = mp["telecom_phone"]
+                            patient.save()
+                            patient.organizations.add(organization)
 
+                            study_patient, _ = StudyPatient.objects.get_or_create(study=iglu_study, patient=patient)
+
+                        subject_cache[subject_id] = (patient, study_patient)
+                    else:
+                        patient, study_patient = subject_cache[subject_id]
+
+                    # Parse timestamp
                     try:
                         dt = datetime.strptime(raw_time, "%Y-%m-%d %H:%M:%S")
+                        dt = dt.replace(tzinfo=timezone.utc)  # mark as UTC
                         iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                     except ValueError:
                         self.stdout.write(self.style.WARNING(f"Skip: bad timestamp '{raw_time}'"))
                         skipped += 1
                         continue
 
-                    payload = copy.deepcopy(MHEALTH_GLUCOSE_TEMPLATE)
-                    payload["body"]["blood_glucose"]["value"] = float(gl_value)
-                    payload["body"]["effective_time_frame"]["date_time"] = (dt - timedelta(hours=1)).strftime(
-                        "%Y-%m-%dT%H:%M:%SZ"
-                    )
+                    # Build OMH payload
+                    try:
+                        glucose = float(gl_value)
+                    except ValueError:
+                        self.stdout.write(self.style.WARNING(f"Skip: bad glucose value '{gl_value}'"))
+                        skipped += 1
+                        continue
+
+                    payload = copy.deepcopy(OMH_BLOOD_GLUCOSE_TEMPLATE)
+                    payload["body"]["blood_glucose"]["value"] = glucose
+                    payload["body"]["effective_time_frame"]["date_time"] = (
+                        dt - timedelta(hours=1)
+                    ).strftime("%Y-%m-%dT%H:%M:%SZ")
                     payload["header"]["creation_date_time"] = iso_ts
                     payload["header"]["source_creation_date_time"] = iso_ts
                     payload["header"]["uuid"] = str(uuid4())
 
+                    # Ensure the patient has consent for this scope in this study
+                    StudyPatientScopeConsent.objects.update_or_create(
+                        study_patient=study_patient,
+                        scope_code=study_scope_request.scope_code,
+                        defaults={
+                            "consented": True,
+                            "consented_time": dt - timedelta(days=3),
+                            "scope_actions": study_scope_request.scope_actions,
+                        },
+                    )
+
+                    # Create observation
                     Observation.objects.create(
-                        subject_patient=sp.patient,
-                        codeable_concept=concept,
-                        data_source_id=DEFAULT_DATA_SOURCE_ID,
+                        subject_patient=patient,
+                        codeable_concept=bg_scope_code,
+                        data_source=data_source,
                         status="final",
-                        value_attachment_data={"Blood glucose": payload},
+                        value_attachment_data=payload,
                     )
                     created += 1
 

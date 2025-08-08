@@ -8,7 +8,7 @@ In the context of JupyterHealth, data producers are typically study participants
 Features include:
 
 - OAuth 2.0, OIDC and SMART on FHIR Identity Provision using [django-oauth-toolkit](https://github.com/jazzband/django-oauth-toolkit)
-- FHIR R5 schema validation using [fhir.resources](https://github.com/glichtner/fhir.resources)
+- FHIR R5 schema validation using [fhir.resources](https://github.com/glichtner/fhir.resources) 
 - REST APIs using [Django Rest Framework](https://github.com/encode/django-rest-framework)
 - Built-in, light-weight Vanilla JS SPA UI (npm not required) using [oidc-clinet-ts](https://github.com/authts/oidc-client-ts), [handlebars](https://github.com/handlebars-lang/handlebars.js) and [bootstrap](https://github.com/twbs/bootstrap)
 
@@ -20,7 +20,7 @@ https://github.com/orgs/the-commons-project/projects/8
 
 ## Troubleshooting Local Development
 
-**Issue:** On Windows machines, users may experience a blank screen after logging in, caused by incorrect OIDC configuration.
+**Issue:** On Windows machines, users may experience a blank screen after logging in, caused by incorrect OIDC configuration.  
 **Solution:** Explicitly set OIDC variables in your `settings.py`. For full details, see [Troubleshooting Local Development Issues](doc/localdevelopment/issues/OIDC.md).
 
 By setting these variables explicitly, you prevent incorrect path injections and ensure proper URL formation, resolving the blank screen issue after login on Windows machines.
@@ -30,28 +30,19 @@ By setting these variables explicitly, you prevent incorrect path injections and
 > [!TIP]
 >**Quick start:** For local development, Skip the steps 8–12 as the `seed_db` command will register the Django OAuth2 application. Also, Pre‑generated values of  `OIDC_RSA_PRIVATE_KEY`, `PATIENT_AUTHORIZATION_CODE_CHALLENGE`, and `PATIENT_AUTHORIZATION_CODE_VERIFIER` are provided in `dot_env_example.txt` for dev/demo use only.
 
-### Single Sign-On (SSO) Feature Flag
 
-SSO is **disabled by default**. Toggle it via the `.env` variable:
-
-```env
-# Default: SSO disabled. Change to 1 to enable.
-SSO_ENABLED=0
-```
-
-
-1. Set up your Python environment - this project uses Django **version 5.2** which requires python  **3.10, 3.11, 3.12 or 3.13**
+1. Set up your Python environment and install dependencies from `jhe/Pipfile` - this project uses Django **version 5.2** which requires python  **3.10, 3.11, 3.12 or 3.13**
 
     - NB: If using pipenv it is recommended to run `pipenv sync` against the lock file to match package versions
 1. Create a new Postgres DB (currently only Postgres is supported because of json functions)
 1. Copy `jhe/dot_env_example.txt` to `jhe/.env` and update the `DB_*` parameters to match (2)
 1. Ensure the `.env` is loaded into your Python environment, eg for pipenv run `$ pipenv shell`
-1. Run the Django migration `python manage.py migrate` to create the database tables.
-1. Seed the database by running the Django management command `python manage.py seed_db`
+1. Run the Django migration `$ python manage.py migrate` to create the database tables.
+1. Seed the database by running the Django management command `$ python manage.py seed`
 1. Start the server with `$ python manage.py runserver`
 
      ***Skip steps 8-12 below if doing Quick start above***
-1. Browse to http://localhost:8000/admin and enter the credentials `super@example.com` `Jhe1234!`
+1. Browse to http://localhost:8000/admin and enter the credentials `sam@example.com` `Jhe1234!`
 1. Browse to *Applications* under *Django OAuth Toolkit* and create a new application
    - Leave *User* empty
    - Set *Redirect URLs* to include `http://localhost:8000/auth/callback` and any other hosts
@@ -62,6 +53,7 @@ SSO_ENABLED=0
    - Check *Skip authorization*
    - Set *Algorithm* to RSA with SHA-2 256
    - Skip Allowed origins
+   - Save and then Log Out of Django Admin
 1. Create an RS256 Private Key (step by step [here](https://django-oauth-toolkit.readthedocs.io/en/latest/oidc.html#creating-rsa-private-key))
 1. Create a new static PKCE verifier - a random alphanumeric string 44 chars long, and then create the challenge [here](https://tonyxu-io.github.io/pkce-generator).
 1. Return to the `.env` file
@@ -69,7 +61,7 @@ SSO_ENABLED=0
    - Update the `OIDC_RSA_PRIVATE_KEY` with the newly created Private Key
    - Update `PATIENT_AUTHORIZATION_CODE_CHALLENGE` and `PATIENT_AUTHORIZATION_CODE_VERIFIER` with PKCE static values generated above
    - Restart the python environment and Django server
-1. Browse to http://localhost:8000/ and log in with the credentials `mary@example.com` `Jhe1234!`and you should be directed to the `/portal/organizations` path with some example Organizations is the dropdown
+1. Browse to http://localhost:8000/ and log in with the credentials `mary@example.com` `Jhe1234!` and you should be directed to the `/portal/organizations` path with some example Organizations is the dropdown
 1. Before the each commit always make sure to execute `pre-commit run --all-files` to make sure the PEP8 standards.
 1. Git hook for the pre-commit can also be installed `pre-commit install` to automate the process.
 1. If a hook fails, fix the issues, stage the changes, and commit again — the commit only succeeds when hooks pass.
@@ -78,7 +70,7 @@ SSO_ENABLED=0
 
 ## Working with the Web UI
 
-### Patients & Practitioners
+### Patients & Practitioners 
 
 - Any user accessing the Web UI is a data consumer and considered a [Practitioner](https://build.fhir.org/practitioner.html)
 - Any user uploading data is considered a [Patient](https://build.fhir.org/patient.html)
@@ -124,6 +116,94 @@ SSO_ENABLED=0
 9. Use the code in the invitation link with the Auth API to swap it for tokens
 10. Upload Observations using the FHIR API
 
+## Test Data
+
+### Database Seed
+
+- The initial Database is seeded with a minimal set of records to provide an example of the system, see the diagram below.
+
+```mermaid
+flowchart TD
+    sam("SuperUser Sam<br/><small>sam\@example.com</small>")
+    style sam fill:#CFC
+
+    %% berkeley
+    ucb("Organization:<br/>University of California Berkeley") --> ccdss("Organization:<br/>College of Computing, Data Science and Society")
+    ccdss --> bids("Organization:<br/>Berkeley Institute for Data Science (BIDS)")
+
+    %% berkeley users
+    ucb --Manager--> mary("ManagerMary<br/><small>mary\@example.com</small>")
+    style mary fill:#CFC
+    ccdss --Manager--> mary
+    bids --Manager--> mary
+    bids --Memeber--> megan("MemberMegan<br/><small>megan\@example.com</small>")
+    style megan fill:#CFC
+    bids --Viewer--> victor("ViewerVictor<br/><small>victor\@example.com</small>")
+    style victor fill:#CFC
+    tom("ThreeOrgTom<br/><small>tom\@example.com</small>")
+    bids --Viewer--> tom
+    style tom fill:#CFC
+
+    %% berkeley studies
+    bids --> bidsStudyOnBPHR("BIDS Study on BP & HR<br/><small>Blood Pressure<br/>Heart Rate</small>")
+    style bidsStudyOnBPHR fill:#CFF
+    bids --> bidsStudyOnBP("BIDS Study on BP<br/><small>Blood Pressure </small>")
+    style bidsStudyOnBP fill:#CFF
+
+    %% berkeley patients
+    bids --> peter("BidsPatientPeter<br/><small>peter\@example.com</small>")
+    style peter fill:#FCC
+    peter --Consented--> bidsStudyOnBPHR
+    peter --Requested--> bidsStudyOnBP
+    pamela("BidsPatientPamela<br/><small>pamela\@example.com</small>")
+    style pamela fill:#FCC
+    bids --> pamela
+    pamela --Consented--> bidsStudyOnBPHR
+    pamela --Consented--> bidsStudyOnBP
+
+    %% ucsf
+    ucsf("Organization:<br/>University of California San Francisco") --> med("Organization:<br/>Department of Medicine")
+    med --> cardio("Organization:<br/>Cardiology")
+    cardio --> moslehi("Organization:<br/>Moslehi Lab")
+    cardio --> olgin("Organization:<br/>Olgin Lab")
+
+    %% ucsf users
+    ucsf --Manager-->mark("ManagerMark<br/><small>mark\@example.com</small>")
+    style mark fill:#CFC
+    med --Manager--> mark
+    cardio --Manager--> mark
+    moslehi --Member--> tom
+    moslehi --Manager-->mark
+    olgin --Manager--> tom
+
+    %% ucsf studies
+    cardio --> cardioStudyOnRR("Cardio Study on RR<br/><small>Respiratory rate</small>")
+    style cardioStudyOnRR fill:#CFF
+    moslehi --> moslehiStudyOnBT("Moslehi Study on BT<br/><small>Body Temperature</small>")
+    style moslehiStudyOnBT fill:#CFF
+    olgin --> olginStudyOnO2("Olgin Study on O2<br/><small>Oxygen Saturation</small>")
+    style olginStudyOnO2 fill:#CFF
+
+    %% ucsf patients
+    moslehi --> percy("MoslehiPatientPercy<br/><small>percy\@example.com</small>")
+    style percy fill:#FCC
+    percy --Consented--> moslehiStudyOnBT
+    olgin --> paul("OlginPatientPaul<br/><small>paul\@example.com</small>")
+    style paul fill:#FCC
+    paul --Consented--> olginStudyOnO2
+    cardio --> pat("CardioOlginPatientPat<br/><small>pat\@example.com</small>")
+    style pat fill:#FCC
+    pat --Consented--> cardioStudyOnRR
+    pat --Consented--> olginStudyOnO2 
+    olgin --> pat
+```
+
+### Iglu Test Data
+
+- Additional test data from the [iglu project](https://github.com/irinagain/iglu) can be seeded by running the following command (please note this can take 10-20 minutes to run)
+  `$ python manage.py iglu`
+- This creates a new study under the "Berkeley Institute for Data Science (BIDS)" Organization with 19 mock patients and 1745 real Observation data points
+
 ## Working with APIs
 
 ### Auth API
@@ -134,7 +214,7 @@ SSO_ENABLED=0
 - Endpoints and configuration details can be discovered from the OIDC metadata endpoint:
 	`/o/.well-known/openid-configuration`
 - The returned Access Token should be included in the `Authorization` header for all API requests with the prefix `Bearer `
-- Because the Patient authorization code is generated by the server, the PKCE code challenge and code verifier for Patient auth must be static values and set by the env vars (example below). The Patient client then sends this `code_verifier` along with the authorization code to obtain tokens. The `redirect_uri` serves no purpose (as the initial authorization code has already been issued) but is required per OAuth spec.
+- Because the Patient authorization code is generated by the server, the PKCE code challenge and code verifier for Patient auth must be static values and set by the env vars (example below). The Patient client then sends this `code_verifier` along with the authorization code to obtain tokens. The `redirect_uri` serves no purpose (as the initial authorization code has already been issued) but is required per OAuth spec. 
 ```
 PATIENT_AUTHORIZATION_CODE_CHALLENGE = '-2FUJ5UCa7NK9hZWS0bc0W9uJ-Zr_-Pngd4on69oxpU'
 PATIENT_AUTHORIZATION_CODE_VERIFIER  = 'f28984eaebcf41d881223399fc8eab27eaa374a9a8134eb3a900a3b7c0e6feab5b427479f3284ebe9c15b698849b0de2'
@@ -158,7 +238,7 @@ https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.
 
 - The purpose of the prefix URL (eg `https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.dev&referrer=cloud_sharing=` ) is for the device to know which app to launch. In this case, the CommonHealth app is launched via Google Play so that if the user does not yet have the CommonHealth app installed they can install it within the flow
 - The prefix URL component may be more simple, for example `https://carex.ai/?invitation=` to launch the CareX app
-- The suffix of the link contains the hostname (optional) followed by a pipe character and the OAuth2 Authorization Code, for example `jhe.fly.dev|LhS05iR1rOnpS4JWfP6GeVUIhaRcRh`
+- The suffix of the link contains the hostname (optional) followed by a pipe character and the OAuth2 Authorization Code, for example `jhe.fly.dev|LhS05iR1rOnpS4JWfP6GeVUIhaRcRh` 
 - The purpose of the suffix is to provide the app with information on what host to talk to (as there may be many JHEs configured for the one Patient) as well as the Authorization Code that can be swapped for an Access Token to use the API (see above)
 - The prefix URL is configured in the `.env` as .`CH_INVITATION_LINK_PREFIX`
 - The host name is included by default but can optionally be removed from the link (if there will only ever be one host for the app) by configuring the `.env` with `CH_INVITATION_LINK_EXCLUDE_HOST=True`
@@ -169,6 +249,15 @@ https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.
   1. The CareX app posts `LhS05iR1rOnpS4JWfP6GeVUIhaRcRh` to get an access token
   1. The CareX app uses the API below to set consents
   1. The CareX app uses the API below to upload data
+
+#### Single Sign-On (SSO)
+
+SSO is **disabled by default**. Toggle it via the `.env` variable:
+
+```env
+# Default: SSO disabled. Change to 1 to enable.
+SSO_ENABLED=0
+```
 
 ### Admin REST API
 
@@ -270,7 +359,7 @@ https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.
     }
   ]
 }
-
+  
 ```
 
 - A `PATCH` request can be sent with the same payload to update an existing Consent
@@ -453,7 +542,7 @@ Django is a mature and well-supported web framework but was specifically chosen 
   - Top-level fields (most importantly the `id` of a record) are managed by the Serializer.
   - Nested fields (for example `code{}.coding[].system` above) are configured as a JSON field in the Serializer (so the top level field is this example is `code`) and then Pydantic is used to validate the whole schema including nested JSON.
 
-- There is a [library](https://github.com/georgebv/drf-pydantic) that may allow Pydantic to be used as a Serializer but this needs to be explored further
+- There is a [library](https://github.com/georgebv/drf-pydantic) that may allow Pydantic to be used as a Serializer but this needs to be explored further 
 
 #### JSON Responses
 
@@ -543,7 +632,7 @@ erDiagram
         int study_id
         int user_id
     }
-
+    
     "observations (FHIR Observation)" ||--|| "codeable_concepts (FHIR CodeableConcept)": ""
     "observations (FHIR Observation)" ||--|{ "observation_identifiers": ""
     "observations (FHIR Observation)" ||--|| "data_sources": ""
@@ -561,7 +650,7 @@ erDiagram
         varchar system
         varchar value
     }
-
+    
     "studies (FHIR Group)" ||--|{ "study_patients": ""
     "codeable_concepts (FHIR CodeableConcept)" {
         int id
@@ -576,7 +665,7 @@ erDiagram
         enum scope_action
         int scope_code_id
         bool consented
-        timestamp consented_time
+        timestamp consented_time       
     }
     "data_sources" ||--|{ "data_source_supported_scopes": ""
     "data_sources" ||--|{ "study_data_sources": ""
