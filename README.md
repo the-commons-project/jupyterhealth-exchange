@@ -258,6 +258,43 @@ SSO is **disabled by default**. Toggle it via the `.env` variable:
 # Default: SSO disabled. Change to 1 to enable.
 SSO_ENABLED=0
 ```
+### Configure MockSAML IdP
+
+Set the allowed sign-in email domains and the IdP metadata URL.
+These keys already exist in `dot_env_example.txt`
+
+```env
+# Comma-separated list matches email domains permitted to sign in via SSO
+SSO_VALID_DOMAINS=example.com,example.org
+
+# MockSAML metadata URL (used to auto-configure IdP endpoints & certificate)
+IDENTITY_PROVIDER_METADATA_URL=https://mocksaml.com/api/saml/metadata
+```
+
+### Domain Matching Rules
+
+- Use bare domains (no spaces).
+- All SSO emails must end with one of the listed domains.
+
+
+### Development Setting in Django
+
+For this demo, ensure `DEBUG=True` in `settings.py`:
+
+
+```python
+# settings.py (demo only)
+DEBUG = True
+```
+
+> ⚠️ **Important:** `DEBUG=True` is for **demo/dev only**. Switch back to `False` for production.
+
+### After Setup
+
+- The app reads IdP configuration from `IDENTITY_PROVIDER_METADATA_URL`.
+- Only users whose email ends with one of `SSO_VALID_DOMAINS` are allowed to sign in.
+- On successful assertion from MockSAML, the user is signed in and returned to the app.
+
 
 ### Admin REST API
 
