@@ -263,8 +263,7 @@ class Command(BaseCommand):
                     # Find or create patient once per subject_id
                     if subject_id not in subject_cache:
                         sp = (
-                            StudyPatient.objects
-                            .filter(patient__identifier=subject_id, study=iglu_study)
+                            StudyPatient.objects.filter(patient__identifier=subject_id, study=iglu_study)
                             .select_related("patient")
                             .first()
                         )
@@ -319,9 +318,9 @@ class Command(BaseCommand):
 
                     payload = copy.deepcopy(OMH_BLOOD_GLUCOSE_TEMPLATE)
                     payload["body"]["blood_glucose"]["value"] = glucose
-                    payload["body"]["effective_time_frame"]["date_time"] = (
-                        dt - timedelta(hours=1)
-                    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    payload["body"]["effective_time_frame"]["date_time"] = (dt - timedelta(hours=1)).strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    )
                     payload["header"]["creation_date_time"] = iso_ts
                     payload["header"]["source_creation_date_time"] = iso_ts
                     payload["header"]["uuid"] = str(uuid4())
