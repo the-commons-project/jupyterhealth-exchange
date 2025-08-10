@@ -841,9 +841,9 @@ class Study(models.Model):
             JOIN core_codeableconcept ON core_codeableconcept.id=core_studyscoperequest.scope_code_id
             JOIN core_study ON core_study.id=core_studyscoperequest.study_id
             JOIN core_studypatient ON core_studypatient.study_id=core_study.id
-            LEFT JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.study_patient_id=core_studypatient.id
+          LEFT JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.study_patient_id=core_studypatient.id
                 AND core_studypatientscopeconsent.scope_code_id=core_studyscoperequest.scope_code_id
-            WHERE core_studypatientscopeconsent.scope_code_id IS {sql_scope_code} AND core_studypatient.patient_id=%(patient_id)s;
+  WHERE core_studypatientscopeconsent.scope_code_id IS {sql_scope_code} AND core_studypatient.patient_id=%(patient_id)s;
             """.format(
             sql_scope_code=sql_scope_code
         )
@@ -1103,8 +1103,6 @@ class Observation(models.Model):
             study_sql_where=study_sql_where,
             patient_id_sql_where=patient_id_sql_where,
             observation_sql_where=observation_sql_where,
-            pageSize=pageSize,
-            offset=offset,
         )
 
         practitioner = Practitioner.objects.get(jhe_user_id=jhe_user_id)
@@ -1176,7 +1174,7 @@ class Observation(models.Model):
 
         # TBD: Query optimization: https://stackoverflow.com/a/6037376
         # pagination: https://github.com/mattbuck85/django-paginator-rawqueryset
-        q = """ # noqa
+        q = """
             SELECT  'Observation' as resource_type,
                     'final' as status,
                     core_observation.id as id,
@@ -1222,7 +1220,7 @@ class Observation(models.Model):
             JOIN core_organization ON core_organization.id=core_study.organization_id
             JOIN core_patientorganization ON core_patientorganization.organization_id=core_organization.id
             WHERE core_patientorganization.patient_id={patient_user_id}
-            AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
+AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
             {study_sql_where}
             {patient_id_sql_where}
             {patient_identifier_value_sql_where}
@@ -1476,7 +1474,11 @@ class Observation(models.Model):
 
     def clean(self):
         try:
-            value_attachment_data = self.value_attachment_data
+            value_attachment_data = (
+                list(self.value_attachment_data.values())[0]
+                if self.value_attachment_data.keys() != {"header", "body"}
+                else self.value_attachment_data
+            )
             self.validate_outer_schema(instance_data=value_attachment_data)
 
             header_schema = json.loads((settings.DATA_DIR_PATH.schemas_metadata / "header-1.0.json").read_text())

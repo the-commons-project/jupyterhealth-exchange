@@ -2,8 +2,8 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
-# import faulthandler, sys, threading, time
 
+# import faulthandler, sys, threading, time
 
 
 def main():
