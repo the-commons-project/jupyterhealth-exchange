@@ -260,7 +260,7 @@ SSO_ENABLED=0
 ```
 ### Configure MockSAML IdP
 
-Set the allowed sign-in email domains and the IdP metadata URL.  
+Set the allowed sign-in email domains and the IdP metadata URL.
 These keys already exist in `dot_env_example.txt`
 
 ```env
