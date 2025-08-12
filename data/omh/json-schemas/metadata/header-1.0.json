@@ -36,11 +36,11 @@
             "$ref": "#/definitions/date_time"
         },
         "modality": {
-            "description": "The modality whereby the measure is obtained, e.g., sensed or self-reported",
+            "description": "The modality whereby the measure is obtained, e.g., sensed or sensed",
             "type": "string",
             "enum": [
                 "sensed",
-                "self-reported"
+                "sensed"
             ]
         },
         "acquisition_rate": {

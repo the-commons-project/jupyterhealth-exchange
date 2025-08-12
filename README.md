@@ -30,6 +30,9 @@ By setting these variables explicitly, you prevent incorrect path injections and
 > [!TIP]
 >**Quick start:** For local development, Skip the steps 8–12 as the `seed_db` command will register the Django OAuth2 application. Also, Pre‑generated values of  `OIDC_RSA_PRIVATE_KEY`, `PATIENT_AUTHORIZATION_CODE_CHALLENGE`, and `PATIENT_AUTHORIZATION_CODE_VERIFIER` are provided in `dot_env_example.txt` for dev/demo use only.
 
+> [!NOTE]
+> Due to browser security restrictions and the [oidc-client-ts](https://github.com/authts/oidc-client-ts) used for authentication, this web app **must be accessed over HTTPS for any hostname other than localhost**. Setting up HTTPS/TLS termination via a reverse proxy is outside the scope of this guide; [NGINX](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/) is a popular option.
+
 
 1. Set up your Python environment and install dependencies from `jhe/Pipfile` - this project uses Django **version 5.2** which requires python  **3.10, 3.11, 3.12 or 3.13**
 
@@ -250,20 +253,18 @@ https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.
   1. The CareX app uses the API below to set consents
   1. The CareX app uses the API below to upload data
 
-#### Single Sign-On (SSO)
+#### Single Sign-On (SSO) with SAML2
 
-SSO is **disabled by default**. Toggle it via the `.env` variable:
+The [django-saml2-auth](https://github.com/grafana/django-saml2-auth) library is included to support SSO with SAML2.
+
+##### Example SAML2 Flow with [mocksaml.com](mocksaml.com)
+
+Modify the `.env` to match below
 
 ```env
 # Default: SSO disabled. Change to 1 to enable.
-SSO_ENABLED=0
-```
-### Configure MockSAML IdP
+SSO_ENABLED=1
 
-Set the allowed sign-in email domains and the IdP metadata URL.
-These keys already exist in `dot_env_example.txt`
-
-```env
 # Comma-separated list matches email domains permitted to sign in via SSO
 SSO_VALID_DOMAINS=example.com,example.org
 
@@ -271,29 +272,35 @@ SSO_VALID_DOMAINS=example.com,example.org
 IDENTITY_PROVIDER_METADATA_URL=https://mocksaml.com/api/saml/metadata
 ```
 
-### Domain Matching Rules
+###### Temporarily Switch on Debug for logging
 
-- Use bare domains (no spaces).
-- All SSO emails must end with one of the listed domains.
-
-
-### Development Setting in Django
-
-For this demo, ensure `DEBUG=True` in `settings.py`:
+Add the below to `./jhe/settings.py` 
 
 
 ```python
 # settings.py (demo only)
 DEBUG = True
 ```
+> [!WARNING]
+> Use Debug for testing only, switch off Debug for Production.
 
-> ⚠️ **Important:** `DEBUG=True` is for **demo/dev only**. Switch back to `False` for production.
+###### Test Flow
 
-### After Setup
+1. Visit https://mocksaml.com/saml/login and enter the fields below:
 
-- The app reads IdP configuration from `IDENTITY_PROVIDER_METADATA_URL`.
-- Only users whose email ends with one of `SSO_VALID_DOMAINS` are allowed to sign in.
-- On successful assertion from MockSAML, the user is signed in and returned to the app.
+   - ACS URL: `http://localhost:8000/sso/acs/` (or substitute your hostname) **End with a trailing slash**
+
+   - Audience: `http://localhost:8000/sso/acs/`
+
+2. Enter any email name `@example.com`
+2. Enter any password
+2. Click Sign in
+2. The JHE portal should be displayed with the user in the matching user name in the bottom left hand corner
+
+###### Notes
+
+- The JHE app reads IdP configuration from `IDENTITY_PROVIDER_METADATA_URL`
+- Only users with email addresses on the `SSO_VALID_DOMAINS` are permitted
 
 
 ### Admin REST API

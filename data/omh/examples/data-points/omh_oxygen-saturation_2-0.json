@@ -7,7 +7,7 @@
       "namespace": "omh"
     },
     "source_creation_date_time": "2025-01-01T01:05:01-08:00",
-    "modality": "self-reported",
+    "modality": "sensed",
     "external_datasheets": [
       {
         "datasheet_type": "manufacturer",

@@ -68,7 +68,7 @@ def generate_observation_value_attachment_data(coding_code):
     placeholder = json.loads(data_point.read_text())
 
     placeholder.get("header")["uuid"] = str(uuid4())
-    placeholder.get("header")["uuid"] = str(timezone.now())
+    placeholder.get("header")["source_creation_date_time"] = timezone.localtime(timezone.now()).replace(microsecond=0).isoformat()
 
     body = placeholder.get("body")
     for key in ("body_temperature", "oxygen_saturation", "respiratory_rate"):
@@ -76,7 +76,9 @@ def generate_observation_value_attachment_data(coding_code):
         if field and "value" in field:
             field["value"] += random.randint(1, 10)
 
-    body["effective_time_frame"] = {"date_time": str(timezone.now() + timedelta(hours=1))}
+    body["effective_time_frame"] = {
+        "date_time": timezone.localtime(timezone.now() + timedelta(hours=1)).replace(microsecond=0).isoformat()
+    }
     return placeholder
 
 

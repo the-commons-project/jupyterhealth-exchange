@@ -1,6 +1,7 @@
 import copy
 import csv
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from django.utils import timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,10 +24,9 @@ from core.models import (
 
 OMH_BLOOD_GLUCOSE_TEMPLATE = {
     "header": {
-        "modality": "self-reported",
+        "modality": "sensed",
         "uuid": "aaaa1234-1a2b-3c4d-5e6f-000000000001",
         "schema_id": {"name": "blood-glucose", "version": "4.0", "namespace": "omh"},
-        "creation_date_time": None,
         "external_datasheets": [{"datasheet_type": "manufacturer", "datasheet_reference": "Dexcom"}],
         "source_creation_date_time": None,
     },
@@ -301,8 +301,9 @@ class Command(BaseCommand):
                     # Parse timestamp
                     try:
                         dt = datetime.strptime(raw_time, "%Y-%m-%d %H:%M:%S")
-                        dt = dt.replace(tzinfo=timezone.utc)  # mark as UTC
-                        iso_ts = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                        local_tz = timezone.get_default_timezone()
+                        dt_local = timezone.make_aware(dt, local_tz)
+                        iso_ts = dt_local.isoformat(timespec='seconds')
                     except ValueError:
                         self.stdout.write(self.style.WARNING(f"Skip: bad timestamp '{raw_time}'"))
                         skipped += 1
@@ -318,10 +319,7 @@ class Command(BaseCommand):
 
                     payload = copy.deepcopy(OMH_BLOOD_GLUCOSE_TEMPLATE)
                     payload["body"]["blood_glucose"]["value"] = glucose
-                    payload["body"]["effective_time_frame"]["date_time"] = (dt - timedelta(hours=1)).strftime(
-                        "%Y-%m-%dT%H:%M:%SZ"
-                    )
-                    payload["header"]["creation_date_time"] = iso_ts
+                    payload["body"]["effective_time_frame"]["date_time"] = (dt_local - timedelta(hours=1)).isoformat(timespec='seconds')
                     payload["header"]["source_creation_date_time"] = iso_ts
                     payload["header"]["uuid"] = str(uuid4())
 
@@ -331,7 +329,7 @@ class Command(BaseCommand):
                         scope_code=study_scope_request.scope_code,
                         defaults={
                             "consented": True,
-                            "consented_time": dt - timedelta(days=3),
+                            "consented_time": dt_local - timedelta(days=3),
                             "scope_actions": study_scope_request.scope_actions,
                         },
                     )

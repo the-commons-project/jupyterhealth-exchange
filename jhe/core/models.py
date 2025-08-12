@@ -1474,12 +1474,7 @@ AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeablec
 
     def clean(self):
         try:
-            value_attachment_data = (
-                list(self.value_attachment_data.values())[0]
-                if self.value_attachment_data.keys() != {"header", "body"}
-                else self.value_attachment_data
-            )
-            self.validate_outer_schema(instance_data=value_attachment_data)
+            value_attachment_data = self.value_attachment_data
 
             header_schema = json.loads((settings.DATA_DIR_PATH.schemas_metadata / "header-1.0.json").read_text())
             validate_with_registry(instance=value_attachment_data.get("header"), schema=header_schema)

@@ -1,6 +1,6 @@
 ## Troubleshooting Local Development
 
-### Issue: Blank Screen After Login on Windows
+### Issue: Blank Screen After Log In on Windows
 
 **Symptom:**
 After logging in, users are redirected to the portal, but a blank screen persists. This issue seems related to the `oidc-client-ts` library but is actually due to incorrectly set environment variables on Windows.
