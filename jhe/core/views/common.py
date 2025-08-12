@@ -29,7 +29,6 @@ from django_saml2_auth.saml import (
 from django_saml2_auth.user import (
     create_custom_or_default_jwt,
     decode_custom_or_default_jwt,
-    get_or_create_user,
     get_user_id,
 )
 from django_saml2_auth.utils import (
@@ -38,6 +37,7 @@ from django_saml2_auth.utils import (
     run_hook,
 )
 
+from core.utils import get_or_create_user
 from ..forms import UserRegistrationForm
 from ..tokens import account_activation_token
 
