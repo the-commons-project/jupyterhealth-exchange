@@ -209,6 +209,16 @@ function navReload() {
   nav(currentRouteAndParams.route, currentRouteAndParams.params);
 }
 
+
+function navReloadModal() {
+  const currentRouteAndParams = getCurrentRouteAndParams();
+  // just re-fetch current route content without hiding modal
+  crudModal.hide();
+  crudModal.show();
+  const params = currentRouteAndParams.params;
+  nav(currentRouteAndParams.route, params);
+}
+
 window.addEventListener("popstate", function (event) {
   console.log("popstate", JSON.stringify(event));
   if (!signingOut) navReload(); // see signOut() for explanation
@@ -562,7 +572,7 @@ async function deleteOrganization(id) {
       organizationPartitionerRole: role
     }
   );
-  if (response.ok) navReturnFromCrud();
+  if (response.ok) navReloadModal();
 }
 
 async function removeUserFromOrganization(userId, organizationId) {
@@ -574,7 +584,7 @@ async function removeUserFromOrganization(userId, organizationId) {
       jheUserId: userId,
     }
   );
-  if (response.ok) navReturnFromCrud();
+  if (response.ok) navReloadModal();
 }
 
 // ==================================================

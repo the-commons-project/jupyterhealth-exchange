@@ -188,12 +188,12 @@
 
               <div>
                 <div class="form-check form-check-inline">
-                  <input class="form-check-input" type="radio" name="radioRole" id="radioMember" value="member" checked>
-                  <label class="form-check-label" for="radioMember">Member</label>
-                </div>
-                <div class="form-check form-check-inline">
                   <input class="form-check-input" type="radio" name="radioRole" id="radioManager" value="manager">
                   <label class="form-check-label" for="radioManager">Manager</label>
+                </div>
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="radio" name="radioRole" id="radioMember" value="member" checked>
+                  <label class="form-check-label" for="radioMember">Member</label>
                 </div>
                 <div class="form-check form-check-inline">
                   <input class="form-check-input" type="radio" name="radioRole" id="radioViewer" value="viewer">
@@ -205,8 +205,8 @@
                 {{#each organizationRecord.users}}
                   <li>
                     {{email}}
-                      <span class="text-capitalize" > {{ role }} </span>
-                      {{#if manageForPractitioners}}
+                      <span class="text-capitalize" >({{ role }})</span>
+                      {{#if @root.manageForPractitioners}}
                     <button
                       type="button"
                       onclick="removeUserFromOrganization({{id}},document.getElementById('organizationId').value)"
