@@ -15,7 +15,6 @@ from django.http import HttpRequest, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.shortcuts import render
 from django.template import TemplateDoesNotExist
-from django.urls import reverse
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from django.views.decorators.csrf import csrf_exempt
@@ -52,11 +51,6 @@ def home(request):
 
 class LoginView(BaseLoginView):
     def post(self, request, *args, **kwargs):
-        username = self.request.POST.get("username", "").strip()
-        domain = username.split("@")[-1] if "@" in username else ""
-
-        if settings.SSO_ENABLED and domain in settings.SSO_VALID_DOMAINS:
-            return redirect(reverse("saml_signin"))
         return super().post(request, *args, **kwargs)
 
 

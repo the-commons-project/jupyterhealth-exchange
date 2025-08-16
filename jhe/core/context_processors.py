@@ -12,6 +12,7 @@ def constants(request):
         "OIDC_CLIENT_AUTHORITY": settings.OIDC_CLIENT_AUTHORITY,
         "OIDC_CLIENT_ID": settings.OIDC_CLIENT_ID,
         "OIDC_CLIENT_REDIRECT_URI": settings.OIDC_CLIENT_REDIRECT_URI,
+        "SAML2_ENABLED": settings.SAML2_ENABLED,
         "ORGANIZATION_TYPES": json.dumps(Organization.ORGANIZATION_TYPE_CHOICES),
         "DATA_SOURCE_TYPES": json.dumps(DataSource.DATA_SOURCE_TYPE_CHOICES),
     }
