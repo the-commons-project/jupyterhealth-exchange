@@ -66,7 +66,7 @@ class OrganizationViewSet(ModelViewSet):
     @action(detail=True, methods=["GET"])
     def users(self, request, pk):
         organization = self.get_object()
-        users = organization.users.order_by("last_name")
+        users = organization.users.filter(user_type="practitioner").order_by("last_name")
         serializer = OrganizationUsersSerializer(users, many=True, context={"organization_id": organization.id})
         return Response(serializer.data)
 
