@@ -208,7 +208,7 @@ class Command(BaseCommand):
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
-                value_attachment_data= generate_observation_value_attachment_data(consent.scope_code.coding_code)
+                value_attachment_data=generate_observation_value_attachment_data(consent.scope_code.coding_code),
             )
 
     def seed_ucsf(self, root_organization):
@@ -302,7 +302,7 @@ class Command(BaseCommand):
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
-                value_attachment_data= generate_observation_value_attachment_data(consent.scope_code.coding_code),
+                value_attachment_data=generate_observation_value_attachment_data(consent.scope_code.coding_code),
             )
 
     @staticmethod

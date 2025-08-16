@@ -303,7 +303,7 @@ class Command(BaseCommand):
                         dt = datetime.strptime(raw_time, "%Y-%m-%d %H:%M:%S")
                         local_tz = timezone.get_default_timezone()
                         dt_local = timezone.make_aware(dt, local_tz)
-                        iso_ts = dt_local.isoformat(timespec='seconds')
+                        iso_ts = dt_local.isoformat(timespec="seconds")
                     except ValueError:
                         self.stdout.write(self.style.WARNING(f"Skip: bad timestamp '{raw_time}'"))
                         skipped += 1
@@ -319,7 +319,9 @@ class Command(BaseCommand):
 
                     payload = copy.deepcopy(OMH_BLOOD_GLUCOSE_TEMPLATE)
                     payload["body"]["blood_glucose"]["value"] = glucose
-                    payload["body"]["effective_time_frame"]["date_time"] = (dt_local - timedelta(hours=1)).isoformat(timespec='seconds')
+                    payload["body"]["effective_time_frame"]["date_time"] = (dt_local - timedelta(hours=1)).isoformat(
+                        timespec="seconds"
+                    )
                     payload["header"]["source_creation_date_time"] = iso_ts
                     payload["header"]["uuid"] = str(uuid4())
 

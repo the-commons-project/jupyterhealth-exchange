@@ -274,7 +274,7 @@ IDENTITY_PROVIDER_METADATA_URL=https://mocksaml.com/api/saml/metadata
 
 ###### Temporarily Switch on Debug for logging
 
-Add the below to `./jhe/settings.py` 
+Add the below to `./jhe/settings.py`
 
 
 ```python

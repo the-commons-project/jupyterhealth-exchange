@@ -364,7 +364,7 @@ class ObservationMethodTests(TestCase):
             codeable_concept=self.code,
             data_source=self.ds,
             status="final",
-            value_attachment_data={self.code.text: generate_observation_value_attachment_data(self.code.coding_code)},
+            value_attachment_data=generate_observation_value_attachment_data(self.code.coding_code),
         )
 
     def test_for_practitioner_organization_study_patient(self):
