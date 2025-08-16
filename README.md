@@ -263,7 +263,7 @@ Modify the `.env` to match below
 
 ```env
 # Default: SSO disabled. Change to 1 to enable.
-SSO_ENABLED=1
+SAML2_ENABLED=1
 
 # Comma-separated list matches email domains permitted to sign in via SSO
 SSO_VALID_DOMAINS=example.com,example.org
