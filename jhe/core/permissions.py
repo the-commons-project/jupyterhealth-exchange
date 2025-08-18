@@ -48,6 +48,7 @@ def IfUserCan(resource_and_action: str):
                 "organization",
                 "practitioner",
                 "patient",
+                "study",
             ]:
                 return "super_user"
 
