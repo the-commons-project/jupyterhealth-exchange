@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from core.admin_pagination import CustomPageNumberPagination
 from core.models import JheUser
+from rest_framework import status
 from django.shortcuts import get_object_or_404
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,20 @@ class OrganizationViewSet(ModelViewSet):
             return Organization.objects.filter(part_of=param_part_of).order_by("name")
         else:
             return Organization.objects.order_by("name")
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        is_sub_organization = bool(request.data.get("part_of"))
+        if is_sub_organization:
+            PractitionerOrganization.objects.create(
+                organization_id=serializer.data.get("id"),
+                practitioner=request.user.practitioner,
+                role="manager",
+            )
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @action(detail=False, methods=["GET"])
     def types(self, request):
