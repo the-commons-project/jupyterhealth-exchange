@@ -4,7 +4,7 @@ from pathlib import Path, PosixPath
 
 from dotenv import load_dotenv
 
-JHE_VERSION = "v0.0.6"
+JHE_VERSION = "v0.0.7"
 
 """
 Django settings for jhe project.
