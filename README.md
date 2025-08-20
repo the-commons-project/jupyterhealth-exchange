@@ -31,7 +31,7 @@ By setting these variables explicitly, you prevent incorrect path injections and
 >**Quick start:** For local development, Skip the steps 8–12 as the `seed_db` command will register the Django OAuth2 application. Also, Pre‑generated values of  `OIDC_RSA_PRIVATE_KEY`, `PATIENT_AUTHORIZATION_CODE_CHALLENGE`, and `PATIENT_AUTHORIZATION_CODE_VERIFIER` are provided in `dot_env_example.txt` for dev/demo use only.
 
 > [!NOTE]
-> Due to browser security restrictions and the [oidc-client-ts](https://github.com/authts/oidc-client-ts) used for authentication, this web app **must be accessed over HTTPS for any hostname other than localhost**. Setting up HTTPS/TLS termination via a reverse proxy is outside the scope of this guide; [NGINX](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/) is a popular option.
+> Due to browser security restrictions and the [oidc-client-ts](https://github.com/authts/oidc-client-ts) used for authentication, the web app **must be accessed over HTTPS for any hostname other than localhost** - see [Running in Production](#running-in-production) below.
 
 
 1. Set up your Python environment and install dependencies from `jhe/Pipfile` - this project uses Django **version 5.2** which requires python  **3.10, 3.11, 3.12 or 3.13**
@@ -566,6 +566,97 @@ DEBUG = True
       }
     },
     ...
+```
+
+## Running in Production
+
+### Django Server
+
+The Django development server should not be used for production - more information is available at the official [Django Deployment docs](https://docs.djangoproject.com/en/5.1/howto/deployment/). One option included with JHE is the [gunicorn](https://gunicorn.org/) server with [WhiteNoise](https://whitenoise.readthedocs.io/en/stable/django.html) for static files, which can be run with the commands below.
+
+```bash
+$ python manage.py collectstatic --no-input
+$ gunicorn --bind :8000 --workers 2 jhe.wsgi
+```
+
+#### HTTPS
+
+Due to browser security restrictions and the [oidc-client-ts](https://github.com/authts/oidc-client-ts) used for authentication, the web app **must be accessed over HTTPS for any hostname other than localhost**. Below is an example of serving the app over HTTPS using an NGINX reverse proxy.
+
+##### 1. Install nginx and certbot
+
+```bash
+$ sudo apt update
+$ sudo apt install -y certbot
+```
+
+##### 2. Configure nginx
+
+```bash
+$ DOMAIN=YOUR_DOMAIN
+$ sudo mkdir -p /var/www/certbot
+
+$ sudo tee /etc/nginx/sites-available/jhe.conf >/dev/null <<NGINX
+upstream jhe_app { server 127.0.0.1:8000; keepalive 16; }
+
+server {
+  listen 80;
+  server_name ${DOMAIN};
+
+  # ACME HTTP-01
+  location ^~ /.well-known/acme-challenge/ {
+    root /var/www/certbot;
+  }
+
+  # everything else HTTPS
+  location / { return 301 https://\$host\$request_uri; }
+}
+
+server {
+  listen 443 ssl http2;
+  server_name ${DOMAIN};
+
+  # temp self-signed while we fetch LE cert (optional if you already have none)
+  ssl_certificate     /etc/ssl/certs/ssl-cert-snakeoil.pem;
+  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+
+  client_max_body_size 25m;
+
+  location / {
+    proxy_pass http://jhe_app;
+    proxy_http_version 1.1;
+    proxy_set_header Host               \$host;
+    proxy_set_header X-Real-IP          \$remote_addr;
+    proxy_set_header X-Forwarded-For    \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto  https;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+  }
+}
+NGINX
+
+$ sudo ln -sf /etc/nginx/sites-available/jhe.conf /etc/nginx/sites-enabled/jhe.conf
+$ sudo rm -f /etc/nginx/sites-enabled/default
+$ sudo nginx -t && (sudo nginx -s reload || sudo nginx)
+```
+
+##### 3. Get the certificate
+
+```bash
+$ sudo certbot certonly --webroot -w /var/www/certbot -d "$DOMAIN" --agree-tos -m admin@"$DOMAIN" --no-eff-email
+```
+
+##### 4. Update NGINX config to point to the new certificate and reload
+
+```bash
+$ sudo sed -i "s#ssl-cert-snakeoil.pem#/etc/letsencrypt/live/$DOMAIN/fullchain.pem#g; s#ssl-cert-snakeoil.key#/etc/letsencrypt/live/$DOMAIN/privkey.pem#g" /etc/nginx/sites-available/jhe.conf
+sudo nginx -t && sudo nginx -s reload
+```
+
+##### 5. Auto-renew (no systemd needed)
+
+```bash
+echo '0 3 * * * root certbot renew --quiet --post-hook "nginx -s reload"' | sudo tee /etc/cron.d/certbot_renew >/dev/null
 ```
 
 ## Architecture
