@@ -587,7 +587,7 @@ Due to browser security restrictions and the [oidc-client-ts](https://github.com
 
 ```bash
 $ sudo apt update
-$ sudo apt install -y certbot
+$ sudo apt install -y nginx certbot
 ```
 
 ##### 2. Configure nginx
