@@ -579,18 +579,20 @@ $ python manage.py collectstatic --no-input
 $ gunicorn --bind :8000 --workers 2 jhe.wsgi
 ```
 
-#### HTTPS
+### HTTPS
 
 Due to browser security restrictions and the [oidc-client-ts](https://github.com/authts/oidc-client-ts) used for authentication, the web app **must be accessed over HTTPS for any hostname other than localhost**. Below is an example of serving the app over HTTPS using an NGINX reverse proxy.
 
-##### 1. Install nginx and certbot
+#####  Install nginx and certbot
 
 ```bash
 $ sudo apt update
 $ sudo apt install -y nginx certbot
 ```
 
-##### 2. Configure nginx
+#### For servers that are publicly reachable
+
+##### 1. Configure nginx
 
 ```bash
 $ DOMAIN=YOUR_DOMAIN
@@ -640,24 +642,89 @@ $ sudo rm -f /etc/nginx/sites-enabled/default
 $ sudo nginx -t && (sudo nginx -s reload || sudo nginx)
 ```
 
-##### 3. Get the certificate
+##### 2. Get the certificate
 
 ```bash
 $ sudo certbot certonly --webroot -w /var/www/certbot -d "$DOMAIN" --agree-tos -m admin@"$DOMAIN" --no-eff-email
 ```
 
-##### 4. Update NGINX config to point to the new certificate and reload
+##### 3. Update NGINX config to point to the new certificate and reload
 
 ```bash
 $ sudo sed -i "s#ssl-cert-snakeoil.pem#/etc/letsencrypt/live/$DOMAIN/fullchain.pem#g; s#ssl-cert-snakeoil.key#/etc/letsencrypt/live/$DOMAIN/privkey.pem#g" /etc/nginx/sites-available/jhe.conf
 sudo nginx -t && sudo nginx -s reload
 ```
 
-##### 5. Auto-renew (no systemd needed)
+##### 4. Auto-renew (no systemd needed)
 
 ```bash
 echo '0 3 * * * root certbot renew --quiet --post-hook "nginx -s reload"' | sudo tee /etc/cron.d/certbot_renew >/dev/null
 ```
+
+#### For servers that are not publicly reachable (DNS-01)
+
+##### 1. Get the certificate
+
+```bash
+$ DOMAIN=YOUR_DOMAIN
+
+# issue with manual DNS challenge
+$ sudo certbot certonly --manual --preferred-challenges dns -d "$DOMAIN" --agree-tos -m admin@"$DOMAIN" --no-eff-email
+# follow prompts to add the _acme-challenge TXT record, wait for DNS to propagate, then continue
+```
+
+##### 2. Configure NGINX and reload
+
+```bash
+$ sudo tee /etc/nginx/sites-available/jhe.conf >/dev/null <<NGINX
+upstream jhe_app { server 127.0.0.1:8000; keepalive 16; }
+
+server {
+  listen 80;
+  server_name ${DOMAIN};
+  return 301 https://\$host\$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name ${DOMAIN};
+
+  ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+  client_max_body_size 25m;
+
+  location / {
+    proxy_pass http://jhe_app;
+    proxy_http_version 1.1;
+    proxy_set_header Host               \$host;
+    proxy_set_header X-Real-IP          \$remote_addr;
+    proxy_set_header X-Forwarded-For    \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto  https;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+  }
+}
+NGINX
+
+$ sudo ln -sf /etc/nginx/sites-available/jhe.conf /etc/nginx/sites-enabled/jhe.conf
+$ sudo rm -f /etc/nginx/sites-enabled/default
+$ sudo nginx -t && (sudo nginx -s reload || sudo nginx)
+```
+
+##### 3. Renewals
+
+For hands-off renewals with DNS-01, use a Certbot DNS plugin for your provider (e.g., python3-certbot-dns-cloudflare, python3-certbot-dns-route53) and issue with that plugin once then renewals become automatic. An example for Cloudflare is below.
+```bash
+$ sudo apt install -y python3-certbot-dns-cloudflare
+$ sudo tee /root/cf.ini >/dev/null <<EOF
+dns_cloudflare_api_token = <TOKEN_WITH_DNS_EDIT>
+EOF
+
+$ sudo chmod 600 /root/cf.ini
+$ sudo certbot certonly --dns-cloudflare --dns-cloudflare-credentials /root/cf.ini -d "$DOMAIN"
+```
+
 
 ## Architecture
 
