@@ -34,7 +34,7 @@ By setting these variables explicitly, you prevent incorrect path injections and
 > Due to browser security restrictions and the [oidc-client-ts](https://github.com/authts/oidc-client-ts) used for authentication, the web app **must be accessed over HTTPS for any hostname other than localhost** - see [Running in Production](#running-in-production) below.
 
 
-1. Set up your Python environment and install dependencies from `jhe/Pipfile` - this project uses Django **version 5.2** which requires python  **3.10, 3.11, 3.12 or 3.13**
+1. Set up your Python environment and install dependencies from `jhe/Pipfile` - this project uses Django **version 5.2** which requires python  **3.10**
 
     - NB: If using pipenv it is recommended to run `pipenv sync` against the lock file to match package versions
 1. Create a new Postgres DB (currently only Postgres is supported because of json functions)
