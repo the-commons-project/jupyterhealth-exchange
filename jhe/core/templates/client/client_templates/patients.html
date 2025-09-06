@@ -34,21 +34,23 @@
         </tr>
       </table>
       <div class="mt-2">
-        <button type="button"
-                class="btn btn-sm btn-success me-2"
-                onclick="nav('patients',{
-                    create: true,
-                    patientLookup: true,
-                    organizationId: {{@root.organizationId}},
-                    {{#if @root.studyId}} studyId: {{@root.studyId}} {{/if}}
-                })">
-          Add Patient...
-        </button>
-        <button type="button"
+          {{#if @root.manageForPractitioners}}
+                <button type="button"
+                        class="btn btn-sm btn-success me-2"
+                        onclick="nav('patients',{
+                            create: true,
+                            patientLookup: true,
+                            organizationId: {{@root.organizationId}},
+                            {{#if @root.studyId}} studyId: {{@root.studyId}} {{/if}}
+                        })">
+                  Add Patient...
+                </button>
+                <button type="button"
                 class="btn btn-sm btn-primary me-2"
                 onclick="selectPatientsForStudy({{@root.organizationId}})">
           Add Patient(s) to Study...
-        </button>
+                </button>
+          {{/if}}
         {{#if studyId}}
         <button type="button"
                 class="btn btn-sm btn-warning"
@@ -113,23 +115,27 @@
               })"
             }}
 
-            {{> crudButton iconUpdate=true recordId=id organizationId=@root.organizationId studyId=@root.studyId
-              onclick="nav('patients',{
-                id: this.dataset.recordid,
-                update: true,
-                organizationId: this.dataset.organizationid,
-                studyId: this.dataset.studyid
-              })"
-            }}
+            {{#if @root.manageForPractitioners}}
 
-            {{> crudButton iconDelete=true recordId=id organizationId=@root.organizationId studyId=@root.studyId
-              onclick="nav('patients',{
-                id: this.dataset.recordid,
-                delete: true,
-                organizationId: this.dataset.organizationid,
-                studyId: this.dataset.studyid
-              })"
-            }}
+              {{> crudButton iconUpdate=true recordId=id organizationId=@root.organizationId studyId=@root.studyId
+                onclick="nav('patients',{
+                  id: this.dataset.recordid,
+                  update: true,
+                  organizationId: this.dataset.organizationid,
+                  studyId: this.dataset.studyid
+                })"
+              }}
+
+              {{> crudButton iconDelete=true recordId=id organizationId=@root.organizationId studyId=@root.studyId
+                onclick="nav('patients',{
+                  id: this.dataset.recordid,
+                  delete: true,
+                  organizationId: this.dataset.organizationid,
+                  studyId: this.dataset.studyid
+                })"
+              }}
+
+            {{/if}}
           </td>
           <td>{{id}}</td>
           <td>{{jheUserId}}</td>
@@ -220,9 +226,16 @@
                     </button>
                   </fieldset>
                 </div>
+                {{#if create}}
+                  {{#unless patientLookup}}
+                    <div class="alert alert-info" role="alert">
+                      Creating Patient for <strong>{{selectedOrganization.name}}</strong>
+                    </div>
+                  {{/unless}}
+                {{/if}}
+
                 {{/if}}
                 {{#unless hidePatientDetails}}
-                  <div class="alert alert-info" role="alert">Creating Patient for <strong>{{selectedOrganization.name}}</strong></div>
                   <div class="mb-3">
                       <label for="patientTelecomEmail" class="form-label"
                         >E-mail*</label
@@ -309,14 +322,15 @@
               </div>
               {{/unless}}
               {{#if read}}
-                <div class="mb-3">
-                  <button
-                    type="button"
-                    onclick="getInvitationLink({{patientRecord.id}}, document.getElementById('InvitationSendEmail').checked)"
-                    class="btn btn-sm btn-success mb-2"
-                  >
-                    Generate Invitation Link
-                  </button>
+                {{#if @root.manageForPractitioners}}
+                  <div class="mb-3">
+                    <button
+                      type="button"
+                      onclick="getInvitationLink({{patientRecord.id}}, document.getElementById('InvitationSendEmail').checked)"
+                      class="btn btn-sm btn-success mb-2"
+                    >
+                      Generate Invitation Link
+                    </button>
                     <div class="form-check form-check-inline mx-2">
                       <input
                         class="form-check-input"
@@ -328,17 +342,23 @@
                         Send link by email
                       </label>
                     </div>
-                  <button
-                    type="button"
-                    id="copyInvitationLink"
-                    onclick="navigator.clipboard.writeText(document.getElementById('invitationLink').value).then(() => this.disabled = true)"
-                    class="btn btn-sm btn-info mb-2"
-                    disabled
-                  >
-                    Copy to Clipboard
-                  </button>
-                  <textarea class="form-control" class="form-control" id="invitationLink" rows="4" readonly></textarea>
-                </div>
+                    <button
+                      type="button"
+                      id="copyInvitationLink"
+                      onclick="navigator.clipboard.writeText(document.getElementById('invitationLink').value).then(() => this.disabled = true)"
+                      class="btn btn-sm btn-info mb-2"
+                      disabled
+                    >
+                      Copy to Clipboard
+                    </button>
+                    <textarea
+                      class="form-control"
+                      id="invitationLink"
+                      rows="4"
+                      readonly
+                    ></textarea>
+                  </div>
+                {{/if}}
                 <div class="mb-3">
                   Studies Pending Response:
                   <ul>

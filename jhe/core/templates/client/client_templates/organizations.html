@@ -220,13 +220,15 @@
               </ul>
               <p>
                 Studies
-                <button
-                  type="button"
-                  onclick="createStudyFromOrganization({{organizationRecord.id}},'{{organizationRecord.name}}')"
-                  class="m-0 p-0 btn btn-sm"
-                >
-                  <i class="bi bi-file-earmark-plus"></i>
-                </button>
+                {{#if @root.manageForPractitioners}}
+                    <button
+                      type="button"
+                      onclick="createStudyFromOrganization({{organizationRecord.id}},'{{organizationRecord.name}}')"
+                      class="m-0 p-0 btn btn-sm"
+                    >
+                      <i class="bi bi-file-earmark-plus"></i>
+                    </button>
+                {{/if}}
               </p>
               <ul>
                 {{#each organizationRecord.studies}}

@@ -20,20 +20,21 @@
                 read: true
               })"
             }}
+            {{#if @root.manageForPractitioners }}
+                {{> crudButton iconUpdate=true recordId=id
+                  onclick="nav('dataSources',{
+                    id: this.dataset.recordid,
+                    update: true
+                  })"
+                }}
 
-            {{> crudButton iconUpdate=true recordId=id
-              onclick="nav('dataSources',{
-                id: this.dataset.recordid,
-                update: true
-              })"
-            }}
-
-            {{> crudButton iconDelete=true recordId=id
-              onclick="nav('dataSources',{
-                id: this.dataset.recordid,
-                delete: true
-              })"
-            }}
+                {{> crudButton iconDelete=true recordId=id
+                  onclick="nav('dataSources',{
+                    id: this.dataset.recordid,
+                    delete: true
+                  })"
+                }}
+            {{/if}}
           </td>
           <td>{{id}}</td>
           <td>{{name}}</td>
@@ -48,6 +49,7 @@
       {{/dataSources}}
     </tbody>
   </table>
+  {{#if @root.manageForPractitioners }}
     <button type="button"
           class="btn btn-sm btn-success"
           onclick="nav('dataSources',{
@@ -55,6 +57,7 @@
           })">
     Add Data Source
   </button>
+  {{/if}}
 
 
   <!-- MODAL -->

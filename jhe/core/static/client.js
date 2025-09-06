@@ -337,6 +337,38 @@ function clearModalValidationErrors() {
   });
 }
 
+
+
+async function hasOrgPermission(selectedOrganization, organizationId, permission) {
+  let role = selectedOrganization?.currentUserRole;
+
+  if (!role && organizationId) {
+    try {
+      const orgRes = await apiRequest("GET", `organizations/${organizationId}`);
+      const org = await orgRes.json();
+      role = org?.currentUserRole;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  return role ? ifRoleCan(role, permission) : false;
+}
+
+
+async function hasGlobalPermission(permission) {
+  if (!userProfile || !userProfile.email) {
+    try {
+      userProfile = await getUserProfile();
+    } catch (_) {
+      return false;
+    }
+  }
+  return userProfile.isSuperuser;
+}
+
+
+
 // ==================================================
 // User Profile
 // ==================================================
@@ -695,6 +727,12 @@ async function renderPatients(queryParams) {
     return v1 === v2;
   });
 
+  const canManagePractitionersInOrg = await hasOrgPermission(
+    selectedOrganization,
+    queryParams.organizationId,
+    "patient.manage_for_organization"
+  );
+
   const renderParams = {
     ...queryParams,
     patients: patientsPaginated?.results,
@@ -709,6 +747,7 @@ async function renderPatients(queryParams) {
     studiesPendingConsent: studiesPendingConsent,
     studiesConsented: studiesConsented,
     pageSizes: [20, 100, 500, 1000],
+    manageForPractitioners: canManagePractitionersInOrg,
   };
 
   return content(renderParams);
@@ -813,9 +852,14 @@ async function renderStudies(queryParams) {
     return;
   }
 
+  let selectedOrganization;
   const organizationForStudiesSelect = organizations.map((organization) => {
-    organization.selected =
-      organization.id === parseInt(queryParams.organizationId);
+    if (organization.id === parseInt(queryParams.organizationId)) {
+      organization.selected = true;
+      selectedOrganization = organization;
+    } else {
+      organization.selected = false;
+    }
     return organization;
   });
 
@@ -896,6 +940,12 @@ async function renderStudies(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
+  const canManagePractitionersInOrg = await hasOrgPermission(
+    selectedOrganization,
+    queryParams.organizationId,
+    "study.manage_for_organization"
+  );
+
   const renderParams = {
     ...queryParams,
     studies: studiesPaginated?.results,
@@ -906,6 +956,7 @@ async function renderStudies(queryParams) {
       ? store.addPatientIdsToStudy.length
       : null,
     organizationForStudiesSelect: organizationForStudiesSelect,
+    manageForPractitioners: canManagePractitionersInOrg,
   };
 
   return content(renderParams);
@@ -1171,6 +1222,10 @@ async function renderDataSources(queryParams) {
   const content = Handlebars.compile(
     document.getElementById("t-dataSources").innerHTML
   );
+
+   const canManagePractitionersInOrg = await hasGlobalPermission("data_source.manage");
+
+
   const dataSourcesResponse = await apiRequest("GET", "data_sources");
   const dataSourcesPaginated = await dataSourcesResponse.json();
   let dataSourceRecord = {};
@@ -1219,6 +1274,7 @@ async function renderDataSources(queryParams) {
     dataSources: dataSourcesPaginated.results,
     dataSourceRecord: dataSourceRecord,
     allScopes: allScopes,
+    manageForPractitioners: canManagePractitionersInOrg,
   };
 
   return content(renderParams);
