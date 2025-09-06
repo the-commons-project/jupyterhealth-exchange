@@ -48,21 +48,23 @@
               })"
             }}
 
-            {{> crudButton iconUpdate=true recordId=id organizationId=@root.organizationId
-              onclick="nav('studies',{
-                id: this.dataset.recordid,
-                update: true,
-                organizationId: this.dataset.organizationid
-              })"
-            }}
+            {{#if @root.manageForPractitioners }}
+                {{> crudButton iconUpdate=true recordId=id organizationId=@root.organizationId
+                  onclick="nav('studies',{
+                    id: this.dataset.recordid,
+                    update: true,
+                    organizationId: this.dataset.organizationid
+                  })"
+                }}
 
-            {{> crudButton iconDelete=true recordId=id organizationId=@root.organizationId
-              onclick="nav('studies',{
-                id: this.dataset.recordid,
-                delete: true,
-                organizationId: this.dataset.organizationid
-              })"
-            }}
+                {{> crudButton iconDelete=true recordId=id organizationId=@root.organizationId
+                  onclick="nav('studies',{
+                    id: this.dataset.recordid,
+                    delete: true,
+                    organizationId: this.dataset.organizationid
+                  })"
+                }}
+            {{/if}}
           </td>
           {{#if @root.addPatients}}
             <td><button type="button" class="btn btn-sm btn-link" onclick="addPatientsToStudy({{id}},{{@root.organizationId}})">{{id}}</button></td>

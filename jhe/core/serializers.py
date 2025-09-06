@@ -114,7 +114,7 @@ class JheUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JheUser
-        fields = ["id", "email", "first_name", "last_name", "patient", "user_type"]
+        fields = ["id", "email", "first_name", "last_name", "patient", "user_type", "is_superuser"]
 
 
 class StudySerializer(serializers.ModelSerializer):
