@@ -75,16 +75,17 @@ By setting these variables explicitly, you prevent incorrect path injections and
 
 ### Patients & Practitioners
 
-- Any user accessing the Web UI is a data consumer and considered a [Practitioner](https://build.fhir.org/practitioner.html)
-- Any user uploading data is considered a [Patient](https://build.fhir.org/patient.html)
-- The same OAuth2.0 strategy is used for both Practitioners and Patients, the only difference being that the credentials are provided out-of-band for Patients
+- Any user accessing the Web UI is considered a [Practitioner](https://build.fhir.org/practitioner.html) (data consumer) by default
+- [Patient](https://build.fhir.org/patient.html) users (data producers) are registered by Practitioners and sent a link to upload data
+- The same OAuth2.0 strategy is used for both Practitioners and Patients, the only difference being that the authorization code is provided out-of-band for Patients
 
 ### Organizations
 
-- An [Organization](https://build.fhir.org/organization.html) is a group of Practitioners
+- An [Organization](https://build.fhir.org/organization.html) is a group of Practitioners, Patients and Studies
 - An Organization is typically hierarchical with sub-Organizations eg Institution, Department, Lab etc
-- A Patient belongs to a single Organization (TBD: belong to multiple)
-- A Practitioner belongs to at least one Organization
+- A Practitioner belongs to one or more Organization
+- A Patient belongs to one or more Organization
+- A Study belongs to one single Organization
 
 ### Studies
 
@@ -108,16 +109,30 @@ By setting these variables explicitly, you prevent incorrect path injections and
 
 ### Use Case Example
 
-1. Sign up as a new user from the web UI
-2. Create a new Organization
-3. Add yourself to the Organization (View Organization > Users+)
-4. Create a new Study for the Organization (View Organization > Studies+)
-5. Create a new Patient for the Organization using a different email than (1) (Patients > Add Patient)
-6. Add Data Sources and Scopes to the Study (View Study > Data Sources+, Scope Requests+)
-7. Add the Patient to the Study (Patients > check box > Add Patient(s) to Study)
-8. Create an Invitation Link for the Patient (View Patient > Generate Invitation Link)
-9. Use the code in the invitation link with the Auth API to swap it for tokens
-10. Upload Observations using the FHIR API
+1. Sign up as a new user from the Web UI
+2. Create a new Organization (Your user is automatically added to the Organization with a Manager role)
+3. Create a new Study for the Organization (View Organization > Studies+)
+4. Create a new Patient for the Organization using a different email than (1) (Patients > Add Patient)
+5. Add Data Sources and Scopes to the Study (View Study > Data Sources+, Scope Requests+)
+6. Add the Patient to the Study (Patients > check box > Add Patient(s) to Study)
+7. Create an Invitation Link for the Patient (View Patient > Generate Invitation Link)
+8. Use the code in the invitation link with the Auth API to swap it for an access token
+9. Upload Observations using the FHIR API and access token
+10. View the Observations from the web UI
+
+## Roles Based Access Control
+
+Whether or not a Practitioner user can view Patients and Studies and Observations depends on if they are part of the Organization that the Patients/Studies/Observations belong to.
+
+Whether or not a Practitioner user can edit the Data Sources, Organization, Organization's Patients or Studies depends on the role they are assigned to for that Organization at the time of being added. When a user create a new Organization they are automatically added as a  Manager of the Organization. Permissions for roles are outlined in the table below.
+
+| Permission        | Super User | Manager | Member | Viewer |
+| ----------------- | ---------- | ------- | ------ | ------ |
+| Edit Data Sources | [x]        | [ ]     | [ ]    | [ ]    |
+| Edit Organization | [x]        | [x]     | [ ]    | [ ]    |
+| Edit Patients     | [x]        | [x]     | [x]    | [ ]    |
+| Edit Studies      | [x]        | [x]     | [x]    | [ ]    |
+| View All          | [x]        | [x]     | [x]    | [x]    |
 
 ## Test Data
 
