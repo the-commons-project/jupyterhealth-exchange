@@ -18,13 +18,6 @@ This project is currently in a Proof of Concept stage, the project can be viewed
 
 https://github.com/orgs/the-commons-project/projects/8
 
-## Troubleshooting Local Development
-
-**Issue:** On Windows machines, users may experience a blank screen after logging in, caused by incorrect OIDC configuration.
-**Solution:** Explicitly set OIDC variables in your `settings.py`. For full details, see [Troubleshooting Local Development Issues](doc/localdevelopment/issues/OIDC.md).
-
-By setting these variables explicitly, you prevent incorrect path injections and ensure proper URL formation, resolving the blank screen issue after login on Windows machines.
-
 ## Getting Started
 
 > [!TIP]
@@ -71,13 +64,20 @@ By setting these variables explicitly, you prevent incorrect path injections and
 > [!WARNING]
 > The `OIDC_RSA_PRIVATE_KEY`, `PATIENT_AUTHORIZATION_CODE_CHALLENGE`, and `PATIENT_AUTHORIZATION_CODE_VERIFIER` provided in `dot_env_example.txt` are public demo keys for development only and must not be used in production.
 
+## Troubleshooting Local Development
+
+**Issue:** On Windows machines, users may experience a blank screen after logging in, caused by incorrect OIDC configuration.
+**Solution:** Explicitly set OIDC variables in your `settings.py`. For further details see [Troubleshooting Local Development](doc/troubleshooting-local-dev.md).
+
+By setting these variables explicitly, you prevent incorrect path injections and ensure proper URL formation, resolving the blank screen issue after login on Windows machines.
+
 ## Working with the Web UI
 
 ### Patients & Practitioners
 
-- Any user accessing the Web UI is considered a [Practitioner](https://build.fhir.org/practitioner.html) (data consumer) by default
-- [Patient](https://build.fhir.org/patient.html) users (data producers) are registered by Practitioners and sent a link to upload data
-- The same OAuth2.0 strategy is used for both Practitioners and Patients, the only difference being that the authorization code is provided out-of-band for Patients
+- Any user accessing the Web UI is a [Practitioner](https://build.fhir.org/practitioner.html) (data consumer) by default
+- [Patient](https://build.fhir.org/patient.html) users (data producers) are registered by Practitioners and sent a link to authenticate and upload data
+- The same OAuth 2.0 strategy is used for both Practitioners and Patients, the only difference being that the authorization code is provided out-of-band for Patients (invitation link)
 
 ### Organizations
 
@@ -110,7 +110,7 @@ By setting these variables explicitly, you prevent incorrect path injections and
 ### Use Case Example
 
 1. Sign up as a new user from the Web UI
-2. Create a new Organization (Your user is automatically added to the Organization with a Manager role)
+2. Create a new Organization (your user is automatically added to the Organization with a Manager role)
 3. Create a new Study for the Organization (View Organization > Studies+)
 4. Create a new Patient for the Organization using a different email than (1) (Patients > Add Patient)
 5. Add Data Sources and Scopes to the Study (View Study > Data Sources+, Scope Requests+)
@@ -122,7 +122,7 @@ By setting these variables explicitly, you prevent incorrect path injections and
 
 ## Roles Based Access Control
 
-Whether or not a Practitioner user can view Patients and Studies and Observations depends on if they are part of the Organization that the Patients/Studies/Observations belong to.
+Whether or not a Practitioner user can view particular Patients, Studies and Observations depends on membership of the Organization that the Patients/Studies/Observations belong to.
 
 Whether or not a Practitioner user can edit the Data Sources, Organization, Organization's Patients or Studies depends on the role they are assigned to for that Organization at the time of being added. When a user create a new Organization they are automatically added as a  Manager of the Organization. Permissions for roles are outlined in the table below.
 
@@ -134,11 +134,15 @@ Whether or not a Practitioner user can edit the Data Sources, Organization, Orga
 | Edit Studies      | [x]        | [x]     | [x]    | [ ]    |
 | View All          | [x]        | [x]     | [x]    | [x]    |
 
+## Open mHealth Schemas
+
+If Observations are sent with data attached in the Open mHealth format (eg `Observation.code=omh:blood-glucose:4.0`) JSON Schema validation is used to check the payload. Example values can be found at `data/omh/examples/data-points` and the JSON schemas can be found at `data/omh/json-schemas`. See [Open mHealth](https://www.openmhealth.org/) for more information.
+
 ## Test Data
 
 ### Database Seed
 
-- The initial Database is seeded with a minimal set of records to provide an example of the system, see the diagram below.
+- The initial Database is seeded with a minimal set of records to provide an example of the different entity relationships, see the diagram below.
 
 ```mermaid
 flowchart TD
@@ -258,7 +262,7 @@ https://play.google.com/store/apps/details?id=org.thecommonsproject.android.phr.
 - The prefix URL component may be more simple, for example `https://carex.ai/?invitation=` to launch the CareX app
 - The suffix of the link contains the hostname (optional) followed by a pipe character and the OAuth2 Authorization Code, for example `jhe.fly.dev|LhS05iR1rOnpS4JWfP6GeVUIhaRcRh`
 - The purpose of the suffix is to provide the app with information on what host to talk to (as there may be many JHEs configured for the one Patient) as well as the Authorization Code that can be swapped for an Access Token to use the API (see above)
-- The prefix URL is configured in the `.env` as .`CH_INVITATION_LINK_PREFIX`
+- The prefix URL is configured in the `.env` as `CH_INVITATION_LINK_PREFIX`
 - The host name is included by default but can optionally be removed from the link (if there will only ever be one host for the app) by configuring the `.env` with `CH_INVITATION_LINK_EXCLUDE_HOST=True`
 - So in the example of `https://carex.ai/?invitation=jhe.fly.dev|LhS05iR1rOnpS4JWfP6GeVUIhaRcRh`
   1. The CareX app is launched with the URL
