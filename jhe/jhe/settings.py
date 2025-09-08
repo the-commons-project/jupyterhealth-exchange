@@ -321,7 +321,7 @@ SPECTACULAR_SETTINGS = {
 
 @dataclass
 class DataDirPath:
-    data_dir: PosixPath = Path(BASE_DIR).parent / "data"
+    data_dir: PosixPath = Path(BASE_DIR) / "data"
     schemas_metadata: PosixPath = data_dir / "omh/json-schemas/metadata"
     schemas_data: PosixPath = data_dir / "omh/json-schemas/data"
     schemas_utility: PosixPath = data_dir / "omh/json-schemas/utility"
