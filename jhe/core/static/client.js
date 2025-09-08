@@ -431,6 +431,8 @@ async function renderOrganizations(queryParams) {
     await topLevelOrganizationsResponse.json();
   let topLevelOrganizationsSelect = topLevelOrganizationsPaginated.results;
   let organizationTreeChildren = [];
+  let canManagePractitionersInOrg;
+  let organizationRecord = null;
   // If a top level organization is selected
   if (queryParams.tloId && queryParams.tloId != 0) {
     topLevelOrganizationsSelect = topLevelOrganizationsSelect.map(
@@ -439,6 +441,24 @@ async function renderOrganizations(queryParams) {
         return organization;
       }
     );
+    const organizationRecordResponse = await apiRequest(
+      "GET",
+      `organizations/${queryParams.tloId}`
+    );
+    organizationRecord = await organizationRecordResponse.json();
+    organizationRecord.typeSelect = buildSelectOptions(
+      CONSTANTS.ORGANIZATION_TYPES,
+      organizationRecord.type,
+      ["root"]
+    );
+    if (organizationRecord && organizationRecord.currentUserRole) {
+        canManagePractitionersInOrg = ifRoleCan(
+        organizationRecord.currentUserRole,
+        'organization.manage_for_practitioners'
+      );
+    }
+
+
     const organizationTreeResaponse = await apiRequest(
       "GET",
       `organizations/${queryParams.tloId}/tree`
@@ -447,7 +467,7 @@ async function renderOrganizations(queryParams) {
     organizationTreeChildren = organizationTree.children;
   }
 
-  let organizationRecord, partOfId, partOfName, canManagePractitionersInOrg;
+  let partOfId, partOfName;
 
   if (queryParams.create) {
     if (
@@ -545,6 +565,8 @@ async function renderOrganizations(queryParams) {
 
   return content(renderParams);
 }
+
+
 
 async function createOrganization(partOf) {
   const organizationName =
