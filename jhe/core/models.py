@@ -1476,9 +1476,6 @@ AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeablec
     def clean(self):
         try:
             value_attachment_data = self.value_attachment_data
-            
-            logger.error('========== PATH ==========')
-            logger.error(Path(__file__).resolve())
 
             header_schema = json.loads((settings.DATA_DIR_PATH.schemas_metadata / "header-1.0.json").read_text())
             validate_with_registry(instance=value_attachment_data.get("header"), schema=header_schema)
