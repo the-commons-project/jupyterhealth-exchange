@@ -2,7 +2,7 @@ import base64
 import json
 import logging
 from datetime import timedelta
-from pathlib import Path
+from pathlib import Path  # noqa
 from random import SystemRandom
 
 import humps
