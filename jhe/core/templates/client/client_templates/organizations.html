@@ -277,29 +277,33 @@
         })"
       }}
 
-      {{> crudButton iconUpdate=true recordId=id
-        onclick="nav('organizations',{
-          tloId: document.getElementById('topLevelOrganization').value,
-          id: this.dataset.recordid,
-          update: true
-        })"
-      }}
+    {{#if @root.manageForPractitioners}}
 
-      {{> crudButton iconCreate=true recordId=id
-        onclick="nav('organizations',{
-          tloId: document.getElementById('topLevelOrganization').value,
-          id: this.dataset.recordid,
-          create: true
-        })"
-      }}
+    {{> crudButton iconUpdate=true recordId=id
+      onclick="nav('organizations',{
+        tloId: document.getElementById('topLevelOrganization').value,
+        id: this.dataset.recordid,
+        update: true
+      })"
+    }}
 
-      {{> crudButton iconDelete=true recordId=id
-        onclick="nav('organizations',{
-          tloId: document.getElementById('topLevelOrganization').value,
-          id: this.dataset.recordid,
-          delete: true
-        })"
-      }}
+    {{> crudButton iconCreate=true recordId=id
+      onclick="nav('organizations',{
+        tloId: document.getElementById('topLevelOrganization').value,
+        id: this.dataset.recordid,
+        create: true
+      })"
+    }}
+
+    {{> crudButton iconDelete=true recordId=id
+      onclick="nav('organizations',{
+        tloId: document.getElementById('topLevelOrganization').value,
+        id: this.dataset.recordid,
+        delete: true
+      })"
+    }}
+
+  {{/if}}
 
 
       {{#if children}}
