@@ -175,7 +175,16 @@ async function nav(newRoute, queryParams, appendQueryParams) {
     const crudModalElement = document.getElementById(`${newRoute}-crudModal`);
     if (crudModalElement) {
       crudModal = new bootstrap.Modal(crudModalElement, {});
+
+      // avoid duplicate listeners on re-render
+      if (!crudModalElement.dataset.shownHookBound) {
+        crudModalElement.dataset.shownHookBound = '1';
+        crudModalElement.addEventListener('shown.bs.modal', () => {
+          window.MODAL_SHOWN_HANDLERS?.[newRoute]?.(crudModalElement);
+        });
+      }
     }
+
 
     if (queryParams.create || queryParams.read || queryParams.update || queryParams.delete) {
       crudModal.show();
@@ -207,13 +216,22 @@ function navReload() {
 
 
 function navReloadModal() {
-  const currentRouteAndParams = getCurrentRouteAndParams();
-  // just re-fetch current route content without hiding modal
-  crudModal.hide();
-  crudModal.show();
-  const params = currentRouteAndParams.params;
-  nav(currentRouteAndParams.route, params);
+  const { route, params } = getCurrentRouteAndParams();
+
+  // If a modal is showing, hide it BEFORE re-render
+  if (crudModal?._isShown) crudModal.hide();
+
+  // Re-render the route (this replaces DOM)
+  nav(route, params).then(() => {
+    // Re-bind modal reference to the NEW node
+    const crudModalElement = document.getElementById(`${route}-crudModal`);
+    if (crudModalElement) {
+      crudModal = new bootstrap.Modal(crudModalElement, {});
+      crudModal.show();
+    }
+  });
 }
+
 
 window.addEventListener("popstate", function (event) {
   console.log("popstate", JSON.stringify(event));
@@ -750,6 +768,27 @@ async function renderPatients(queryParams) {
     queryParams.organizationId,
     "patient.manage_for_organization"
   );
+
+  window.currentPatientRecord = patientRecord || {};
+  window.MODAL_SHOWN_HANDLERS = window.MODAL_SHOWN_HANDLERS || {};
+  window.MODAL_SHOWN_HANDLERS.patients = (root) => {
+    if (root.dataset.inited) return;
+    root.dataset.inited = '1';
+
+    const data = window.currentPatientRecord || {};
+    const set = (id, v) => {
+      const el = root.querySelector('#' + id);
+      if (el) el.value = v ?? '';
+    };
+
+    set('patientIdentifier',  data.identifier);
+    set('patientFamilyName',  data.nameFamily);
+    set('patientGivenName',   data.nameGiven);
+    set('patientBirthDate',   data.birthDate);
+    set('patientTelecomEmail',data.telecomEmail);
+    set('patientTelecomPhone',data.telecomPhone);
+  };
+
 
   const renderParams = {
     ...queryParams,
