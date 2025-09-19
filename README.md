@@ -230,7 +230,7 @@ flowchart TD
 
 - The script is a Django management command named **practitioner_fhir_obs**
 - update the `email` and `password` variables with an existing **'signed-up' JHE practitioner user** in the script.
-- update the `organization_name` variable with valid a **existing organization**.
+- update the `organization_name` variable with a valid **existing organization**.
 - update the `study_name` variable with a valid **existing study** which has the **iHealth** data source with the **blood glucose** scope.
 - After adding these values, execute the **command** `$ python manage.py practitioner_fhir_obs`.
 
