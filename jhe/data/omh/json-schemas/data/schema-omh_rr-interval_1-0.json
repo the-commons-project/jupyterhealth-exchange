@@ -10,16 +10,16 @@
   ],
   "definitions": {
     "duration_unit_value": {
-      "$ref": "duration-unit-value-1.x.json"
+      "$ref": "https://w3id.org/ieee/ieee-1752-schema/duration-unit-value-1.0.json"
     },
     "time_frame": {
-      "$ref": "time-frame-1.x.json"
+      "$ref": "https://w3id.org/ieee/ieee-1752-schema/time-frame-1.0.json"
     },
     "descriptive_statistic": {
-      "$ref": "descriptive-statistic-1.x.json"
+      "$ref": "https://w3id.org/ieee/ieee-1752-schema/descriptive-statistic-1.0.json"
     },
     "temporal_relationship_to_physical_activity": {
-      "$ref": "temporal-relationship-to-physical-activity-1.x.json"
+      "$ref": "https://w3id.org/ieee/ieee-1752-schema/temporal-relationship-to-physical-activity-1.0.json"
     }
   },
   "properties": {
