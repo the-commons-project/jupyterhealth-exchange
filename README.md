@@ -226,13 +226,13 @@ flowchart TD
   `$ python manage.py iglu`
 - This creates a new study under the "Berkeley Institute for Data Science (BIDS)" Organization with 19 mock patients and 1745 real Observation data points
 
-### Script for practitioner uploading observations for the patients which it has access to it
+### Practitioner script; uploads observations for patients where the practitioner has the appropriate access
 
-- The script is a django management command called **practitioner_fhir_obs**
-- update the `email` and `password` variables with the already **signed-up JHE practitioner user** in the script.
-- update the `organization_name` variable with valid already **existed organization**.
-- update the `study_name` variable with the valid already **existed study** which has **iHealth** data source with **blood glucose** scope.
-- After adding these valid data execute the **command** `$ python manage.py practitioner_fhir_obs`.
+- The script is a Django management command named **practitioner_fhir_obs**
+- update the `email` and `password` variables with an existing **'signed-up' JHE practitioner user** in the script.
+- update the `organization_name` variable with valid a **existing organization**.
+- update the `study_name` variable with a valid **existing study** which has the **iHealth** data source with the **blood glucose** scope.
+- After adding these values, execute the **command** `$ python manage.py practitioner_fhir_obs`.
 
 
 
