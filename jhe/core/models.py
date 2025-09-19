@@ -2,7 +2,7 @@ import base64
 import json
 import logging
 from datetime import timedelta
-from pathlib import Path  # noqa
+
 from random import SystemRandom
 
 import humps
@@ -1164,12 +1164,14 @@ class Observation(models.Model):
         limit = 1000 if page is None else int(page)
 
         print(f"jhe_user_id: {jhe_user_id}")
+        if not patient_id:
+            patient = get_object_or_404(Patient, jhe_user_id=jhe_user_id)
 
-        patient = get_object_or_404(Patient, jhe_user_id=jhe_user_id)
+            print(f"patient: {patient}")
 
-        print(f"patient: {patient}")
-
-        patient_user_id = patient.id
+            patient_user_id = patient.id
+        else:
+            patient_user_id = patient_id
 
         print(f"patient_user_id: {patient_user_id}")
 
@@ -1362,7 +1364,12 @@ AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeablec
                 )
             )  # TBD: move to view
 
-        user_patient = user.get_patient()
+        if user.is_practitioner():
+            if not subject_patient.practitioner_authorized(user.pk, subject_patient.id):
+                raise PermissionDenied("Current user doesn't have access to the Patient.")
+            user_patient = subject_patient
+        else:
+            user_patient = user.get_patient()
         if user_patient is None:
             raise PermissionDenied("Current user is not a Patient.")
 
