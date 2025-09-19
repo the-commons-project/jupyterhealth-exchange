@@ -105,7 +105,7 @@ function showNavLoadingOverlay() {
 function hideNavLoadingOverlay() {
   const overlay = document.getElementById("navLoadingOverlay");
   if (overlay) {
-    navLoadingOverlayCounter--;
+    navLoadingOverlayCounter = Math.max(0, navLoadingOverlayCounter - 1);
 
     if (navLoadingOverlayCounter <= 0) {
       navLoadingOverlayCounter = 0;
@@ -124,89 +124,85 @@ function hideNavLoadingOverlay() {
 
 async function nav(newRoute, queryParams, appendQueryParams) {
   showNavLoadingOverlay();
+  try {
+    const newRouteSettings = ROUTES[newRoute];
+    const current = getCurrentRouteAndParams();
 
-  const newRouteSettings = ROUTES[newRoute];
-
-  const currentRouteAndParams = getCurrentRouteAndParams();
-  if (!queryParams) {
-    if (appendQueryParams) {
-      queryParams = { ...currentRouteAndParams.params, ...appendQueryParams };
-    } else {
-      queryParams = {};
+    if (!queryParams) {
+      queryParams = appendQueryParams
+        ? { ...current.params, ...appendQueryParams }
+        : {};
     }
-  }
 
-  const body = Handlebars.compile(document.getElementById("t-body").innerHTML);
-
-  if (!(await userManager.getUser())) {
-    await userManager.signinRedirect();
-  }
-
-  const mainContent = await actions[newRouteSettings.action](queryParams);
-  const elementMainContent = document.getElementById("mainContent");
-  if (elementMainContent) elementMainContent.remove();
-
-  navItems = [];
-  for (const [route, settings] of Object.entries(ROUTES)) {
-    settings.active = route === newRoute;
-    settings.route = route;
-    navItems.push(settings);
-  }
-
-  const baseBodyElement = document.getElementById("baseBody");
-
-  document
-    .querySelectorAll("#baseBody > main")
-    .forEach((child) => baseBodyElement.removeChild(child));
-
-  document.getElementById("baseBody").insertAdjacentHTML(
-    "afterbegin",
-    body({
-      navItems: navItems,
-      mainContent: mainContent,
-    })
-  );
-
-  renderUserProfile();
-  document.getElementById("jheVersion").textContent = CONSTANTS.JHE_VERSION;
-
-  const crudModalElement = document.getElementById(`${newRoute}-crudModal`);
-  if (crudModalElement) {
-    crudModal = new bootstrap.Modal(crudModalElement, {});
-  }
-
-  if (
-    queryParams.create ||
-    queryParams.read ||
-    queryParams.update ||
-    queryParams.delete
-  ) {
-    crudModal.show();
-  }
-
-  if (
-    newRoute != currentRouteAndParams.route ||
-    !isShallowEq(queryParams, currentRouteAndParams.params)
-  ) {
-    window.history.pushState(
-      {},
-      "",
-      ROUTE_PREFIX +
-        newRoute +
-        "?" +
-        new URLSearchParams(queryParams).toString()
+    const bodyTpl = Handlebars.compile(
+      document.getElementById("t-body").innerHTML
     );
-  }
 
-  hideNavLoadingOverlay();
+    // Ensure user is authenticated
+    if (!(await userManager.getUser())) {
+      await userManager.signinRedirect();
+    }
+
+    // Render main content for the route
+    const mainContent = await actions[newRouteSettings.action](queryParams);
+
+    // Remove any existing main content
+    const oldMain = document.getElementById("mainContent");
+    if (oldMain) oldMain.remove();
+
+    // Build nav items
+    const navItems = Object.entries(ROUTES).map(([route, settings]) => ({
+      ...settings,
+      active: route === newRoute,
+      route,
+    }));
+
+    // Replace body content
+    const baseBody = document.getElementById("baseBody");
+    document
+      .querySelectorAll("#baseBody > main")
+      .forEach((child) => baseBody.removeChild(child));
+
+    document.getElementById("baseBody").insertAdjacentHTML(
+      "afterbegin",
+      bodyTpl({ navItems, mainContent })
+    );
+
+    // Post-render hooks
+    renderUserProfile();
+    document.getElementById("jheVersion").textContent = CONSTANTS.JHE_VERSION;
+
+    const crudModalElement = document.getElementById(`${newRoute}-crudModal`);
+    if (crudModalElement) {
+      crudModal = new bootstrap.Modal(crudModalElement, {});
+    }
+
+    if (queryParams.create || queryParams.read || queryParams.update || queryParams.delete) {
+      crudModal.show();
+    }
+
+    // Push history if route/params changed
+    if (newRoute !== current.route || !isShallowEq(queryParams, current.params)) {
+      window.history.pushState(
+        {},
+        "",
+        ROUTE_PREFIX + newRoute + "?" + new URLSearchParams(queryParams).toString()
+      );
+    }
+  } catch (e) {
+    console.error(e);
+    displayError(e?.message || e);
+  } finally {
+    hideNavLoadingOverlay();
+  }
 }
+
 
 function navReload() {
   clearModalValidationErrors();
   if (crudModal._isShown) crudModal.hide();
   const currentRouteAndParams = getCurrentRouteAndParams();
-  showNavLoadingOverlay();
-  nav(currentRouteAndParams.route, currentRouteAndParams.params);
+  return nav(currentRouteAndParams.route, currentRouteAndParams.params);
 }
 
 
@@ -431,6 +427,8 @@ async function renderOrganizations(queryParams) {
     await topLevelOrganizationsResponse.json();
   let topLevelOrganizationsSelect = topLevelOrganizationsPaginated.results;
   let organizationTreeChildren = [];
+  let canManagePractitionersInOrg;
+  let organizationRecord = null;
   // If a top level organization is selected
   if (queryParams.tloId && queryParams.tloId != 0) {
     topLevelOrganizationsSelect = topLevelOrganizationsSelect.map(
@@ -439,6 +437,24 @@ async function renderOrganizations(queryParams) {
         return organization;
       }
     );
+    const organizationRecordResponse = await apiRequest(
+      "GET",
+      `organizations/${queryParams.tloId}`
+    );
+    organizationRecord = await organizationRecordResponse.json();
+    organizationRecord.typeSelect = buildSelectOptions(
+      CONSTANTS.ORGANIZATION_TYPES,
+      organizationRecord.type,
+      ["root"]
+    );
+    if (organizationRecord && organizationRecord.currentUserRole) {
+        canManagePractitionersInOrg = ifRoleCan(
+        organizationRecord.currentUserRole,
+        'organization.manage_for_practitioners'
+      );
+    }
+
+
     const organizationTreeResaponse = await apiRequest(
       "GET",
       `organizations/${queryParams.tloId}/tree`
@@ -447,7 +463,7 @@ async function renderOrganizations(queryParams) {
     organizationTreeChildren = organizationTree.children;
   }
 
-  let organizationRecord, partOfId, partOfName, canManagePractitionersInOrg;
+  let partOfId, partOfName;
 
   if (queryParams.create) {
     if (
@@ -545,6 +561,8 @@ async function renderOrganizations(queryParams) {
 
   return content(renderParams);
 }
+
+
 
 async function createOrganization(partOf) {
   const organizationName =
