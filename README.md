@@ -226,15 +226,6 @@ flowchart TD
   `$ python manage.py iglu`
 - This creates a new study under the "Berkeley Institute for Data Science (BIDS)" Organization with 19 mock patients and 1745 real Observation data points
 
-### Practitioner script; uploads observations for patients where the practitioner has the appropriate access
-
-- The script is a Django management command named **practitioner_fhir_obs**
-- update the `email` and `password` variables with an existing **'signed-up' JHE practitioner user** in the script.
-- update the `organization_name` variable with a valid **existing organization**.
-- update the `study_name` variable with a valid **existing study** which has the **iHealth** data source with the **blood glucose** scope.
-- After adding these values, execute the **command** `$ python manage.py practitioner_fhir_obs`.
-
-
 
 ## Working with APIs
 
@@ -596,6 +587,53 @@ DEBUG = True
     },
     ...
 ```
+
+
+
+### Practitioner script: uploads observations for patients where the practitioner has the appropriate access
+
+## Usage
+
+```bash
+python script.py \
+  [--email <practitioner_email>] \
+  [--password <practitioner_password>] \
+  [--org-id <organization_id>] \
+  [--study-id <study_id>] \
+  [--patient-email <patient_email>]
+```
+
+## Arguments & Defaults
+
+* `--email` — Practitioner login email. **Default:** `obs-upload@example.com`
+* `--password` — Practitioner password. **Default:** `Jhe1234!`
+* `--org-id` — Target organization ID. **Default:** `20003`
+* `--study-id` — Target study ID (must have iHealth data source + blood-glucose scope). **Default:** `30006`
+* `--patient-email` — Patient email to lookup/create/enroll. **Default:** `obs-upload-pat1@example.com`
+
+If you omit any flags, the default is used. You can pass only what you want to change.
+
+## Examples
+
+**Run with all defaults:**
+
+```bash
+python script.py
+```
+
+**Run with all arguments specified:**
+
+```bash
+python script.py \
+  --email practitioner@example.com \
+  --password "Sup3r$ecret!" \
+  --org-id 42 \
+  --study-id 99 \
+  --patient-email patient2@example.com
+```
+
+
+
 
 ## Running in Production
 

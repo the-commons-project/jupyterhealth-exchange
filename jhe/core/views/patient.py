@@ -24,6 +24,7 @@ from core.models import (
     PatientOrganization,
     Observation,
     Practitioner,
+    PractitionerOrganization,
 )
 from core.permissions import IfUserCan
 from core.serializers import (
@@ -184,15 +185,31 @@ class PatientViewSet(AdminListMixin, ModelViewSet):
                 }
             )
         else:
-            # if this is a practitioner they can only read consents not write
-            if request.user.get_patient() is None:
-                raise PermissionDenied("Only Patient users can update their own consents.")
+            # if the user is the patient; or
+            # the user is a practitioner and a member or manager of the organization that owns the study and patient; or
+            # the user is a super admin
+
             responses = []
             consented_time = datetime.now()
             for study_scope_consent in request.data["study_scope_consents"]:
                 study_patient = StudyPatient.objects.filter(
                     study_id=study_scope_consent["study_id"], patient_id=patient.id
                 ).first()
+                if not request.user.is_superuser:
+                    if request.user.is_practitioner():
+                        if not Patient.practitioner_authorized(
+                            request.user.id, int(pk), organization_id=study_patient.study.organization.id
+                        ):
+                            raise PermissionDenied("Practitioner doesn't have right now for patient.")
+                        practitioner_org = PractitionerOrganization.objects.filter(
+                            organization=study_patient.study.organization.id,
+                            practitioner=request.user.practitioner_profile,
+                        ).first()
+                        if practitioner_org.role not in ["manager", "member"]:
+                            raise PermissionDenied("Practitioner role is not valid.")
+                    elif request.user.get_patient() is None:
+                        raise PermissionDenied("Only Patient users can update their own consents.")
+
                 for scope_consent in study_scope_consent["scope_consents"]:
 
                     scope_coding_system = scope_consent["coding_system"]

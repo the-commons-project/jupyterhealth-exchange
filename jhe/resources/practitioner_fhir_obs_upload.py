@@ -1,20 +1,11 @@
-import os
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "jhe.settings")
-
-import django
-
-django.setup()
-
+import argparse
+import base64
 import json
 import os
 import urllib.parse
-from datetime import datetime, timedelta, timezone
-from random import SystemRandom
 
 import requests
 from dotenv import load_dotenv
-from oauth2_provider.models import get_grant_model
 
 load_dotenv()
 
@@ -24,12 +15,38 @@ PATIENT_AUTHORIZATION_CODE_VERIFIER = os.getenv("PATIENT_AUTHORIZATION_CODE_VERI
 OIDC_CLIENT_REDIRECT_URI = SITE_URL + os.getenv("OIDC_CLIENT_REDIRECT_URI_PATH")
 PATIENT_AUTHORIZATION_CODE_CHALLENGE = os.getenv("PATIENT_AUTHORIZATION_CODE_CHALLENGE")
 
+OMH_BLOOD_GLUCOSE_JSON = {
+    "header": {
+        "uuid": "aaaa1234-1a2b-3c4d-5e6f-000000000001",
+        "schema_id": {"name": "blood-glucose", "version": "4.0", "namespace": "omh"},
+        "source_creation_date_time": "2025-01-01T01:01:01-08:00",
+        "modality": "sensed",
+        "external_datasheets": [{"datasheet_type": "manufacturer", "datasheet_reference": "iHealth"}],
+    },
+    "body": {
+        "blood_glucose": {"unit": "mg/dL", "value": 129},
+        "effective_time_frame": {"date_time": "2025-01-01T00:01:00-08:00"},
+    },
+}
+
 
 class Command:
 
     def __init__(self):
         self.session = requests.Session()
         self.BASE_URL = SITE_URL
+
+    @staticmethod
+    def json_to_base64_binary(payload: dict) -> str:
+        """
+        Convert a JSON dict/string to base64-encoded binary (UTF-8 bytes -> base64).
+        This matches what your FHIR code expects in valueAttachment.data.
+        """
+
+        json_compact = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+
+        b = json_compact.encode("utf-8")
+        return base64.b64encode(b).decode("ascii")
 
     def get_grant_code(self, email: str, password: str):
         r = self.session.get(self.BASE_URL + "/accounts/login/", allow_redirects=True)
@@ -44,7 +61,7 @@ class Command:
             "csrfmiddlewaretoken": csrf_token,
         }
 
-        r2 = self.session.post(self.BASE_URL + "/accounts/login/", allow_redirects=True, data=login_data)
+        self.session.post(self.BASE_URL + "/accounts/login/", allow_redirects=True, data=login_data)
 
         authorize_params = {
             "client_id": OIDC_CLIENT_ID,
@@ -84,20 +101,8 @@ class Command:
         ).json()
         return response.get("access_token"), response.get("refresh_token")
 
-    def handle(self, *args, **options):
-        # assuming that there's already a signed-up JHE practitioner user "obs-upload@example.com"
-        # with password Jhe1234!
-        email, password = "obs-upload@example.com", "Jhe1234!"
-
-        # Assuming there's an Organization "Obs Upload Org"
-        # Assuming there's a Study with "Obs Upload Study" with iHealth data source and blood glucose scope
-        organization_name, study_name = "Obs Upload Org", "Obs Upload Study"
-
-        patient_email = "obs-upload-pat1@example.com"  # register this patient into the organization
-
+    def handle(self, *, email: str, password: str, organization_id: int, study_id: int, patient_email: str):
         practitioner_access_token, practitioner_refresh_token = self.get_tokens(self.get_grant_code(email, password))
-
-        organization_id = 20003
 
         self.set_auth_token(practitioner_access_token)
 
@@ -124,40 +129,12 @@ class Command:
 
         # Add patient to study
 
-        # study = Study.objects.filter(name=study_name).first()
-        study_id = 30006
-
         patient_study_response = self.session.post(  # noqa
             url=self.BASE_URL + f"/api/v1/studies/{study_id}/patients",
             json={"patientIds": [patient_creation_response.get("id")]},
         ).json()
 
         # scope consent
-
-        Grant = get_grant_model()
-
-        Grant.objects.filter(user_id=patient_creation_response["jheUserId"]).delete()
-
-        UNICODE_ASCII_CHARACTER_SET = "abcdefghijklmnopqrstuvwxyz" "ABCDEFGHIJKLMNOPQRSTUVWXYZ" "0123456789"
-        authorization_code = "".join(SystemRandom().choice(UNICODE_ASCII_CHARACTER_SET) for _ in range(30))
-        patient_grant = Grant.objects.create(
-            application_id=1,
-            user_id=patient_creation_response["jheUserId"],
-            code=authorization_code,
-            expires=datetime.now(timezone.utc) + timedelta(seconds=1209600),
-            redirect_uri=OIDC_CLIENT_REDIRECT_URI,
-            scope="openid",
-            code_challenge=PATIENT_AUTHORIZATION_CODE_CHALLENGE,
-            code_challenge_method="S256",
-            nonce="",
-            claims=json.dumps({}),
-        )
-
-        self.remove_auth_token()
-
-        patient_access_token, patient_refresh_token = self.get_tokens(patient_grant.code)
-
-        self.set_auth_token(patient_access_token)
 
         scope_consent_response = self.session.post(  # noqa
             url=self.BASE_URL + f"/api/v1/patients/{patient_creation_response.get('id')}/consents",
@@ -195,13 +172,7 @@ class Command:
                         "identifier": [{"system": "https://ehr.example.com", "value": "bg-129-2025-01-01"}],
                         "valueAttachment": {
                             "contentType": "application/json",
-                            "data": "eyJoZWFkZXIiOnsidXVpZCI6ImFhYWExMjM0LTFhMmItM2M0ZC01ZTZmLTAwMDAwMDAwMDAwMSIsInNjaG"
-                                    "VtYV9pZCI6eyJuYW1lIjoiYmxvb2QtZ2x1Y29zZSIsInZlcnNpb24iOiI0LjAiLCJuYW1lc3BhY2UiOiJv"
-                                    "bWgifSwic291cmNlX2NyZWF0aW9uX2RhdGVfdGltZSI6IjIwMjUtMDEtMDFUMDE6MDE6MDEtMDg6MDAiLC"
-                                    "Jtb2RhbGl0eSI6InNlbnNlZCIsImV4dGVybmFsX2RhdGFzaGVldHMiOlt7ImRhdGFzaGVldF90eXBlIjoi"
-                                    "bWFudWZhY3R1cmVyIiwiZGF0YXNoZWV0X3JlZmVyZW5jZSI6ImlIZWFsdGgifV19LCJib2R5Ijp7ImJsb2"
-                                    "9kX2dsdWNvc2UiOnsidW5pdCI6Im1nL2RMIiwidmFsdWUiOjEyOX0sImVmZmVjdGl2ZV90aW1lX2ZyYW1l"
-                                    "Ijp7ImRhdGVfdGltZSI6IjIwMjUtMDEtMDFUMDA6MDE6MDAtMDg6MDAifX19",
+                            "data": self.json_to_base64_binary(OMH_BLOOD_GLUCOSE_JSON),
                         },
                     },
                     "request": {"method": "POST", "url": "Observation"},
@@ -218,22 +189,13 @@ class Command:
                         "identifier": [{"system": "https://ehr.sub.example.com", "value": "bg-128-2025-01-01"}],
                         "valueAttachment": {
                             "contentType": "application/json",
-                            "data": "eyJoZWFkZXIiOnsidXVpZCI6ImFhYWExMjM0LTFhMmItM2M0ZC01ZTZmLTAwMDAwMDAwMDAwMSIsInNjaG"
-                                    "VtYV9pZCI6eyJuYW1lIjoiYmxvb2QtZ2x1Y29zZSIsInZlcnNpb24iOiI0LjAiLCJuYW1lc3BhY2UiOiJv"
-                                    "bWgifSwic291cmNlX2NyZWF0aW9uX2RhdGVfdGltZSI6IjIwMjUtMDEtMDFUMDE6MDE6MDEtMDg6MDAiL"
-                                    "CJtb2RhbGl0eSI6InNlbnNlZCIsImV4dGVybmFsX2RhdGFzaGVldHMiOlt7ImRhdGFzaGVldF90eXBlIjo"
-                                    "ibWFudWZhY3R1cmVyIiwiZGF0YXNoZWV0X3JlZmVyZW5jZSI6ImlIZWFsdGgifV19LCJib2R5Ijp7ImJsb"
-                                    "29kX2dsdWNvc2UiOnsidW5pdCI6Im1nL2RMIiwidmFsdWUiOjEyOX0sImVmZmVjdGl2ZV90aW1lX2ZyYW1"
-                                    "lIjp7ImRhdGVfdGltZSI6IjIwMjUtMDEtMDFUMDA6MDE6MDAtMDg6MDAifX19",
+                            "data": self.json_to_base64_binary(OMH_BLOOD_GLUCOSE_JSON),
                         },
                     },
                     "request": {"method": "POST", "url": "Observation"},
                 },
             ],
         }
-
-        self.remove_auth_token()
-        self.set_auth_token(practitioner_access_token)
 
         fhir_observation_response = self.session.post(url=self.BASE_URL + "/fhir/r5/", json=request_payload).json()
 
@@ -249,7 +211,32 @@ class Command:
         return None
 
 
-if __name__ == "__main__":
-    command = Command()
+def parse_args():
+    """
+    Assuming that there's already a signed-up JHE practitioner user "obs-upload@example.com" with password Jhe1234!
+    Assuming there's an Organization "Obs Upload Org"
+    Assuming there's a Study with "Obs Upload Study" with iHealth data source and blood glucose scope
 
-    command.handle()
+    """
+    parser = argparse.ArgumentParser(description="Obs upload script with CLI overrides.")
+    parser.add_argument("--email", default="obs-upload@example.com", help="Practitioner email (default: %(default)s)")
+    parser.add_argument("--password", default="Jhe1234!", help="Practitioner password (default: %(default)s)")
+    parser.add_argument("--org-id", type=int, default=20003, help="Organization ID (default: %(default)s)")
+    parser.add_argument("--study-id", type=int, default=30006, help="Study ID (default: %(default)s)")
+    parser.add_argument(
+        "--patient-email",
+        default="obs-upload-pat1@example.com",
+        help="Patient email to create/enroll (default: %(default)s)",
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    Command().handle(
+        email=args.email,
+        password=args.password,
+        organization_id=args.org_id,
+        study_id=args.study_id,
+        patient_email=args.patient_email,
+    )

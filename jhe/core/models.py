@@ -516,12 +516,13 @@ class Patient(models.Model):
         patient_id=None,
         patient_identifier_system=None,
         patient_identifier_value=None,
+        organization_id=None,
     ):
         if (
             len(
                 Patient.for_practitioner_organization_study(
                     jhe_user_id,
-                    None,
+                    organization_id,
                     None,
                     patient_id,
                     patient_identifier_value,
