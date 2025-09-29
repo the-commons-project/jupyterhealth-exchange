@@ -34,13 +34,13 @@ SECRET_KEY = "django-insecure--4r1=)&2xj1u&sfj7*$jfzdp@*pyr*^n4l*n1p^inne@ulzn1f
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-SITE_TITLE = os.getenv("SITE_TITLE")
-SITE_URL = os.getenv("SITE_URL")
-CH_INVITATION_LINK_PREFIX = os.getenv("CH_INVITATION_LINK_PREFIX")
-CH_INVITATION_LINK_EXCLUDE_HOST = os.getenv("CH_INVITATION_LINK_EXCLUDE_HOST")
-OIDC_CLIENT_AUTHORITY = SITE_URL + os.getenv("OIDC_CLIENT_AUTHORITY_PATH")
-OIDC_CLIENT_ID = os.getenv("OIDC_CLIENT_ID")  # TBD: Multi-tenancy lookup based on client entry URI
-OIDC_CLIENT_REDIRECT_URI = SITE_URL + os.getenv("OIDC_CLIENT_REDIRECT_URI_PATH")
+SITE_TITLE = os.getenv("SITE_TITLE", "")
+SITE_URL = os.getenv("SITE_URL", "")
+CH_INVITATION_LINK_PREFIX = os.getenv("CH_INVITATION_LINK_PREFIX", "")
+CH_INVITATION_LINK_EXCLUDE_HOST = os.getenv("CH_INVITATION_LINK_EXCLUDE_HOST", "")
+OIDC_CLIENT_AUTHORITY = SITE_URL + os.getenv("OIDC_CLIENT_AUTHORITY_PATH", "")
+OIDC_CLIENT_ID = os.getenv("OIDC_CLIENT_ID", "")  # TBD: Multi-tenancy lookup based on client entry URI
+OIDC_CLIENT_REDIRECT_URI = SITE_URL + os.getenv("OIDC_CLIENT_REDIRECT_URI_PATH", "")
 
 ALLOWED_HOSTS = [[i for i in SITE_URL.split("/") if i][-1].split(":")[0]]
 
