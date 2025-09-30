@@ -40,11 +40,13 @@
       }}
     {{/if}}
     {{#unless tloId}}
+      {{#if @root.canCreateTopLevelOrg}}
       {{> crudButton iconCreate=true
         onclick="nav('organizations',{
           create: true
         })"
       }}
+      {{/if}}
     {{/unless}}
     {{#if tloId}}
       {{> crudButton iconDelete=true

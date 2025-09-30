@@ -1,5 +1,14 @@
 import logging
 
+from django.shortcuts import get_object_or_404
+from rest_framework import status
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
+from rest_framework.viewsets import ModelViewSet
+
+from core.admin_pagination import CustomPageNumberPagination
+from core.models import JheUser
 from core.models import Organization, PractitionerOrganization, PatientOrganization
 from core.permissions import IfUserCan
 from core.serializers import (
@@ -9,13 +18,6 @@ from core.serializers import (
     PractitionerOrganizationSerializer,
     PatientOrganizationSerializer,
 )
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.viewsets import ModelViewSet
-from core.admin_pagination import CustomPageNumberPagination
-from core.models import JheUser
-from rest_framework import status
-from django.shortcuts import get_object_or_404
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,10 @@ class OrganizationViewSet(ModelViewSet):
             return Organization.objects.order_by("name")
 
     def create(self, request, *args, **kwargs):
+        is_sub_organization = bool(request.data.get("part_of"))
+        if (not is_sub_organization) and (not request.user.is_superuser):
+            raise PermissionDenied("You don't have permission to create a top-level organization.")
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)

@@ -569,12 +569,16 @@ async function renderOrganizations(queryParams) {
     document.getElementById("t-crudButton").innerHTML
   );
 
+  const canCreateTopLevelOrg = await hasGlobalPermission("");
+
+
   const renderParams = {
     ...queryParams,
     topLevelOrganizationsSelect: topLevelOrganizationsSelect,
     children: organizationTreeChildren,
     organizationRecord: organizationRecord,
     manageForPractitioners: canManagePractitionersInOrg,
+    canCreateTopLevelOrg: canCreateTopLevelOrg,
   };
 
   return content(renderParams);
