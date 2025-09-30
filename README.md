@@ -21,10 +21,16 @@ https://github.com/orgs/the-commons-project/projects/8
 ## Getting Started
 
 > [!TIP]
+> **If you are a user (Practitioner or Patient), please take note of the following access information for the [JupyterHealth Website](https://jhe.fly.dev):**
+> - JHE Default Invite Code is ```helloworld``` (see [here](https://github.com/the-commons-project/jupyterhealth-exchange/blob/main/jhe/dot_env_example.txt#L3))
+> - JHE Default Super User ```sam@example.com/Jhe1234!``` can create and edit top level organizations. Any user can create sub-organizations.
+
+> [!TIP]
 >**Quick start:** For local development, Skip the steps 8–12 as the `seed_db` command will register the Django OAuth2 application. Also, Pre‑generated values of  `OIDC_RSA_PRIVATE_KEY`, `PATIENT_AUTHORIZATION_CODE_CHALLENGE`, and `PATIENT_AUTHORIZATION_CODE_VERIFIER` are provided in `dot_env_example.txt` for dev/demo use only.
 
 > [!NOTE]
 > Due to browser security restrictions and the [oidc-client-ts](https://github.com/authts/oidc-client-ts) used for authentication, the web app **must be accessed over HTTPS for any hostname other than localhost** - see [Running in Production](#running-in-production) below.
+
 
 
 1. Set up your Python environment and install dependencies from `jhe/Pipfile` - this project uses Django **version 5.2** which requires python  **3.10, 3.11, 3.12 or 3.13**
