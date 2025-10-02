@@ -44,6 +44,7 @@ jobs:
       OIDC_RSA_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----\\Abc123\\n-----END RSA PRIVATE KEY-----"
       PATIENT_AUTHORIZATION_CODE_CHALLENGE: "abc123"
       PATIENT_AUTHORIZATION_CODE_VERIFIER: "abc123"
+      SECRET_KEY: "super-secret-key"
 
     steps:
       - run: echo "Triggered by a ${{ github.event_name }} event."

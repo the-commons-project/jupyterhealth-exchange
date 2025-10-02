@@ -933,7 +933,8 @@ For deployment options and a comprehensive guide take a look at the official [Dj
 An example Dockerfile is included to deploy the app using [gunicorn](https://gunicorn.org/) and [WhiteNoise](https://whitenoise.readthedocs.io/en/stable/django.html) for static files.
 
 1. Create a new empty Postgres database
-1. Copy `jhe/dot_env_example.txt` to `jhe/.env` and update the `DB_*` parameters from (1)
+1. Copy `jhe/dot_env_example.txt` to `jhe/.env` and update the `DB_*` parameters from (1),
+  and generate a new value for `SECRET_KEY`, e.g. with `openssl rand -base64 32`.
 1. Migrate the DB by running `python manage.py migrate`
 1. Seed the database by running the Django management command `python manage.py seed_db`
 1. From the `jhe` directory, build the image `$ docker build .`

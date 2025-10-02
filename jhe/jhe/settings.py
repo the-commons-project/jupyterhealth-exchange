@@ -1,7 +1,10 @@
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path, PosixPath
+from urllib.parse import urlparse
 
+from django.core.management.utils import get_random_secret_key
 from dotenv import load_dotenv
 
 JHE_VERSION = "v0.0.7"
@@ -29,20 +32,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure--4r1=)&2xj1u&sfj7*$jfzdp@*pyr*^n4l*n1p^inne@ulzn1f"
+SECRET_KEY = os.getenv("SECRET_KEY")
+if SECRET_KEY is None:
+    logging.warning(
+        "SECRET_KEY unset, using a randomly generated SECRET_KEY; this will not work with more than one worker."
+    )
+    SECRET_KEY = get_random_secret_key()
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-SITE_TITLE = os.getenv("SITE_TITLE")
-SITE_URL = os.getenv("SITE_URL")
-CH_INVITATION_LINK_PREFIX = os.getenv("CH_INVITATION_LINK_PREFIX")
-CH_INVITATION_LINK_EXCLUDE_HOST = os.getenv("CH_INVITATION_LINK_EXCLUDE_HOST")
-OIDC_CLIENT_AUTHORITY = SITE_URL + os.getenv("OIDC_CLIENT_AUTHORITY_PATH")
-OIDC_CLIENT_ID = os.getenv("OIDC_CLIENT_ID")  # TBD: Multi-tenancy lookup based on client entry URI
-OIDC_CLIENT_REDIRECT_URI = SITE_URL + os.getenv("OIDC_CLIENT_REDIRECT_URI_PATH")
+SITE_TITLE = os.getenv("SITE_TITLE", "")
+SITE_URL = os.getenv("SITE_URL", "http://localhost:8000")
+CH_INVITATION_LINK_PREFIX = os.getenv("CH_INVITATION_LINK_PREFIX", "")
+CH_INVITATION_LINK_EXCLUDE_HOST = os.getenv("CH_INVITATION_LINK_EXCLUDE_HOST", "")
+OIDC_CLIENT_AUTHORITY = SITE_URL + os.getenv("OIDC_CLIENT_AUTHORITY_PATH", "")
+OIDC_CLIENT_ID = os.getenv("OIDC_CLIENT_ID", "")  # TBD: Multi-tenancy lookup based on client entry URI
+OIDC_CLIENT_REDIRECT_URI = SITE_URL + os.getenv("OIDC_CLIENT_REDIRECT_URI_PATH", "")
 
-ALLOWED_HOSTS = [[i for i in SITE_URL.split("/") if i][-1].split(":")[0]]
+ALLOWED_HOSTS = [urlparse(SITE_URL).hostname]
 
 CSRF_TRUSTED_ORIGINS = [SITE_URL]
 
