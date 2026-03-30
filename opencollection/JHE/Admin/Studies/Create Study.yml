@@ -1,0 +1,39 @@
+info:
+  name: Create Study
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/api/v1/studies"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+          "name": "Heart and Diet ",
+          "description": "We're trying to predict heart problems...",
+          "organization": {{ORG_ID}}
+      }
+  auth:
+    type: oauth2
+    flow: authorization_code
+    authorizationUrl: "{{BASE_URL}}/o/authorize/"
+    accessTokenUrl: "{{BASE_URL}}/o/token/"
+    callbackUrl: "{{BASE_URL}}/auth/callback"
+    credentials:
+      clientId: K17CJkHWHBu9q1QtX666Tm9bwn6LvG5jULlElQIE
+      placement: basic_auth_header
+    scope: openid
+    pkce: {}
+    tokenConfig:
+      placement: {}
+      source: access_token
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

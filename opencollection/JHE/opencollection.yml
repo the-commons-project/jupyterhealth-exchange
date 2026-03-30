@@ -1,0 +1,41 @@
+opencollection: 1.0.0
+
+info:
+  name: JHE
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ""
+      port: ""
+      auth:
+        username: ""
+        password: ""
+      bypassProxy: ""
+
+request:
+  auth:
+    type: oauth2
+    flow: authorization_code
+    authorizationUrl: http://localhost:8000/o/authorize/
+    accessTokenUrl: http://localhost:8000/o/token/
+    callbackUrl: http://localhost:8000/auth/callback
+    credentials:
+      clientId: Ima7rx8D6eko0PzlU1jK28WBUT2ZweZj7mqVG2wm
+      placement: basic_auth_header
+    scope: openid
+    pkce: {}
+    tokenConfig:
+      placement:
+        header: ""
+      source: access_token
+    settings:
+      autoFetchToken: true
+      autoRefreshToken: false
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

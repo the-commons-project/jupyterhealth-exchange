@@ -1,0 +1,38 @@
+info:
+  name: Paginate Observations
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: "{{BASE_URL}}/api/v1/observations?organizationId={{ORG_ID}}&page=5&pageSize=3"
+  params:
+    - name: organizationId
+      value: "{{ORG_ID}}"
+      type: query
+    - name: page
+      value: "5"
+      type: query
+    - name: pageSize
+      value: "3"
+      type: query
+  auth:
+    type: oauth2
+    flow: authorization_code
+    authorizationUrl: "{{BASE_URL}}/o/authorize/"
+    accessTokenUrl: "{{BASE_URL}}/o/token/"
+    callbackUrl: "{{BASE_URL}}/auth/callback"
+    credentials:
+      clientId: K17CJkHWHBu9q1QtX666Tm9bwn6LvG5jULlElQIE
+      placement: basic_auth_header
+    scope: openid
+    pkce: {}
+    tokenConfig:
+      placement: {}
+      source: access_token
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,36 @@
+info:
+  name: Patient token
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/o/token/"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: multipart-form
+    data:
+      - name: grant_type
+        type: text
+        value: authorization_code
+      - name: redirect_uri
+        type: text
+        value: https://whitebrick.ngrok.app/auth/callback
+      - name: code
+        type: text
+        value: dQ3P69cQiUo3KvvBelZXIqlBsAaAgC
+      - name: client_id
+        type: text
+        value: Ima7rx8D6eko0PzlU1jK28WBUT2ZweZj7mqVG2wm
+      - name: code_verifier
+        type: text
+        value: f28984eaebcf41d881223399fc8eab27eaa374a9a8134eb3a900a3b7c0e6feab5b427479f3284ebe9c15b698849b0de2
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,26 @@
+info:
+  name: Patient Auth Code
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: "{{BASE_URL}}/api/v1/patients/8/invitation_link"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+          "name": "Department or Urology",
+          "type": "dept",
+          "part_of": 20001
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
