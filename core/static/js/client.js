@@ -24,7 +24,7 @@ const DEFAULT_ROUTE = "organizations";
 const API_PATH = "/api/v1/";
 
 const ROUTES = {
-  jheSettings: {
+  "jhe-settings": {
     label: "System Settings",
     iconClass: "bi-gear",
     action: "renderJheSettings",
