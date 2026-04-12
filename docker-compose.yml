@@ -1,0 +1,273 @@
+# JupyterHealth Exchange — local development stack
+#
+# Default usage (JHE only):
+#     docker compose up
+#
+# With the optional Open Wearables module:
+#     docker compose --profile ow up
+#
+# Port and container name configuration:
+#     Copy .env.example to .env and adjust ports to avoid collisions
+#     when running multiple worktrees simultaneously.
+#
+# See docs/open-wearables-integration.md for setup details.
+
+services:
+  db:
+    image: postgres:18
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_db
+    environment:
+      POSTGRES_DB: jhe
+      POSTGRES_USER: jhe
+      POSTGRES_PASSWORD: jhe
+    ports:
+      - "${JHE_DB_PORT:-5433}:5432"
+    volumes:
+      - jhe_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jhe -d jhe"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  jhe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_app
+    environment:
+      DEBUG: "1"
+      SECRET_KEY: "dev-secret-key-change-me"
+      SITE_URL: "http://localhost:${JHE_APP_PORT:-8000}"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,${COMPOSE_PROJECT_NAME:-jhe}_app,host.docker.internal"
+      DB_NAME: jhe
+      DB_USER: jhe
+      DB_PASSWORD: jhe
+      DB_HOST: db
+      DB_PORT: "5432"
+      OW_PIPELINE_MODE: "${OW_PIPELINE_MODE:-normalized}"
+      REGISTRATION_INVITE_CODE: "jhe"
+      # DEV ONLY — replace in production. This key is committed for local
+      # Docker Compose convenience and must NEVER be used outside dev.
+      OIDC_RSA_PRIVATE_KEY: |
+        -----BEGIN PRIVATE KEY-----
+        MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCakrDyOhGcIyf2
+        +qK1Zp0R1YtzDfDode5j4sfbkHx68/fmLakGHBnblXt3l8wUtbrqWwHny5b5MRQa
+        v5hK3dV2zCMue3uESbLMjhzNliPytniIVVTH0WmNN9iNdu5d66HL5dPgPTbduRnw
+        Bjj9o/eiewPdfL7YlWI3uu4riLj3/hKmLA6pVXuHrkeHXwHiYLuOTVv/AF+ZSBHx
+        VtTCdjHBZRNV236rroaPCq8NqdU6fyb54BFNzazbMa7U/3TtMS0pHgIKFaIGwnwl
+        OqZlKItxz+mzhoVPmuaoWJEYtOXYx4DbPaY6ktzcrE5q66DykOcNQKSxNsVM3Ndy
+        SoZnvHz3AgMBAAECggEAMhry+NIR+0b6IXlFXQASUkGinn0aZoAz8nUEzAueDk0f
+        QqHydGSPjTp7d1zhbqUqHeW6TGUWX1ilZ7ZLq5kVJRkvHlYwx8UMDHrUo1/T701u
+        7OKcRNmBGaHMtK6kvhUvsWSitcGiE2V5HvElcDLChwzRR+6z/okN+XrC0aHUM67L
+        bZPtf352AzhSK9v1EZ9aXOCmjFIPj7NAnaeEcUAKuv0jwsfmJItzOZuLYeQ7K9tI
+        U5Fit2FgI+DrsnWZpQwtBILE15L4qKRKzvylqQKgxQv2XaMOjQdG8VlPTcMj+6xV
+        /STAdM94Z/HYys3WcEDaXZeS0MZKKcIDWfgFx9RQ4QKBgQDHVz/rzTcA2mDjuMn2
+        JtZEvqKesj4LJkz3jGoB6azkWJfzYwpvhYVERu1kQTpHNGuTIql+I/9ZfkRPKIIH
+        t3JyH/PRSfUBgOzzrcpvJvihdIbsnlOovtTcnb3JZlBxP/lm+3DObTYRpVK4DAOL
+        1xNcK0zePPa6d+PEPbYVjuiWtQKBgQDGgfnWLXv4/mXcEYJIvLFQoe9vGtCNBFLf
+        9nHiNsYrY/uO6PzQuOqlwe9wt1P4c81xDYQapkMTh1UDR0Ac01fXzdS2VnikC9Lj
+        evaw7r8+rxfIFvcKc+Dvqt9pYIQmt43T9rYSipqS7GrJXEWglA0/tNwzGMxGN012
+        jLNLAqREewKBgCWrvl+wc2GM41yFkl0bL8jkAdVdt83hmg/6EBp2b37joyuSnuk+
+        YVXq1Xfpv7qvFFlE5qT45ouiCgSvkgslRtJ8aVY21L9I/v557FSfF8NjQxA6R3MP
+        RSjAApqp5C/SuC4W/FV2XA5voLc5Rf5KUdVMNYWWHcZVW8y9IMjoLdo1AoGAUFPY
+        XasaN6/6WAtdxUFWH2LoGPWo3ueZAbggbYHsvzI+YZ42b9/kVB8eXWZSPH/f6pel
+        lYMiMYzaAfGbKA79xP4tzXtAZmHCfPsNSJvUF/GSlg10+m3Z4CItNd8wmto8MkHr
+        e6VK15mDvOfx5QEEO3tcf/DQ+Lj4R7i39OqkvnECgYAMv5epMeJc8SAsq+Hfzk3o
+        2QMwmmG5Faw/vvbbrhwPwSjBXkYDXb3UdARrIMkxGDkku5QCKFRsE2wemHSOZn0+
+        ndseEFF26TNcdPbQSRYXs/hxBDbKZYjBrwF5xmsKbqgxB45qMYUs7R3zhDd2z87w
+        U4+0xw/WnHUhIxpWrZ3COg==
+        -----END PRIVATE KEY-----
+    ports:
+      - "${JHE_APP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+
+  # ─────────────────────────────────────────────────────────────────
+  # OW polling pipeline cron sidecar (profile: polling)
+  # ─────────────────────────────────────────────────────────────────
+
+  jhe_cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_cron
+    profiles: ["polling"]
+    environment:
+      DEBUG: "1"
+      SECRET_KEY: "dev-secret-key-change-me"
+      SITE_URL: "http://localhost:${JHE_APP_PORT:-8000}"
+      ALLOWED_HOSTS: "localhost,127.0.0.1,${COMPOSE_PROJECT_NAME:-jhe}_app,host.docker.internal"
+      DB_NAME: jhe
+      DB_USER: jhe
+      DB_PASSWORD: jhe
+      DB_HOST: db
+      DB_PORT: "5432"
+      OW_PIPELINE_MODE: "${OW_PIPELINE_MODE:-normalized}"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["supercronic", "/code/deploy/crontab"]
+
+  # ─────────────────────────────────────────────────────────────────
+  # Optional Open Wearables module (profile: ow)
+  # ─────────────────────────────────────────────────────────────────
+
+  ow_db:
+    image: postgres:18
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_ow_db
+    profiles: ["ow"]
+    environment:
+      POSTGRES_DB: open-wearables
+      POSTGRES_USER: open-wearables
+      POSTGRES_PASSWORD: open-wearables
+    ports:
+      - "${OW_DB_PORT:-5432}:5432"
+    volumes:
+      - jhe_ow_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U open-wearables -d open-wearables"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ow_redis:
+    image: redis:8
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_ow_redis
+    profiles: ["ow"]
+    ports:
+      - "${OW_REDIS_PORT:-6379}:6379"
+    volumes:
+      - jhe_ow_redisdata:/data
+
+  ow_app:
+    build:
+      context: ${OW_BACKEND_PATH:-../../open-wearables/backend}
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_ow_app
+    profiles: ["ow"]
+    image: ${COMPOSE_PROJECT_NAME:-jhe}-ow-platform:latest
+    pull_policy: never
+    command: scripts/start/app.sh
+    env_file:
+      - ${OW_BACKEND_PATH:-../../open-wearables/backend}/config/.env
+    environment:
+      DB_HOST: ow_db
+      REDIS_HOST: ow_redis
+    ports:
+      - "${OW_APP_PORT:-8001}:8000"
+    depends_on:
+      ow_db:
+        condition: service_healthy
+      ow_redis:
+        condition: service_started
+      ow_object_store_init:
+        condition: service_completed_successfully
+
+  ow_celery_worker:
+    image: ${COMPOSE_PROJECT_NAME:-jhe}-ow-platform:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_ow_celery_worker
+    profiles: ["ow"]
+    pull_policy: never
+    command: scripts/start/worker.sh
+    env_file:
+      - ${OW_BACKEND_PATH:-../../open-wearables/backend}/config/.env
+    environment:
+      DB_HOST: ow_db
+      REDIS_HOST: ow_redis
+    depends_on:
+      ow_db:
+        condition: service_healthy
+      ow_redis:
+        condition: service_started
+      ow_app:
+        condition: service_started
+      ow_object_store_init:
+        condition: service_completed_successfully
+
+  ow_celery_beat:
+    image: ${COMPOSE_PROJECT_NAME:-jhe}-ow-platform:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_ow_celery_beat
+    profiles: ["ow"]
+    pull_policy: never
+    command: scripts/start/beat.sh
+    env_file:
+      - ${OW_BACKEND_PATH:-../../open-wearables/backend}/config/.env
+    environment:
+      DB_HOST: ow_db
+      REDIS_HOST: ow_redis
+    depends_on:
+      ow_db:
+        condition: service_healthy
+      ow_redis:
+        condition: service_started
+      ow_app:
+        condition: service_started
+
+  ow_frontend:
+    build:
+      context: ${OW_FRONTEND_PATH:-../../open-wearables/frontend}
+      dockerfile: Dockerfile.dev
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_ow_frontend
+    profiles: ["ow"]
+    image: ${COMPOSE_PROJECT_NAME:-jhe}-ow-frontend:dev
+    pull_policy: never
+    environment:
+      VITE_API_URL: "http://localhost:${OW_APP_PORT:-8001}"
+    ports:
+      - "${OW_FRONTEND_PORT:-3001}:3000"
+    depends_on:
+      - ow_app
+
+  # ─────────────────────────────────────────────────────────────────
+  # MinIO: S3-protocol object store for raw Oura payload storage.
+  # Only used in the oura-raw worktree. Runs locally, no AWS needed.
+  # Console:  http://localhost:${MINIO_CONSOLE_PORT:-9001}
+  # API:      http://ow-object-store:9000  (inside Docker network)
+  # ─────────────────────────────────────────────────────────────────
+
+  ow_object_store:
+    image: minio/minio:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_ow_object_store
+    profiles: ["ow"]
+    command: server /data --console-address ":9001"
+    networks:
+      default:
+        aliases:
+          - ow-object-store
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - jhe_ow_object_store_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ow_object_store_init:
+    image: minio/mc:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-jhe}_ow_object_store_init
+    profiles: ["ow"]
+    depends_on:
+      ow_object_store:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://ow-object-store:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/raw-payloads &&
+      echo 'Bucket raw-payloads is ready.'
+      "
+
+volumes:
+  jhe_pgdata:
+  jhe_ow_pgdata:
+  jhe_ow_redisdata:
+  jhe_ow_object_store_data:

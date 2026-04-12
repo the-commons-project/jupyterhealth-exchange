@@ -1,0 +1,10 @@
+# JHE OW polling pipeline crontab — read by supercronic in the jhe_cron sidecar.
+#
+# Runs once per 24 hours at 06:00 UTC. Operators can change the hour by editing
+# this file (it is tracked in the repo and rebuilt into the jhe_cron sidecar
+# image). The 24h cadence is the polling interval — the management command
+# does NOT do a per-patient interval check. See spec D3.
+#
+# The command no-ops automatically if ow.ingest_mode != "polling", so this
+# crontab can keep firing after the operator flips to webhook mode in Q2 2026.
+0 6 * * * cd /app && python manage.py ow_poll
