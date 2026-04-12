@@ -93,7 +93,13 @@ class FHIRObservationViewSet(ModelViewSet):
     def create(self, request):
         observation = None
         try:
-            observation = Observation.fhir_create(request.data, request.user)
+            # For client_credentials tokens (e.g., OW push), use the application's user
+            user = request.user
+            if hasattr(user, 'is_anonymous') and user.is_anonymous:
+                token = getattr(request, 'auth', None)
+                if token and hasattr(token, 'application') and token.application and token.application.user:
+                    user = token.application.user
+            observation = Observation.fhir_create(request.data, user)
             logger.debug(f"created observation: {observation}")
         # TBD: except PermissionDenied:
         except Exception as e:

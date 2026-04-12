@@ -24,6 +24,13 @@ class FHIRBase(viewsets.GenericViewSet):
     serializer_class = FHIRBundleSerializer
 
     def create(self, request):
+        # For client_credentials tokens (e.g., OW push), use the application's user
+        user = request.user
+        if hasattr(user, 'is_anonymous') and user.is_anonymous:
+            token = getattr(request, 'auth', None)
+            if token and hasattr(token, 'application') and token.application and token.application.user:
+                user = token.application.user
+
         # first validate the entire bundle
         bundle_data = copy.deepcopy(request.data)
         for entry in bundle_data["entry"]:
@@ -53,7 +60,7 @@ class FHIRBase(viewsets.GenericViewSet):
                 )
 
             try:
-                observation = Observation.fhir_create(entry["resource"], request.user)
+                observation = Observation.fhir_create(entry["resource"], user)
                 response_entries.append(
                     FHIRBase.bundle_create_response_entry(http_status.HTTP_201_CREATED, None, observation)
                 )

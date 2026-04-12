@@ -146,3 +146,6 @@ GitHub.sublime-settings
 
 # Node.js
 node_modules/
+
+# Patient frontend build output (built in Docker multi-stage)
+core/static/patient-frontend/

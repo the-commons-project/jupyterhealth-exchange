@@ -48,6 +48,11 @@ OAUTH2_CALLBACK_PATH = "/auth/callback"
 PRACTITIONER_DEFAULT_ORGS = os.getenv("PRACTITIONER_DEFAULT_ORGS", "")
 OIDC_CLIENT_AUTHORITY_PATH = "/o/"
 
+# Open Wearables runtime config (ow.api_base_url, ow.api_key, etc.) uses JheSetting.
+# See core/services/ow_integration.py.
+# Pipeline mode is set at startup via env var (not JheSetting).
+OW_PIPELINE_MODE = os.environ.get("OW_PIPELINE_MODE", "normalized")
+
 if "ALLOWED_HOSTS" in os.environ:
     ALLOWED_HOSTS = os.environ["ALLOWED_HOSTS"].split(",")
 else:

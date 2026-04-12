@@ -45,10 +45,13 @@ def create_study(
     for code in codes or []:
         if isinstance(code, Code):
             code = code.value
+        # text goes in defaults, NOT the lookup — otherwise update_or_create
+        # would treat (system, code, text) as the unique key and fail when
+        # an existing row has a different text (e.g. seeded by migration 0020).
         scope_code, _ = CodeableConcept.objects.update_or_create(
             coding_system=Code.OpenMHealth.value,
             coding_code=code,
-            text=code,
+            defaults={"text": code},
         )
         StudyScopeRequest.objects.create(study=study, scope_code=scope_code)
     return study

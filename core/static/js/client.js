@@ -822,7 +822,7 @@ async function renderPatients(queryParams) {
     return;
   }
 
-  if (!queryParams.organizationId && organizations[0]) {
+  if (queryParams.organizationId == null && organizations[0]) {
     nav("patients", { organizationId: organizations[0].id });
     return;
   }
@@ -1061,7 +1061,7 @@ async function renderStudies(queryParams) {
     return;
   }
 
-  if (!queryParams.organizationId && organizations[0]) {
+  if (queryParams.organizationId == null && organizations[0]) {
     nav("studies", { organizationId: organizations[0].id });
     return;
   }
@@ -1358,7 +1358,7 @@ async function renderObservations(queryParams) {
     return;
   }
 
-  if (!queryParams.organizationId && organizations[0]) {
+  if (queryParams.organizationId == null && organizations[0]) {
     nav("observations", { organizationId: organizations[0].id });
     return;
   }
@@ -1660,10 +1660,40 @@ async function renderDataSources(queryParams) {
   return content(renderParams);
 }
 
+// Register modal-shown handler so the OW provider dropdown gets populated
+// every time the data source create/update modal opens.
+window.MODAL_SHOWN_HANDLERS = window.MODAL_SHOWN_HANDLERS || {};
+window.MODAL_SHOWN_HANDLERS.dataSources = function() {
+  owPopulateProviderDropdown();
+};
+
+// Populate the OW provider dropdown by fetching enabled providers from OW.
+// Called after the data sources modal is rendered.
+async function owPopulateProviderDropdown() {
+  const sel = document.getElementById("dataSourceProviderKey");
+  if (!sel) return;
+  const current = sel.dataset.current || "";
+  try {
+    const resp = await apiRequest("GET", "ow/providers");
+    if (!resp.ok) return;
+    const providers = await resp.json();
+    providers.forEach(function(p) {
+      const opt = document.createElement("option");
+      opt.value = p.provider;
+      opt.textContent = p.name + " (" + p.provider + ")";
+      if (p.provider === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    console.warn("Failed to load OW providers:", e);
+  }
+}
+
 async function createDataSource() {
   const dataSourceRecord = {
     name: document.getElementById("dataSourceName").value || null,
     type: document.getElementById("dataSourceType").value,
+    providerKey: document.getElementById("dataSourceProviderKey").value || null,
   };
   if (await apiRequest("POST", `data_sources`, dataSourceRecord))
     await navReturnFromCrud();
@@ -1673,6 +1703,7 @@ async function updateDataSource(id) {
   const dataSourceRecord = {
     name: document.getElementById("dataSourceName").value || null,
     type: document.getElementById("dataSourceType").value || null,
+    providerKey: document.getElementById("dataSourceProviderKey").value || null,
   };
   const response = await apiRequest("PATCH", `data_sources/${id}`, dataSourceRecord);
   if (response.ok) await navReturnFromCrud();
@@ -2201,3 +2232,4 @@ function previewIcon(input) {
     previewContainer.appendChild(errorDiv);
   }, 400);
 }
+

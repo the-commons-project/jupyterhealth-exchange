@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from core.models import (
     DataSource,
+    JheSetting,
     JheUser,
     Organization,
     PractitionerOrganization,
@@ -115,3 +116,47 @@ def hr_study(organization, user, patient):
     )
     add_patient_to_study(patient=patient, study=study)
     return study
+
+
+# ---------------------------------------------------------------------------
+# OW shared test infrastructure
+# ---------------------------------------------------------------------------
+
+
+def set_jhe_settings(**kv):
+    """Bulk-update JheSetting keys and clear the LocMemCache."""
+    from django.core.cache import cache
+
+    for key, value in kv.items():
+        JheSetting.objects.update_or_create(
+            key=key,
+            defaults={"value_type": "string", "value_string": value},
+        )
+    cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clear_ow_caches():
+    """Clear lru_caches on OW helpers between tests.
+
+    The orchestrators use module-level lru_caches for the system user and
+    CodeableConcept lookups. Each Django test runs in its own transaction
+    that gets rolled back, leaving the caches holding stale references.
+    """
+    from core.services.ow_ingest import _common
+
+    _common.get_system_user.cache_clear()
+    _common.get_codeable_concept.cache_clear()
+    yield
+    _common.get_system_user.cache_clear()
+    _common.get_codeable_concept.cache_clear()
+
+
+@pytest.fixture
+def system_user(db):
+    """The ow_poller system user. Reuses migration-created row if present."""
+    user, _ = JheUser.objects.get_or_create(
+        email="ow_poller@system.local",
+        defaults={"is_superuser": True, "is_active": True},
+    )
+    return user

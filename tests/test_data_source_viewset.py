@@ -66,8 +66,11 @@ def test_get_all_scopes(api_client, device, hr_study):
     r = api_client.get("/api/v1/data_sources/all_scopes")
     assert r.status_code == 200, r.text
     scopes = r.json()
-    assert len(scopes) == 1
-    assert scopes[0]["codingCode"] == Code.HeartRate.value
+    # The endpoint returns all CodeableConcepts in the DB, including ones
+    # seeded by migrations (e.g. 0020 seeds the 3 OW polling codes). Assert
+    # the heart-rate code is present rather than asserting an exact count.
+    coding_codes = {s["codingCode"] for s in scopes}
+    assert Code.HeartRate.value in coding_codes
 
 
 def test_supported_scopes(api_client, superuser, device):

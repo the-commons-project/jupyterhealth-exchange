@@ -10,7 +10,9 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login
 from django.contrib.auth import logout as django_logout
 from django.contrib.auth.views import LoginView as BaseLoginView
-from django.http import HttpRequest, HttpResponseRedirect, JsonResponse
+from pathlib import Path
+
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect, render
 from django.template import TemplateDoesNotExist
 from django.utils import timezone
@@ -153,6 +155,62 @@ def verify_email_complete(request):
 
 def portal(request, path):
     return render(request, "client/portal.html", {"foo": "bar"})
+
+
+_ow_client_index_cache: dict = {"mtime": None, "html": None}
+
+
+def ow_client(request, path=""):
+    """Serve the patient-frontend React SPA built by Vite.
+
+    The SPA uses BrowserRouter, so all /ow/* URLs return the same index.html
+    and React Router handles the client-side routing. The Vite-generated
+    index.html already references hashed assets at /static/patient-frontend/
+    which Django's staticfiles serves directly.
+
+    The `path` URL kwarg is intentionally ignored — the SPA shell is the
+    same for every /ow/<anything> URL.
+
+    Reads the Vite-emitted index.html from disk and caches by mtime so every
+    rebuild picks up new hashed asset filenames automatically without paying
+    a disk read on every request.
+    """
+    index_path = Path(settings.BASE_DIR) / "core" / "static" / "patient-frontend" / "index.html"
+
+    try:
+        mtime = index_path.stat().st_mtime
+    except FileNotFoundError:
+        raise Http404(
+            "Patient frontend bundle not found. Run `cd patient-frontend && npm run build` "
+            "(or `make build-frontend`) before serving."
+        )
+
+    if _ow_client_index_cache["mtime"] != mtime:
+        _ow_client_index_cache["html"] = index_path.read_text(encoding="utf-8")
+        _ow_client_index_cache["mtime"] = mtime
+
+    response = HttpResponse(
+        _ow_client_index_cache["html"],
+        content_type="text/html; charset=utf-8",
+    )
+    # Don't let browsers pin a stale index.html that references deleted asset
+    # hashes — the SPA shell is small and the assets are content-hashed, so
+    # forcing the shell to revalidate while letting the assets cache is safe.
+    response["Cache-Control"] = "no-cache"
+    # Basic CSP — the SPA only loads assets from JHE's own static dir and
+    # makes XHR/fetch calls to JHE's API. Tighten further per deployment.
+    response["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "
+        "base-uri 'self'"
+    )
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def smart_launch(request):

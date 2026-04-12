@@ -136,6 +136,16 @@
                   {{/dataSourceRecord.typeSelect}}
                   </select>
                 </div>
+                <div class="mb-3">
+                  <label for="dataSourceProviderKey" class="form-label">
+                    Open Wearables Provider
+                    <small class="text-muted">(optional — links this device to a connected wearable)</small>
+                  </label>
+                  <select id="dataSourceProviderKey" class="form-select" data-current="{{dataSourceRecord.providerKey}}">
+                    <option value="">-- None --</option>
+                    <!-- Options populated by JS from /api/v1/ow/providers -->
+                  </select>
+                </div>
               </fieldset>
             </form>
             {{#if read}}

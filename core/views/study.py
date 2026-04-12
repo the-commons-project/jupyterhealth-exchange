@@ -49,8 +49,12 @@ class StudyViewSet(ModelViewSet):
             else:
                 raise PermissionDenied("Current User does not have authorization to access this Study.")
         else:
+            org_id = (
+                self.request.GET.get("organization_id")
+                or self.request.GET.get("organizationId")
+            )
             return Study.for_practitioner_organization(
-                self.request.user.id, self.request.GET.get("organization_id", None)
+                self.request.user.id, org_id
             )
 
     @action(detail=True, methods=["GET", "POST", "DELETE"])

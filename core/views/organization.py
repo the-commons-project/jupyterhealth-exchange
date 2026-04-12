@@ -1,5 +1,6 @@
 import logging
 
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import action
@@ -40,8 +41,21 @@ class OrganizationViewSet(ModelViewSet):
         return [permission() for permission in self.permission_classes]
 
     def get_queryset(self):
-        param_part_of = self.request.query_params.get("part_of")
-        if param_part_of:
+        # Accept both snake_case (part_of) and camelCase (partOf) because the
+        # JS frontend sends camelCase but djangorestframework-camel-case does
+        # not convert query parameters.
+        param_part_of = (
+            self.request.query_params.get("part_of")
+            or self.request.query_params.get("partOf")
+        )
+        if param_part_of is not None:
+            # partOf=0 means "children of ROOT" (ROOT.id=0). Return orgs
+            # whose part_of FK points to ROOT, plus ROOT itself so the
+            # dropdown can show it as the "all orgs" option.
+            if str(param_part_of) == "0":
+                return Organization.objects.filter(
+                    Q(part_of_id=0) | Q(part_of__isnull=True)
+                ).order_by("name")
             return Organization.objects.filter(part_of=param_part_of).order_by("name")
         else:
             return Organization.objects.order_by("name")

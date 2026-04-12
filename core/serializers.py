@@ -224,7 +224,7 @@ class DataSourceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataSource
-        fields = ["id", "name", "type", "supported_scopes"]
+        fields = ["id", "name", "type", "provider_key", "supported_scopes"]
 
 
 Application = get_application_model()
@@ -356,6 +356,20 @@ class StudyPendingConsentsSerializer(serializers.ModelSerializer):
     organization = OrganizationWithoutLineageSerializer(many=False, read_only=True)
     data_sources = DataSourceSerializer(many=True, read_only=True)
     pending_scope_consents = serializers.JSONField()
+    practitioners = serializers.SerializerMethodField()
+
+    def get_practitioners(self, obj):
+        from core.models import PractitionerOrganization
+        pract_orgs = PractitionerOrganization.objects.filter(
+            organization=obj.organization
+        ).select_related("practitioner")
+        return [
+            {
+                "name": f"{po.practitioner.name_given or ''} {po.practitioner.name_family or ''}".strip(),
+                "role": po.role,
+            }
+            for po in pract_orgs
+        ]
 
     class Meta:
         model = Study
@@ -366,6 +380,7 @@ class StudyPendingConsentsSerializer(serializers.ModelSerializer):
             "organization",
             "data_sources",
             "pending_scope_consents",
+            "practitioners",
         ]
 
 
@@ -373,6 +388,20 @@ class StudyConsentsSerializer(serializers.ModelSerializer):
     organization = OrganizationWithoutLineageSerializer(many=False, read_only=True)
     data_sources = DataSourceSerializer(many=True, read_only=True)
     scope_consents = serializers.JSONField()
+    practitioners = serializers.SerializerMethodField()
+
+    def get_practitioners(self, obj):
+        from core.models import PractitionerOrganization
+        pract_orgs = PractitionerOrganization.objects.filter(
+            organization=obj.organization
+        ).select_related("practitioner")
+        return [
+            {
+                "name": f"{po.practitioner.name_given or ''} {po.practitioner.name_family or ''}".strip(),
+                "role": po.role,
+            }
+            for po in pract_orgs
+        ]
 
     class Meta:
         model = Study
@@ -383,6 +412,7 @@ class StudyConsentsSerializer(serializers.ModelSerializer):
             "organization",
             "data_sources",
             "scope_consents",
+            "practitioners",
         ]
 
 

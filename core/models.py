@@ -848,6 +848,12 @@ class DataSource(models.Model):
         blank=False,
         default="personal_device",
     )
+    # Optional Open Wearables provider key (e.g., "oura", "garmin", "whoop").
+    # When set, the patient frontend uses this to look up the device in OW
+    # and skip the generic provider picker — going straight to that provider's
+    # OAuth flow. Practitioners select this from a dropdown of OW-enabled
+    # providers in the admin UI.
+    provider_key = models.CharField(max_length=64, null=True, blank=True)
 
     # this will never be large
     @staticmethod
@@ -1178,17 +1184,19 @@ class Observation(models.Model):
         except Patient.DoesNotExist:
             raise (BadRequest(f"Patient id={subject_patient_id} can not be found."))  # TBD: move to view
 
-        if user.is_practitioner():
+        # Superusers (e.g., service accounts for OW push) bypass authorization checks
+        if user.is_superuser:
+            user_patient = subject_patient
+        elif user.is_practitioner():
             if not subject_patient.practitioner_authorized(user.pk, subject_patient.id):
                 raise PermissionDenied("Current user doesn't have access to the Patient.")
             user_patient = subject_patient
         else:
             user_patient = user.get_patient()
-        if user_patient is None:
-            raise PermissionDenied("Current user is not a Patient.")
-
-        if user_patient and (subject_patient.id != user_patient.id):
-            raise PermissionDenied("The Subject Patient does not match the current user.")
+            if user_patient is None:
+                raise PermissionDenied("Current user is not a Patient.")
+            if subject_patient.id != user_patient.id:
+                raise PermissionDenied("The Subject Patient does not match the current user.")
 
         # Check Identifiers
         if fhir_observation.identifier:
@@ -1238,10 +1246,28 @@ class Observation(models.Model):
         try:
             raw = fhir_observation.valueAttachment.data
             decoded = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-            try:
-                value_attachment_data = json.loads(decoded)
-            except (json.JSONDecodeError, ValueError):
-                value_attachment_data = json.loads(base64.b64decode(decoded).decode("utf-8"))
+            content_type = getattr(fhir_observation.valueAttachment, "contentType", None) or ""
+
+            # Check if this is raw Oura data that needs OMH conversion
+            if content_type == "application/json+oura":
+                try:
+                    raw_json = json.loads(decoded)
+                except (json.JSONDecodeError, ValueError):
+                    raw_json = json.loads(base64.b64decode(decoded).decode("utf-8"))
+
+                from omh_shim import convert
+                coding_code = fhir_observation.code.coding[0].code
+                omh_data = convert("oura", coding_code, raw_json)
+                if omh_data is None:
+                    raise BadRequest(f"No OMH converter found for coding_code={coding_code}")
+                value_attachment_data = omh_data
+            else:
+                try:
+                    value_attachment_data = json.loads(decoded)
+                except (json.JSONDecodeError, ValueError):
+                    value_attachment_data = json.loads(base64.b64decode(decoded).decode("utf-8"))
+        except BadRequest:
+            raise
         except Exception:
             raise BadRequest("valueAttachment.data must be Base 64 Encoded Binary JSON.")  # TBD: move to view
 
@@ -1411,3 +1437,57 @@ class JheSetting(models.Model):
 
         else:
             raise ValidationError({"value_type": "Unknown value_type"})
+
+
+# ---- Polling pipeline (v1) ----
+#
+# OWPollStatus tracks per-(patient, data_type) "where did we leave off" state
+# for the OW polling pipeline. Not a strict cursor — OW's read API has no
+# ingest-time filter, so we sliding-window with dedup at the Observation
+# level. last_poll_at and last_success_at are observability fields, not
+# load-bearing scheduling state.
+
+class OWPollStatus(models.Model):
+    DATA_TYPE_CHOICES = [
+        ("heart_rate", "heart_rate"),
+        ("heart_rate_variability", "heart_rate_variability"),
+        ("oxygen_saturation", "oxygen_saturation"),
+        ("step_count", "step_count"),
+        ("sleep_duration", "sleep_duration"),
+        ("sleep_episode", "sleep_episode"),
+        ("physical_activity", "physical_activity"),
+    ]
+
+    patient = models.ForeignKey("Patient", on_delete=models.CASCADE)
+    data_type = models.CharField(max_length=32, choices=DATA_TYPE_CHOICES)
+    last_poll_at = models.DateTimeField(null=True, blank=True)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    backfill_complete = models.BooleanField(default=False)
+    last_error = models.TextField(null=True, blank=True)
+    # Operator can disable polling for one (patient, data_type) without
+    # touching consent or any other state. Used for incident response when
+    # one specific tuple is causing pipeline noise. (A3)
+    disabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("patient", "data_type")]
+        indexes = [models.Index(fields=["patient"])]
+
+
+class OWPollEvent(models.Model):
+    TRIGGER_CHOICES = [("cron", "cron"), ("webhook", "webhook"), ("manual", "manual")]
+    STATUS_CHOICES = [("started", "started"), ("completed", "completed"), ("errored", "errored")]
+
+    patient = models.ForeignKey("Patient", on_delete=models.CASCADE)
+    trigger = models.CharField(max_length=16, choices=TRIGGER_CHOICES)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="started")
+    records_ingested = models.IntegerField(default=0)
+    records_skipped = models.IntegerField(default=0)
+    error_message = models.TextField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["patient", "-started_at"])]

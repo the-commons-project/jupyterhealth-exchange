@@ -3,7 +3,8 @@ from django.views.generic import TemplateView
 from rest_framework.routers import DefaultRouter
 
 from . import views
-from .views import common
+from .views import common, ow
+from .views.ow_webhook import ow_webhook
 
 # https://www.django-rest-framework.org/api-guide/routers/#defaultrouter
 api_router = DefaultRouter(trailing_slash=False)
@@ -68,6 +69,16 @@ urlpatterns = [
     re_path(r"^portal/(?P<path>([^/]+/)*)$", common.portal, name="portal"),
     # Admin API
     path("api/v1/", include(api_router.urls)),
+    # Open Wearables proxy endpoints
+    path("api/v1/ow/providers", ow.list_providers, name="ow_list_providers"),
+    path("api/v1/oauth/<str:provider>/callback", ow.provider_callback_proxy, name="ow_provider_callback_proxy"),
+    # OW polling pipeline (v1) — webhook endpoint, dormant until ow.ingest_mode=webhook
+    path("api/v1/ow/webhook", ow_webhook, name="ow_webhook"),
+    # Patient-facing OW SPA (BrowserRouter — all /ow/* return the same index.html).
+    # The exclusion of `api/` and `static/` prevents the catch-all from
+    # accidentally swallowing future API or static asset paths under /ow/.
+    re_path(r"^ow/?$", common.ow_client, name="ow_client"),
+    re_path(r"^ow/(?!api/|static/)(?P<path>.*)$", common.ow_client, name="ow_client_path"),
     # FHIR API
     path("fhir/r5/", include(fhir_router.urls)),
 ]

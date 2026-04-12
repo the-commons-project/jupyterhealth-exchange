@@ -22,3 +22,10 @@ TIME_ZONE="America/Los_Angeles"
 REGISTRATION_INVITE_CODE="jhe"
 SSO_VALID_DOMAINS="example.com,example.org"
 IDENTITY_PROVIDER_METADATA_URL="https://mocksaml.com/api/saml/metadata"
+
+# Pipeline mode: "normalized" (read from OW API) or "raw" (read from MinIO S3)
+OW_PIPELINE_MODE=normalized
+
+# MinIO settings (only used when OW_PIPELINE_MODE=raw)
+MINIO_PORT=9000
+MINIO_CONSOLE_PORT=9001
