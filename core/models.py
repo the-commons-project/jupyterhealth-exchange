@@ -1323,6 +1323,23 @@ class ObservationIdentifier(models.Model):
         ]
 
 
+class PatientWearableConnection(models.Model):
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="wearable_connections")
+    provider = models.CharField(max_length=64)
+    ow_user_id = models.CharField(max_length=255)
+    consented_scopes = models.JSONField(default=list)
+    last_polled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["patient", "provider"],
+                name="core_patientwearableconnection_unique_patient_provider",
+            )
+        ]
+
+
 class JheSetting(models.Model):
     JHE_SETTING_VALUE_TYPES = {
         "string": "string",
