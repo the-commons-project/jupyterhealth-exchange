@@ -3,7 +3,7 @@ from django.views.generic import TemplateView
 from rest_framework.routers import DefaultRouter
 
 from . import views
-from .views import common
+from .views import common, ow
 
 # https://www.django-rest-framework.org/api-guide/routers/#defaultrouter
 api_router = DefaultRouter(trailing_slash=False)
@@ -66,6 +66,10 @@ urlpatterns = [
     ),
     # path('portal/', common.portal, name='portal'),
     re_path(r"^portal/(?P<path>([^/]+/)*)$", common.portal, name="portal"),
+    # Open Wearables consent flow
+    path("ow/consent", ow.consent, name="ow-consent"),
+    path("ow/success", ow.consent_success, name="ow-consent-success"),
+    path("ow/callback", ow.oauth_callback, name="ow-callback"),
     # Admin API
     path("api/v1/", include(api_router.urls)),
     # FHIR API

@@ -1,0 +1,27 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{% if revoked %}Consent Revoked{% else %}Wearable Connected{% endif %}</title>
+    <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}" />
+    <link rel="shortcut icon" type="image/png" href="{% static 'favicon.ico' %}" />
+  </head>
+  <body class="bg-light">
+    <div class="container py-5" style="max-width: 600px;">
+      <div class="card shadow-sm">
+        <div class="card-body p-4 text-center">
+          <div class="mb-4">
+            <img src="{% static 'images/jupyterhealth-logo.jpg' %}" width="120" alt="JupyterHealth" />
+          </div>
+          <h5 class="card-title text-success">Success</h5>
+          {% if revoked %}
+            <p>Your consent has been revoked. We will no longer sync data from your wearable device.</p>
+          {% else %}
+            <p>Your wearable device has been connected. Health data will be synced automatically.</p>
+          {% endif %}
+          <p class="text-muted">You can close this page.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

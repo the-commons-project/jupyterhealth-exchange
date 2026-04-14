@@ -1,0 +1,50 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Connect Wearable — {{ study.name }}</title>
+    <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}" />
+    <link rel="shortcut icon" type="image/png" href="{% static 'favicon.ico' %}" />
+  </head>
+  <body class="bg-light">
+    <div class="container py-5" style="max-width: 600px;">
+      <div class="card shadow-sm">
+        <div class="card-body p-4">
+          <div class="text-center mb-4">
+            <img src="{% static 'images/jupyterhealth-logo.jpg' %}" width="120" alt="JupyterHealth" />
+          </div>
+
+          {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+          {% endif %}
+
+          {% if connection %}
+            <h5 class="card-title">Wearable Connected</h5>
+            <p>Your {{ connection.provider|title }} is connected to <strong>{{ study.name }}</strong>.</p>
+            <p>Sharing: {{ connection.consented_scopes|join:", " }}</p>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="code" value="{{ code }}" />
+              <input type="hidden" name="action" value="revoke" />
+              <button type="submit" class="btn btn-outline-danger w-100">Revoke Consent</button>
+            </form>
+          {% else %}
+            <h5 class="card-title">Connect Your Wearable</h5>
+            <p>Select the health data you want to share with <strong>{{ study.name }}</strong>:</p>
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="code" value="{{ code }}" />
+              {% for scope in available_scopes %}
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" name="scopes" value="{{ scope.code }}" id="scope-{{ scope.code }}" checked />
+                  <label class="form-check-label" for="scope-{{ scope.code }}">{{ scope.label }}</label>
+                </div>
+              {% endfor %}
+              <button type="submit" class="btn btn-primary w-100 mt-3">Connect & Consent</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
