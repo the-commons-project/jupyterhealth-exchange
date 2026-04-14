@@ -25,6 +25,13 @@ drf-spectacular = "*"
 grafana-django-saml2-auth = "*"
 jsonschema = "*"
 ipython = "*"
+minio = "*"
+omh-shim = {git = "https://github.com/the-commons-project/omh-shim.git"}
+# dictor is imported by core/views/common.py and core/utils.py (existing JHE code).
+# It was previously installed transitively via grafana-django-saml2-auth but our
+# Pipfile.lock refresh dropped the transitive, so we pin it explicitly here.
+# Not a new dependency for this feature — just fixing a latent install bug.
+dictor = "*"
 
 [dev-packages]
 coverage = "*"
