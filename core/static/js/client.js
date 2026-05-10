@@ -927,8 +927,14 @@ async function renderPatients(queryParams) {
         "GET",
         `patients/${queryParams.id}/consolidated_clients`,
       );
-      consolidatedClients =
-        await patientRecordConsolidatedClientsResponse.json();
+      consolidatedClients = (await patientRecordConsolidatedClientsResponse.json()).map((client) => ({
+        ...client,
+        patientInvitations: client.patientInvitations.map((inv) => ({
+          ...inv,
+          lastUpdated: inv.lastUpdated.slice(0, 10),
+          status: inv.status.charAt(0).toUpperCase() + inv.status.slice(1),
+        })),
+      }));
     }
   } else if (queryParams.create && queryParams.lookedUpEmail) {
     patientRecord = {
@@ -1064,8 +1070,9 @@ async function deletePatient(id) {
 
 async function getInvitationLink(patientId, clientId, sendEmail) {
   const invitationLinkResponse = await apiRequest(
-    "GET",
-    `patients/${patientId}/invitation_link?send_email=${sendEmail}&application_id=${clientId}`
+    "POST",
+    "invitation",
+    { patient_id: patientId, client_id: clientId, send_email: sendEmail }
   );
   const invitationLink = await invitationLinkResponse.json();
   document.getElementById(`invitationLink-${clientId}`).value =
@@ -1588,8 +1595,7 @@ async function createClient() {
   const clientRecord = {
     name: document.getElementById("clientName").value,
     invitationUrl: document.getElementById("clientInvitationUrl").value,
-    clientId: document.getElementById("clientClientId").value,
-    codeVerifier: document.getElementById("clientCodeVerifier").value,
+    clientId: document.getElementById("clientClientId").value
   };
   if (await apiRequest("POST", `clients`, clientRecord))
     await navReturnFromCrud();
@@ -1600,7 +1606,6 @@ async function updateClient(id) {
     name: document.getElementById("clientName").value,
     invitationUrl: document.getElementById("clientInvitationUrl").value,
     clientId: document.getElementById("clientClientId").value,
-    codeVerifier: document.getElementById("clientCodeVerifier").value,
   };
   const response = await apiRequest("PATCH", `clients/${id}`, clientRecord);
   if (response.ok) await navReturnFromCrud();
@@ -1627,14 +1632,6 @@ function generateClientId(length = 40) {
     }
   }
   return out.join("");
-}
-
-function generateCodeVerifier(byteLength = 32) {
-  // 32 bytes → 43-char base64url string
-  const bytes = new Uint8Array(byteLength);
-  crypto.getRandomValues(bytes);
-
-  return base64UrlEncode(bytes);
 }
 
 async function addDataSourceToClient(dataSourceId, clientId) {
@@ -1988,8 +1985,8 @@ async function debugGetPatientTokenFromCode() {
       "debugPasteInvitationCode",
     ).value;
 
-    // Split on "~"
-    const [host, client_id, code, code_verifier] = invitationCode.split("~");
+    // Split on _"
+    const { host, token } = parseInvitationCode(invitationCode);
 
     // Generate PKCE code_challenge (S256)
     const encoder = new TextEncoder();

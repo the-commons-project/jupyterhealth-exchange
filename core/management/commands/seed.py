@@ -1,4 +1,3 @@
-import base64
 import secrets
 import string
 
@@ -74,6 +73,8 @@ class Command(BaseCommand):
             ("auth.sso.saml2", "int", 0),
             ("auth.sso.idp_metadata_url", "string", ""),
             ("auth.sso.valid_domains", "string", ""),
+            ("auth.patient.invitation_expiration_days", "int", 7),
+            ("auth.patient.invitation_redemption_window_hours", "int", 12),
         ]
         for key, value_type, value in jhe_settings:
             setting, _ = JheSetting.objects.update_or_create(
@@ -105,6 +106,8 @@ class Command(BaseCommand):
             for seq in seqs:
                 cursor.execute(f"ALTER SEQUENCE {seq} RESTART WITH %s;", [restart_with])
                 restart_with = restart_with + 10000
+
+            cursor.execute("ALTER SEQUENCE core_patientinvitation_id_seq RESTART WITH 101;")
 
     @staticmethod
     def seed_codeable_concepts():
@@ -159,9 +162,6 @@ class Command(BaseCommand):
         def _generate_client_id(length=40):
             return "".join(secrets.choice(_alphabet) for _ in range(length))
 
-        def _generate_code_verifier():
-            return base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-
         Application = get_application_model()
 
         clients = [
@@ -191,7 +191,6 @@ class Command(BaseCommand):
             )
             if created:
                 for key, value in [
-                    ("client.code_verifier", _generate_code_verifier()),
                     ("client.invitation_url", client["invitation_url"]),
                 ]:
                     setting, _ = JheSetting.objects.update_or_create(

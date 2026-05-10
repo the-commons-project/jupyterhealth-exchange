@@ -27,9 +27,9 @@ class Patient(models.Model):
         blank=True,
     )
     identifier = models.CharField(null=True)
-    name_family = models.CharField()
-    name_given = models.CharField()
-    birth_date = models.DateField()
+    name_family = models.CharField(null=True)
+    name_given = models.CharField(null=True)
+    birth_date = models.DateField(null=True)
     telecom_phone = models.CharField(null=True)
     last_updated = models.DateTimeField(auto_now=True)
     organizations = models.ManyToManyField("Organization", through="PatientOrganization", related_name="patients")
@@ -91,13 +91,13 @@ class Patient(models.Model):
         return Patient.objects.raw(sql, params)
 
     @staticmethod
-    def construct_invitation_link(invitation_url, client_id, auth_code, code_verifier):
+    def construct_invitation_link(invitation_url, client_id, auth_code):
         site_url = get_setting("site.url", settings.SITE_URL)
         # Use netloc (host:port) instead of hostname (host only) so the
         # consuming app can reach JHE on non-standard ports (e.g. localhost:8000).
         parsed = urlparse(site_url)
         host = parsed.netloc or parsed.hostname
-        invitation_code = f"{host}~{client_id}~{auth_code}~{code_verifier}"
+        invitation_code = f"{host}~{client_id}~{auth_code}"
         return invitation_url.replace("CODE", invitation_code)
 
     @staticmethod
