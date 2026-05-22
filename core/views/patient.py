@@ -1,6 +1,8 @@
 import inspect
+import logging
 from datetime import datetime
 
+from django.conf import settings
 from django.utils.crypto import get_random_string
 from oauth2_provider.models import get_application_model
 from rest_framework import status
@@ -203,6 +205,48 @@ class PatientViewSet(ModelViewSet):
 
         return Response(data)
 
+    @action(detail=False, methods=["GET"])
+    def me(self, request):
+        """GET /api/v1/patients/me - Returns the authenticated patient's data."""
+        patient = request.user.get_patient()
+        if not patient:
+            raise PermissionDenied("Current user is not a patient.")
+        return Response(PatientSerializer(patient).data)
+
+    @action(detail=True, methods=["GET"], url_path="wearable-status")
+    def wearable_status(self, request, pk):
+        """GET /api/v1/patients/{id}/wearable-status - Check OW connection status."""
+        if (not request.user.is_practitioner()) and (int(pk) != request.user.get_patient().id):
+            raise PermissionDenied("The Patient does not match the current patient user.")
+        patient = self.get_object()
+        jhe_user = patient.jhe_user
+        if not jhe_user.identifier or not jhe_user.identifier.startswith("ow:"):
+            return Response({"connections": [], "connected": False})
+
+        ow_user_id = jhe_user.identifier.removeprefix("ow:")
+        ow_api_url = settings.OW_API_URL
+        ow_api_key = settings.OW_API_KEY
+        if not ow_api_url or not ow_api_key:
+            return Response({"error": "OW integration not configured"}, status=500)
+
+        import requests as http_requests
+
+        try:
+            ow_response = http_requests.get(
+                f"{ow_api_url}/api/v1/users/{ow_user_id}/connections",
+                headers={"X-Open-Wearables-API-Key": ow_api_key},
+                timeout=10,
+            )
+        except http_requests.RequestException as e:
+            logging.getLogger(__name__).warning("OW wearable-status check failed: %s", e)
+            return Response({"connections": [], "connected": False, "error": "OW unreachable"})
+
+        if ow_response.status_code != 200:
+            return Response({"connections": [], "connected": False})
+
+        connections = ow_response.json() if isinstance(ow_response.json(), list) else ow_response.json().get("connections", [])
+        return Response({"connections": connections, "connected": len(connections) > 0})
+
     @action(detail=True, methods=["GET", "POST", "PATCH", "DELETE"])
     def consents(self, request, pk):
         # if this is a patient, check they are accessing their own consents
@@ -281,26 +325,72 @@ class PatientViewSet(ModelViewSet):
                             )
                         )
                     elif request.method == "PATCH":
-                        StudyPatientScopeConsent.objects.filter(
+                        spsc = StudyPatientScopeConsent.objects.get(
                             study_patient_id=study_patient.id,
                             scope_code_id=scope_code_id,
-                        ).update(
-                            consented=scope_consent["consented"],
-                            consented_time=consented_time,
                         )
-                        responses.append(
-                            StudyPatientScopeConsent.objects.get(
-                                study_patient_id=study_patient.id,
-                                scope_code_id=scope_code_id,
-                            )
-                        )
+                        spsc.consented = scope_consent["consented"]
+                        spsc.consented_time = consented_time
+                        spsc.save()
+                        responses.append(spsc)
                     elif request.method == "DELETE":
                         StudyPatientScopeConsent.objects.filter(
                             study_patient_id=study_patient.id,
                             scope_code_id=scope_code_id,
                         ).delete()
 
+            # After processing all consent changes, check if any study now has
+            # ALL scopes revoked. If so, disconnect the OW vendor connection
+            # (best-effort - don't block the response on OW failures).
+            if request.method in ("PATCH", "DELETE"):
+                self._revoke_ow_connection_if_fully_unconsented(patient, request.data["study_scope_consents"])
+
             return Response({"study_scope_consents": StudyPatientScopeConsentSerializer(responses, many=True).data})
+
+    def _revoke_ow_connection_if_fully_unconsented(self, patient, study_scope_consents):
+        """
+        After a PATCH/DELETE, check whether ALL scopes for a given study are
+        now consented=false. If so, revoke the OW vendor connection (best-effort).
+        """
+        logger = logging.getLogger(__name__)
+        jhe_user = patient.jhe_user
+        if not jhe_user.identifier or not jhe_user.identifier.startswith("ow:"):
+            return
+
+        for entry in study_scope_consents:
+            study_id = entry["study_id"]
+            study_patient = StudyPatient.objects.filter(study_id=study_id, patient_id=patient.id).first()
+            if not study_patient:
+                continue
+            # Check if ANY scope in this study is still consented
+            still_consented = StudyPatientScopeConsent.objects.filter(
+                study_patient_id=study_patient.id, consented=True
+            ).exists()
+            if still_consented:
+                continue
+
+            # All scopes revoked for this study - disconnect OW vendor connection
+            ow_user_id = jhe_user.identifier.removeprefix("ow:")
+            ow_api_url = settings.OW_API_URL
+            ow_api_key = settings.OW_API_KEY
+            if not ow_api_url or not ow_api_key:
+                logger.warning("Cannot revoke OW connection: OW integration not configured")
+                return
+
+            import requests as http_requests
+
+            try:
+                resp = http_requests.delete(
+                    f"{ow_api_url}/api/v1/users/{ow_user_id}/connections/oura",
+                    headers={"X-Open-Wearables-API-Key": ow_api_key},
+                    timeout=10,
+                )
+                if resp.status_code < 300:
+                    logger.info("Revoked OW connection for user %s (study %s)", ow_user_id, study_id)
+                else:
+                    logger.warning("OW revoke returned %s: %s", resp.status_code, resp.text)
+            except http_requests.RequestException as e:
+                logger.warning("Failed to revoke OW connection: %s", e)
 
 
 class FHIRPatientViewSet(ModelViewSet):

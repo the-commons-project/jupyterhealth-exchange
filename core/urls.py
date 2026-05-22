@@ -29,6 +29,9 @@ urlpatterns = [
     path("health", common.health, name="health"),
     # Home
     path("", common.home, name="home"),
+    # OW Portal
+    path("ow/", common.ow_client, name="ow_client"),
+    path("ow/complete", common.ow_client_complete, name="ow_client_complete"),
     # Django auth and accounts
     path("accounts/login/", common.LoginView.as_view(), name="login"),
     path("accounts/signup/", common.signup, name="signup"),
@@ -60,6 +63,7 @@ urlpatterns = [
     # OW Client pages
     path("ow/launch", common.ow_launch, name="ow-launch"),
     path("ow/complete", common.ow_complete, name="ow-complete"),
+    path("ow/manage", common.ow_manage, name="ow-manage"),
     # OW API proxy endpoints
     path("api/v1/ow/users", ow.create_ow_user, name="ow-create-user"),
     path("api/v1/ow/oauth/oura/authorize", ow.get_oura_auth_url, name="ow-oura-authorize"),

@@ -11,3 +11,6 @@ OIDC_RSA_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMII... <output of: $ openssl 
 
 #  if unset a randomly generated value is used which will not work with more than one worker
 SECRET_KEY=
+# Open Wearables integration (used by core/views/ow.py and ow_poll command)
+OW_API_URL="http://localhost:8001"
+OW_API_KEY="sk-your-open-wearables-api-key"

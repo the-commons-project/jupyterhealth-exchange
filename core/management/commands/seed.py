@@ -76,6 +76,9 @@ class Command(BaseCommand):
             ("auth.sso.valid_domains", "string", ""),
             ("auth.patient.invitation_expiration_days", "int", 7),
             ("auth.patient.invitation_redemption_window_hours", "int", 12),
+            # Open Wearables polling pipeline (see ow_poll management command).
+            ("module.ow", "bool", False),
+            ("ow.sync_in_progress", "string", ""),
         ]
         for key, value_type, value in jhe_settings:
             setting, _ = JheSetting.objects.update_or_create(
@@ -150,6 +153,7 @@ class Command(BaseCommand):
             ("CareX", "personal_device", ["omh:blood-pressure:4.0", "omh:heart-rate:2.0"]),
             ("Dexcom", "personal_device", ["omh:blood-glucose:4.0"]),
             ("iHealth", "personal_device", ["omh:body-temperature:4.0", "omh:heart-rate:2.0"]),
+            ("Oura", "personal_device", ["omh:heart-rate:2.0"]),
         ]
         for name, type, scope_codes in data_sources:
             ds, _ = DataSource.objects.update_or_create(name=name, type=type)
