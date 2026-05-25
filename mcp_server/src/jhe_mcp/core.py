@@ -31,6 +31,19 @@ def build_server(
         return None
 
     @mcp.tool()
+    async def get_data_schema() -> dict | str:
+        """Describes how observation data is structured in JupyterHealth Exchange.
+
+        Call this first to understand the data model before querying observations.
+        Explains the relationship between FHIR Observation resources and their
+        Open mHealth (OMH) valueAttachment payloads, including body structure
+        examples for each measurement type (blood pressure, heart rate, etc.).
+        """
+        if auth_msg := await _before():
+            return auth_msg
+        return study_tools.get_data_schema_description()
+
+    @mcp.tool()
     async def get_study_count() -> int | str:
         """How many studies the authenticated user can see."""
         if auth_msg := await _before():
