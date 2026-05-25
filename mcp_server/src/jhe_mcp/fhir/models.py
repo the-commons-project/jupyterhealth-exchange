@@ -68,23 +68,26 @@ class Observation(BaseModel):
     code_system: str | None = None
     code_display: str | None = None
     effective_at: str | None = None
-    value: float | None = None
-    unit: str | None = None
+    omh_body: dict[str, Any] | None = None
 
     @classmethod
     def from_fhir_entry(cls, entry: dict[str, Any]) -> Observation:
         r = entry.get("resource") or entry
         coding = ((r.get("code") or {}).get("coding") or [{}])[0]
-        qty = r.get("valueQuantity") or {}
         subj = (r.get("subject") or {}).get("reference") or ""
         patient_id = subj.split("/", 1)[1] if subj.startswith("Patient/") else None
+        attachment = r.get("valueAttachment") or {}
+        omh_body = attachment.get("body")
+        effective_at = None
+        if omh_body:
+            tf = omh_body.get("effective_time_frame") or {}
+            effective_at = tf.get("date_time")
         return cls(
             observation_id=str(r["id"]),
             patient_id=patient_id,
             code=coding.get("code"),
             code_system=coding.get("system"),
             code_display=coding.get("display"),
-            effective_at=r.get("effectiveDateTime"),
-            value=qty.get("value"),
-            unit=qty.get("unit"),
+            effective_at=effective_at,
+            omh_body=omh_body,
         )
