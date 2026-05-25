@@ -1,3 +1,6 @@
+import base64
+import json
+
 from jhe_mcp.fhir.models import Demographics, Observation, StudyMeta
 
 
@@ -32,7 +35,19 @@ def test_demographics_from_admin_patient():
     assert d.birth_date == "1990-04-12"
 
 
+def _encode_omh(payload: dict) -> str:
+    return base64.b64encode(json.dumps(payload).encode()).decode()
+
+
 def test_observation_from_fhir_entry_with_omh_body():
+    omh_payload = {
+        "body": {
+            "systolic_blood_pressure": {"unit": "mmHg", "value": 120},
+            "diastolic_blood_pressure": {"unit": "mmHg", "value": 80},
+            "effective_time_frame": {"date_time": "2026-04-15T08:00:00Z"},
+        },
+        "header": {"schema_id": {"name": "blood-pressure", "version": "4.0"}},
+    }
     entry = {
         "resource": {
             "resourceType": "Observation",
@@ -44,12 +59,8 @@ def test_observation_from_fhir_entry_with_omh_body():
             },
             "subject": {"reference": "Patient/7"},
             "valueAttachment": {
-                "body": {
-                    "systolic_blood_pressure": {"unit": "mmHg", "value": 120},
-                    "diastolic_blood_pressure": {"unit": "mmHg", "value": 80},
-                    "effective_time_frame": {"date_time": "2026-04-15T08:00:00Z"},
-                },
-                "header": {"schema_id": {"name": "blood-pressure", "version": "4.0"}},
+                "data": _encode_omh(omh_payload),
+                "contentType": "application/json",
             },
         }
     }

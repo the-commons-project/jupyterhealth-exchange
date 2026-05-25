@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from typing import Any
 
 from pydantic import BaseModel
@@ -76,8 +78,12 @@ class Observation(BaseModel):
         coding = ((r.get("code") or {}).get("coding") or [{}])[0]
         subj = (r.get("subject") or {}).get("reference") or ""
         patient_id = subj.split("/", 1)[1] if subj.startswith("Patient/") else None
+        omh_body = None
         attachment = r.get("valueAttachment") or {}
-        omh_body = attachment.get("body")
+        encoded = attachment.get("data")
+        if encoded:
+            omh_payload = json.loads(base64.b64decode(encoded))
+            omh_body = omh_payload.get("body")
         effective_at = None
         if omh_body:
             tf = omh_body.get("effective_time_frame") or {}
