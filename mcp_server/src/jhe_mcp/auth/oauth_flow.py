@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import html
 import http.server
-import logging
 import secrets
 import threading
 import time
 import urllib.parse
+import webbrowser
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,28 +16,6 @@ import httpx
 
 from jhe_mcp.auth.token_cache import CachedToken, TokenCache
 from jhe_mcp.config import Settings
-
-logger = logging.getLogger("jhe_mcp.auth")
-
-
-class AuthenticationRequired(Exception):
-    def __init__(self, url: str) -> None:
-        self.url = url
-        super().__init__(url)
-
-
-class TokenExchangeError(Exception):
-    """JHE's token endpoint returned a non-2xx response.
-
-    Carries the OAuth ``error``/``error_description`` so a failure is
-    diagnosable (e.g. ``invalid_grant`` = re-login, vs a transport blip) instead
-    of collapsing into a bare status code.
-    """
-
-    def __init__(self, status: int, detail: str) -> None:
-        self.status = status
-        self.detail = detail
-        super().__init__(f"token endpoint {status}: {detail}")
 
 
 @dataclass(frozen=True)
@@ -87,13 +64,7 @@ async def _post_token_endpoint(
         data["client_secret"] = client_secret
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(token_endpoint, data=data)
-        if resp.status_code >= 400:
-            try:
-                body = resp.json()
-                detail = body.get("error_description") or body.get("error") or ""
-            except ValueError:
-                detail = resp.text[:200]
-            raise TokenExchangeError(resp.status_code, detail)
+        resp.raise_for_status()
         return resp.json()
 
 
@@ -138,83 +109,29 @@ async def refresh_access_token(
     )
 
 
-_listener_lock = threading.Lock()
-_active_listener: threading.Thread | None = None
-_active_url: str | None = None
-
-
-def _start_callback_listener(
-    redirect_uri: str,
-    settings: Settings,
-    pkce: PkcePair,
-    state: str,
-    cache: TokenCache,
-) -> threading.Thread:
+def _start_callback_listener(redirect_uri: str) -> tuple[threading.Thread, dict[str, str]]:
     parsed = urllib.parse.urlparse(redirect_uri)
     host = parsed.hostname or "localhost"
     port = parsed.port or 8765
+    received: dict[str, str] = {}
     completed = threading.Event()
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
+            # Ignore browser preflight chatter (favicon, prefetch) — they would
+            # otherwise complete the listener before the real ?code= callback.
             qs = urllib.parse.urlparse(self.path).query
-            params = dict(urllib.parse.parse_qsl(qs))
-            if "code" not in params and "error" not in params:
+            parsed = dict(urllib.parse.parse_qsl(qs))
+            if "code" not in parsed and "error" not in parsed:
                 self.send_response(404)
                 self.end_headers()
                 return
-            if "code" in params and params.get("state") == state:
-                try:
-                    tokens = asyncio.run(
-                        exchange_code_for_tokens(
-                            token_endpoint=settings.token_endpoint,
-                            client_id=settings.jhe_client_id,
-                            client_secret=settings.jhe_client_secret,
-                            code=params["code"],
-                            redirect_uri=redirect_uri,
-                            code_verifier=pkce.code_verifier,
-                        )
-                    )
-                    cached = CachedToken(
-                        access_token=tokens["access_token"],
-                        refresh_token=tokens.get("refresh_token"),
-                        expires_at=int(time.time()) + int(tokens.get("expires_in", 3600)),
-                    )
-                    cache.save(cached)
-                    logger.info("Token exchange complete, cached successfully")
-                except (TokenExchangeError, httpx.HTTPError, KeyError, ValueError) as exc:
-                    # Expected failure modes: surface *why* (so the user/log can
-                    # tell "session expired, re-login" from a transport blip)
-                    # rather than a generic "try again" that loops silently.
-                    reason = getattr(exc, "detail", None) or str(exc) or type(exc).__name__
-                    logger.error("Token exchange failed in callback: %s", reason)
-                    self._send_login_failed(reason)
-                    completed.set()
-                    return
-                except Exception:
-                    # Never leave the waiting main thread hung: always signal done.
-                    logger.exception("Unexpected error in OAuth callback")
-                    self._send_login_failed("Unexpected error during login.")
-                    completed.set()
-                    return
+            received.update(parsed)
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            self.wfile.write(
-                b"<html><body><h1>JHE login complete</h1>"
-                b"You may close this window and retry your request.</body></html>"
-            )
+            self.wfile.write(b"<html><body><h1>JHE login complete</h1>You may close this window.</body></html>")
             completed.set()
-
-        def _send_login_failed(self, reason: str) -> None:
-            self.send_response(500)
-            self.send_header("Content-Type", "text/html")
-            self.end_headers()
-            body = (
-                f"<html><body><h1>Login failed</h1><p>{html.escape(reason)}</p>"
-                "<p>Please retry your request.</p></body></html>"
-            )
-            self.wfile.write(body.encode())
 
         def log_message(self, *args: object) -> None:
             pass
@@ -227,29 +144,40 @@ def _start_callback_listener(
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    return thread
+    return thread, received
 
 
-def start_auth_flow(settings: Settings, cache: TokenCache) -> str:
-    global _active_listener, _active_url
-    with _listener_lock:
-        if _active_listener is not None and _active_listener.is_alive():
-            return _active_url  # type: ignore[return-value]
-        pair = generate_pkce_pair()
-        state = secrets.token_urlsafe(16)
-        url = build_authorize_url(
-            authorize_endpoint=settings.authorize_endpoint,
-            client_id=settings.jhe_client_id,
-            redirect_uri=settings.redirect_uri,
-            pkce=pair,
-            state=state,
-        )
-        _active_listener = _start_callback_listener(
-            settings.redirect_uri,
-            settings,
-            pair,
-            state,
-            cache,
-        )
-        _active_url = url
-        return url
+async def run_pkce_flow(settings: Settings, cache: TokenCache) -> CachedToken:
+    pair = generate_pkce_pair()
+    state = secrets.token_urlsafe(16)
+    url = build_authorize_url(
+        authorize_endpoint=settings.authorize_endpoint,
+        client_id=settings.jhe_client_id,
+        redirect_uri=settings.redirect_uri,
+        pkce=pair,
+        state=state,
+    )
+    _, received = _start_callback_listener(settings.redirect_uri)
+    webbrowser.open(url)
+    deadline = time.time() + 300
+    while "code" not in received and time.time() < deadline:
+        await asyncio.sleep(0.5)
+    if "code" not in received:
+        raise RuntimeError("Timed out waiting for OAuth callback")
+    if received.get("state") != state:
+        raise RuntimeError("State mismatch in OAuth callback")
+    tokens = await exchange_code_for_tokens(
+        token_endpoint=settings.token_endpoint,
+        client_id=settings.jhe_client_id,
+        client_secret=settings.jhe_client_secret,
+        code=received["code"],
+        redirect_uri=settings.redirect_uri,
+        code_verifier=pair.code_verifier,
+    )
+    cached = CachedToken(
+        access_token=tokens["access_token"],
+        refresh_token=tokens.get("refresh_token"),
+        expires_at=int(time.time()) + int(tokens.get("expires_in", 3600)),
+    )
+    cache.save(cached)
+    return cached
