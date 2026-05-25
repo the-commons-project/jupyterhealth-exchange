@@ -142,10 +142,14 @@ async def test_get_patient_observations_with_filters(auth, fake_client):
                 "resource": {
                     "resourceType": "Observation",
                     "id": "o1",
-                    "code": {"coding": [{"system": "http://loinc.org", "code": "2339-0"}]},
-                    "effectiveDateTime": "2026-04-15T08:00:00Z",
-                    "valueQuantity": {"value": 92, "unit": "mg/dL"},
+                    "code": {"coding": [{"system": "https://w3id.org/openmhealth", "code": "omh:blood-glucose:4.0"}]},
                     "subject": {"reference": "Patient/7"},
+                    "valueAttachment": {
+                        "body": {
+                            "blood_glucose": {"unit": "mg/dL", "value": 92},
+                            "effective_time_frame": {"date_time": "2026-04-15T08:00:00Z"},
+                        },
+                    },
                 }
             }
         ],
@@ -158,7 +162,9 @@ async def test_get_patient_observations_with_filters(auth, fake_client):
         base_url="http://jhe",
     )
     assert len(obs) == 1
-    assert obs[0].code == "2339-0"
+    assert obs[0].code == "omh:blood-glucose:4.0"
+    assert obs[0].omh_body["blood_glucose"]["value"] == 92
+    assert obs[0].effective_at == "2026-04-15T08:00:00Z"
     sent_params = fake_client.fhir_get.await_args.kwargs["params"]
     assert sent_params["patient"] == "7"
     assert sent_params["code"].endswith("2339-0")
