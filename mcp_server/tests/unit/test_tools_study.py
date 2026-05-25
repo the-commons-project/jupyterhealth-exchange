@@ -1,3 +1,5 @@
+import base64
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -135,6 +137,13 @@ async def test_get_patient_observations_no_filters(auth, fake_client):
 
 @pytest.mark.asyncio
 async def test_get_patient_observations_with_filters(auth, fake_client):
+    omh_payload = {
+        "body": {
+            "blood_glucose": {"unit": "mg/dL", "value": 92},
+            "effective_time_frame": {"date_time": "2026-04-15T08:00:00Z"},
+        },
+        "header": {"schema_id": {"name": "blood-glucose", "version": "4.0"}},
+    }
     fake_client.fhir_get.return_value = {
         "resourceType": "Bundle",
         "entry": [
@@ -145,10 +154,8 @@ async def test_get_patient_observations_with_filters(auth, fake_client):
                     "code": {"coding": [{"system": "https://w3id.org/openmhealth", "code": "omh:blood-glucose:4.0"}]},
                     "subject": {"reference": "Patient/7"},
                     "valueAttachment": {
-                        "body": {
-                            "blood_glucose": {"unit": "mg/dL", "value": 92},
-                            "effective_time_frame": {"date_time": "2026-04-15T08:00:00Z"},
-                        },
+                        "data": base64.b64encode(json.dumps(omh_payload).encode()).decode(),
+                        "contentType": "application/json",
                     },
                 }
             }
