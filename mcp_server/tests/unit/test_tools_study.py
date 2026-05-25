@@ -8,6 +8,7 @@ from jhe_mcp.tools.study import (
     get_study_count,
     get_study_metadata,
     list_studies,
+    list_study_patients,
 )
 
 
@@ -47,12 +48,46 @@ async def test_list_studies(auth, fake_client):
         "results": [
             {"id": 1, "name": "A", "organization": {"id": 10, "name": "O1"}},
             {"id": 2, "name": "B", "organization": {"id": 11, "name": "O2"}},
-        ]
+        ],
+        "next": None,
     }
     studies = await list_studies(base_url="http://jhe")
     assert len(studies) == 2
     assert studies[0].name == "A"
     assert studies[1].organization_name == "O2"
+
+
+@pytest.mark.asyncio
+async def test_list_studies_paginated(auth, fake_client):
+    fake_client.admin_get.side_effect = [
+        {
+            "results": [{"id": 1, "name": "A", "organization": {"id": 10, "name": "O1"}}],
+            "next": "http://jhe/api/v1/studies?page=2",
+        },
+        {
+            "results": [{"id": 2, "name": "B", "organization": {"id": 11, "name": "O2"}}],
+            "next": None,
+        },
+    ]
+    studies = await list_studies(base_url="http://jhe")
+    assert len(studies) == 2
+    assert studies[0].name == "A"
+    assert studies[1].name == "B"
+    assert fake_client.admin_get.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_list_study_patients(auth, fake_client):
+    fake_client.admin_get.return_value = [
+        {"id": 1, "nameGiven": "Pat", "nameFamily": "Jones", "telecomEmail": "pat@ex.com"},
+        {"id": 2, "nameGiven": "Sam", "nameFamily": "Smith", "telecomEmail": "sam@ex.com"},
+    ]
+    patients = await list_study_patients(study_id="5", base_url="http://jhe")
+    assert len(patients) == 2
+    assert patients[0].patient_id == "1"
+    assert patients[0].email == "pat@ex.com"
+    assert patients[1].family_name == "Smith"
+    fake_client.admin_get.assert_awaited_once_with("studies/5/patients")
 
 
 @pytest.mark.asyncio

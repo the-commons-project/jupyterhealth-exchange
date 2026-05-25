@@ -25,9 +25,20 @@ async def get_study_count(*, base_url: str) -> int:
 
 async def list_studies(*, base_url: str) -> list[StudyMeta]:
     """Studies the caller can see (slim summaries)."""
+    results: list[StudyMeta] = []
     async with JheClient(base_url) as client:
-        data = await client.admin_get("studies")
-        return [StudyMeta.from_admin(item) for item in data.get("results", [])]
+        params: dict[str, Any] = {}
+        while True:
+            data = await client.admin_get("studies", params=params or None)
+            results.extend(StudyMeta.from_admin(item) for item in data.get("results", []))
+            next_url = data.get("next")
+            if not next_url:
+                break
+            from urllib.parse import parse_qs, urlparse
+
+            next_params = parse_qs(urlparse(next_url).query)
+            params = {"page": next_params["page"][0]}
+    return results
 
 
 async def get_study_metadata(*, study_id: str, base_url: str) -> StudyMeta | None:
