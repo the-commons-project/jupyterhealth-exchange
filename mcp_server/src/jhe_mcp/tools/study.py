@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from jhe_mcp.fhir.client import JheClient
-from jhe_mcp.fhir.models import Demographics, Observation, StudyMeta
+from jhe_mcp.fhir.models import Demographics, Observation, StudyMeta, StudyPatient
 
 # Minimal OMH short-name → FHIR/LOINC code map. Full registry lands in M2
 # alongside OMH schema Resources. Each value is "system|code" — passes
@@ -35,6 +35,13 @@ async def get_study_metadata(*, study_id: str, base_url: str) -> StudyMeta | Non
     async with JheClient(base_url) as client:
         data = await client.admin_get(f"studies/{study_id}", treat_404_as_none=True)
         return StudyMeta.from_admin(data) if data is not None else None
+
+
+async def list_study_patients(*, study_id: str, base_url: str) -> list[StudyPatient]:
+    """Patients enrolled in a study."""
+    async with JheClient(base_url) as client:
+        data = await client.admin_get(f"studies/{study_id}/patients")
+        return [StudyPatient.from_admin(item) for item in data]
 
 
 async def get_patient_demographics(*, patient_id: str, base_url: str) -> Demographics | None:

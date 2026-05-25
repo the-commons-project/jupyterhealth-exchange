@@ -45,6 +45,22 @@ class Demographics(BaseModel):
         )
 
 
+class StudyPatient(BaseModel):
+    patient_id: str
+    given_name: str | None = None
+    family_name: str | None = None
+    email: str | None = None
+
+    @classmethod
+    def from_admin(cls, data: dict[str, Any]) -> StudyPatient:
+        return cls(
+            patient_id=str(data["id"]),
+            given_name=data.get("nameGiven"),
+            family_name=data.get("nameFamily"),
+            email=data.get("telecomEmail"),
+        )
+
+
 class Observation(BaseModel):
     observation_id: str
     patient_id: str | None = None
