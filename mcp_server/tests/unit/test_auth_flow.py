@@ -1,9 +1,10 @@
-from unittest.mock import MagicMock, patch
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from jhe_mcp.auth.context import AuthContext, _current, set_current_auth
+from jhe_mcp.auth.context import AuthContext, set_current_auth, _current
 from jhe_mcp.auth.oauth_flow import AuthenticationRequired, start_auth_flow
-from jhe_mcp.auth.token_cache import TokenCacheMiss
+from jhe_mcp.auth.token_cache import CachedToken, TokenCacheMiss
 from jhe_mcp.config import Settings
 
 
@@ -17,9 +18,6 @@ def settings():
         authorize_endpoint="http://jhe/o/authorize/",
         token_endpoint="http://jhe/o/token/",
         userinfo_endpoint="http://jhe/o/userinfo/",
-        mcp_resource_url="https://jhe-mcp.fly.dev",
-        broker_key=None,
-        allowed_redirects=(),
     )
 
 
@@ -31,7 +29,6 @@ def cache():
 @pytest.fixture(autouse=True)
 def _reset_listener():
     import jhe_mcp.auth.oauth_flow as mod
-
     mod._active_listener = None
     mod._active_url = None
     yield
@@ -77,7 +74,6 @@ def test_start_auth_flow_restarts_dead_listener(settings, cache):
         mock_listener.side_effect = [dead_thread, alive_thread]
         url1 = start_auth_flow(settings, cache)
         import jhe_mcp.auth.oauth_flow as mod
-
         mod._active_listener = dead_thread
         url2 = start_auth_flow(settings, cache)
     assert mock_listener.call_count == 2
@@ -86,6 +82,7 @@ def test_start_auth_flow_restarts_dead_listener(settings, cache):
 
 @pytest.mark.asyncio
 async def test_ensure_auth_raises_when_no_token(settings, cache):
+    from jhe_mcp.server_stdio import main
     cache_mock = MagicMock()
     cache_mock.load.side_effect = TokenCacheMiss()
 
@@ -95,7 +92,6 @@ async def test_ensure_auth_raises_when_no_token(settings, cache):
         mock_listener.return_value = mock_thread
 
         from jhe_mcp.auth.oauth_flow import start_auth_flow
-
         with pytest.raises(AuthenticationRequired) as exc_info:
             url = start_auth_flow(settings, cache_mock)
             raise AuthenticationRequired(url)
@@ -118,9 +114,6 @@ async def test_before_catches_auth_required():
         authorize_endpoint="http://jhe/o/authorize/",
         token_endpoint="http://jhe/o/token/",
         userinfo_endpoint="http://jhe/o/userinfo/",
-        mcp_resource_url="https://jhe-mcp.fly.dev",
-        broker_key=None,
-        allowed_redirects=(),
     )
     mcp = build_server(settings_obj, pre_tool_hook=hook_that_raises)
     result = await mcp.call_tool("get_study_count", {})

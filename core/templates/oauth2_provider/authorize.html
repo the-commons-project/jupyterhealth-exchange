@@ -1,0 +1,44 @@
+{% extends "partials/base_accounts.html" %}
+
+{% load i18n %}
+
+{% block prompt %}Authorize Application{% endblock %}
+
+{% block main %}
+  {% if not error %}
+    <form method="post">
+      {% csrf_token %}
+
+      {% for field in form %}
+        {% if field.is_hidden %}
+          {{ field }}
+        {% endif %}
+      {% endfor %}
+
+      <p class="text-muted mb-2">
+        <strong>{{ application.name }}</strong> is requesting access to your account.
+      </p>
+
+      {% if scopes_descriptions %}
+        <ul class="list-group list-group-flush mb-4 text-start">
+          {% for scope in scopes_descriptions %}
+            <li class="list-group-item">{{ scope }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {{ form.errors }}
+      {{ form.non_field_errors }}
+
+      <div class="d-flex gap-2 mt-4">
+        <input type="submit" class="btn btn-lg btn-outline-secondary flex-fill" value="{% trans 'Deny' %}"/>
+        <input type="submit" class="btn btn-lg btn-primary flex-fill" name="allow" value="{% trans 'Authorize' %}"/>
+      </div>
+    </form>
+  {% else %}
+    <div class="alert alert-danger">
+      <h5>{{ error.error }}</h5>
+      <p>{{ error.description }}</p>
+    </div>
+  {% endif %}
+{% endblock %}
