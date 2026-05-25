@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import time
 
-from jhe_mcp.auth.context import AuthContext, set_current_auth
+from jhe_mcp.auth.context import AuthContext, current_auth, set_current_auth
 from jhe_mcp.auth.oauth_flow import refresh_access_token, run_pkce_flow
 from jhe_mcp.auth.token_cache import CachedToken, TokenCache, TokenCacheMiss
 from jhe_mcp.config import Settings
@@ -41,15 +40,21 @@ async def _load_or_refresh_token(settings: Settings, cache: TokenCache) -> Cache
 def main() -> None:
     settings = Settings.from_env()
     cache = TokenCache.default()
-    token = asyncio.run(_load_or_refresh_token(settings, cache))
-    set_current_auth(
-        AuthContext(
-            bearer_token=token.access_token,
-            subject="local-stdio-user",
-            expires_at=token.expires_at,
+
+    async def ensure_auth() -> None:
+        ctx = current_auth()
+        if ctx is not None and ctx.expires_at > time.time() + 60:
+            return
+        token = await _load_or_refresh_token(settings, cache)
+        set_current_auth(
+            AuthContext(
+                bearer_token=token.access_token,
+                subject="local-stdio-user",
+                expires_at=token.expires_at,
+            )
         )
-    )
-    mcp = build_server(settings)
+
+    mcp = build_server(settings, pre_tool_hook=ensure_auth)
     mcp.run()
 
 
