@@ -8,17 +8,14 @@ version = "0.1.0"
 description = "MCP server for JupyterHealth Exchange"
 requires-python = ">=3.12"
 dependencies = [
-    # Pinned to the patch series: per-request auth relies on the non-public
-    # import mcp.server.lowlevel.server.request_ctx (see fhir/client.py). A
-    # minor bump could relocate it; assert_request_ctx_importable() guards at
-    # boot, and this narrow pin keeps upgrades deliberate.
-    "mcp>=1.27,<1.28",
-    "httpx>=0.28,<1",
-    "pydantic>=2.13,<3",
-    "fastapi>=0.136,<1",
-    "uvicorn[standard]>=0.47,<1",
-    "omh-shim>=1.2.0",
-    "cryptography>=44,<49",
+    "mcp>=1.2.0",
+    "httpx>=0.27",
+    "authlib>=1.3",
+    "pyjwt[crypto]>=2.9",
+    "pydantic>=2.7",
+    "fastapi>=0.115",
+    "sse-starlette>=2.1",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -39,4 +36,3 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests/unit", "tests/integration"]
-pythonpath = ["src"]

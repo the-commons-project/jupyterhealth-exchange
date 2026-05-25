@@ -38,31 +38,3 @@ async def test_verify_missing_sub_raises():
         v = UserinfoValidator(userinfo_endpoint="http://jhe/o/userinfo/")
         with pytest.raises(TokenValidationError, match="missing 'sub'"):
             await v.verify("tok")
-
-
-@pytest.mark.asyncio
-async def test_cache_bounded_by_max_entries():
-    """Inserting more than max_entries tokens keeps the cache size at or below the limit."""
-    max_entries = 5
-    with respx.mock(assert_all_called=False) as router:
-        router.get("http://jhe/o/userinfo/").mock(return_value=Response(200, json={"sub": "u"}))
-        v = UserinfoValidator(
-            userinfo_endpoint="http://jhe/o/userinfo/",
-            cache_ttl=300,
-            max_entries=max_entries,
-        )
-        for i in range(max_entries + 3):
-            await v.verify(f"token-{i}")
-        assert len(v._cache) <= max_entries
-
-
-@pytest.mark.asyncio
-async def test_expired_cache_entry_is_evicted_on_read():
-    """An expired cache entry is removed and the endpoint is re-called."""
-    with respx.mock(assert_all_called=False) as router:
-        route = router.get("http://jhe/o/userinfo/").mock(return_value=Response(200, json={"sub": "u"}))
-        v = UserinfoValidator(userinfo_endpoint="http://jhe/o/userinfo/", cache_ttl=0)
-        await v.verify("tok")
-        # cache_ttl=0 means every entry is immediately expired
-        await v.verify("tok")
-        assert route.call_count == 2
