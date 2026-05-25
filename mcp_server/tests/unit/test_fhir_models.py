@@ -32,22 +32,47 @@ def test_demographics_from_admin_patient():
     assert d.birth_date == "1990-04-12"
 
 
-def test_observation_from_fhir_entry():
+def test_observation_from_fhir_entry_with_omh_body():
     entry = {
         "resource": {
             "resourceType": "Observation",
             "id": "obs-1",
-            "code": {"coding": [{"system": "http://loinc.org", "code": "2339-0", "display": "Glucose"}]},
-            "effectiveDateTime": "2026-04-15T08:00:00Z",
-            "valueQuantity": {"value": 92, "unit": "mg/dL"},
+            "code": {
+                "coding": [
+                    {"system": "https://w3id.org/openmhealth", "code": "omh:blood-pressure:4.0"}
+                ]
+            },
             "subject": {"reference": "Patient/7"},
+            "valueAttachment": {
+                "body": {
+                    "systolic_blood_pressure": {"unit": "mmHg", "value": 120},
+                    "diastolic_blood_pressure": {"unit": "mmHg", "value": 80},
+                    "effective_time_frame": {"date_time": "2026-04-15T08:00:00Z"},
+                },
+                "header": {"schema_id": {"name": "blood-pressure", "version": "4.0"}},
+            },
         }
     }
     o = Observation.from_fhir_entry(entry)
     assert o.observation_id == "obs-1"
-    assert o.code == "2339-0"
-    assert o.code_system == "http://loinc.org"
+    assert o.code == "omh:blood-pressure:4.0"
+    assert o.code_system == "https://w3id.org/openmhealth"
     assert o.effective_at == "2026-04-15T08:00:00Z"
-    assert o.value == 92
-    assert o.unit == "mg/dL"
     assert o.patient_id == "7"
+    assert o.omh_body["systolic_blood_pressure"]["value"] == 120
+    assert o.omh_body["diastolic_blood_pressure"]["value"] == 80
+
+
+def test_observation_from_fhir_entry_without_attachment():
+    entry = {
+        "resource": {
+            "resourceType": "Observation",
+            "id": "obs-2",
+            "code": {"coding": [{"system": "http://loinc.org", "code": "2339-0"}]},
+            "subject": {"reference": "Patient/7"},
+        }
+    }
+    o = Observation.from_fhir_entry(entry)
+    assert o.observation_id == "obs-2"
+    assert o.omh_body is None
+    assert o.effective_at is None
