@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+from typing import Any
+
+from jhe_mcp.fhir.client import JheClient
+from jhe_mcp.fhir.models import Demographics, Observation, StudyMeta
+
+# Minimal OMH short-name → FHIR/LOINC code map. Full registry lands in M2
+# alongside OMH schema Resources. Each value is "system|code" — passes
+# straight to FHIR's token-search syntax.
+_OMH_CODE_MAP: dict[str, str] = {
+    "blood-glucose": "http://loinc.org|2339-0",
+    "heart-rate": "http://loinc.org|8867-4",
+    "body-weight": "http://loinc.org|29463-7",
+    "body-temperature": "http://loinc.org|8310-5",
+}
+
+
+async def get_study_count(*, base_url: str) -> int:
+    """Total number of studies the caller can see."""
+    async with JheClient(base_url) as client:
+        data = await client.admin_get("studies", params={"page_size": 1})
+        return int(data.get("count", 0))
+
+
+async def list_studies(*, base_url: str) -> list[StudyMeta]:
+    """Studies the caller can see (slim summaries)."""
+    async with JheClient(base_url) as client:
+        data = await client.admin_get("studies")
+        return [StudyMeta.from_admin(item) for item in data.get("results", [])]
+
+
+async def get_study_metadata(*, study_id: str, base_url: str) -> StudyMeta | None:
+    """Metadata for one study; None if not found or not authorized."""
+    async with JheClient(base_url) as client:
+        data = await client.admin_get(f"studies/{study_id}", treat_404_as_none=True)
+        return StudyMeta.from_admin(data) if data is not None else None
+
+
+async def get_patient_demographics(*, patient_id: str, base_url: str) -> Demographics | None:
+    """Patient demographics via JHE's Admin API.
+
+    Uses `/api/v1/patients/{id}` because the FHIR `/Patient/{id}` detail view
+    400s on direct ID lookup (spike finding 2026-05-19).
+    """
+    async with JheClient(base_url) as client:
+        data = await client.admin_get(f"patients/{patient_id}", treat_404_as_none=True)
+        return Demographics.from_admin(data) if data is not None else None
+
+
+async def get_patient_observations(
+    *,
+    patient_id: str,
+    data_type: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    base_url: str,
+) -> list[Observation]:
+    """FHIR Observations for a patient, optionally filtered."""
+    params: dict[str, Any] = {"patient": patient_id}
+    if data_type:
+        code = _OMH_CODE_MAP.get(data_type)
+        if code is None:
+            raise ValueError(f"Unknown data_type {data_type!r}. Known: {sorted(_OMH_CODE_MAP)}")
+        params["code"] = code
+    if start and end:
+        params["date"] = [f"ge{start}", f"le{end}"]
+    elif start:
+        params["date"] = f"ge{start}"
+    elif end:
+        params["date"] = f"le{end}"
+    async with JheClient(base_url) as client:
+        bundle = await client.fhir_get("Observation", params=params)
+        return [Observation.from_fhir_entry(e) for e in bundle.get("entry", [])]
