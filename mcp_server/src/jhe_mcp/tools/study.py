@@ -16,6 +16,68 @@ _OMH_CODE_MAP: dict[str, str] = {
 }
 
 
+def get_data_schema_description() -> dict:
+    """Return a description of how observation data is structured in JHE."""
+    return {
+        "overview": (
+            "JupyterHealth Exchange stores health observations as FHIR R5 Observation "
+            "resources. Each observation has a code (identifying the measurement type) "
+            "and a valueAttachment containing the actual measurement data in Open mHealth "
+            "(OMH) JSON format."
+        ),
+        "fhir_observation_fields": {
+            "id": "Unique observation identifier",
+            "subject": "Reference to the patient (e.g. {'reference': 'Patient/40001'})",
+            "code": {
+                "description": "Identifies the type of measurement",
+                "structure": {
+                    "coding": [{"system": "https://w3id.org/openmhealth", "code": "omh:<type>:<version>"}],
+                },
+                "known_types": [
+                    "omh:blood-pressure:4.0",
+                    "omh:heart-rate:2.0",
+                    "omh:blood-glucose:4.0",
+                    "omh:body-temperature:4.0",
+                    "omh:oxygen-saturation:2.0",
+                    "omh:respiratory-rate:2.0",
+                ],
+            },
+            "valueAttachment": {
+                "description": (
+                    "The actual measurement data in OMH format. This is a JSON object "
+                    "with 'header' (metadata) and 'body' (measurements). The body "
+                    "structure varies by measurement type."
+                ),
+            },
+        },
+        "omh_body_examples": {
+            "blood-pressure": {
+                "systolic_blood_pressure": {"unit": "mmHg", "value": 120},
+                "diastolic_blood_pressure": {"unit": "mmHg", "value": 80},
+                "effective_time_frame": {"date_time": "2026-01-15T08:00:00+00:00"},
+            },
+            "heart-rate": {
+                "heart_rate": {"unit": "beats/min", "value": 72},
+                "effective_time_frame": {"date_time": "2026-01-15T08:00:00+00:00"},
+            },
+            "blood-glucose": {
+                "blood_glucose": {"unit": "mg/dL", "value": 95},
+                "effective_time_frame": {"date_time": "2026-01-15T08:00:00+00:00"},
+            },
+            "body-temperature": {
+                "body_temperature": {"unit": "C", "value": 36.8},
+                "effective_time_frame": {"date_time": "2026-01-15T08:00:00+00:00"},
+            },
+        },
+        "how_to_read_values": (
+            "The FHIR Observation's top-level valueQuantity fields may be empty. "
+            "The actual measurement values are always in the valueAttachment.body "
+            "object. Each measurement type has its own body structure — see the "
+            "omh_body_examples above for the fields specific to each type."
+        ),
+    }
+
+
 async def get_study_count(*, base_url: str) -> int:
     """Total number of studies the caller can see."""
     async with JheClient(base_url) as client:
