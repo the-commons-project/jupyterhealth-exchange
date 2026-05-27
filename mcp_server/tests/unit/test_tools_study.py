@@ -174,6 +174,6 @@ async def test_get_patient_observations_with_filters(auth, fake_client):
     assert obs[0].effective_at == "2026-04-15T08:00:00Z"
     sent_params = fake_client.fhir_get.await_args.kwargs["params"]
     assert sent_params["patient"] == "7"
-    assert sent_params["code"].endswith("2339-0")
+    assert "omh:blood-glucose:4.0" in sent_params["code"]
     assert "ge2026-04-01" in sent_params["date"]
     assert "le2026-05-01" in sent_params["date"]
