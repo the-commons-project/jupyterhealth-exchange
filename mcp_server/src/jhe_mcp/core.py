@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 
 from mcp.server.fastmcp import FastMCP
 
 from jhe_mcp.auth.oauth_flow import AuthenticationRequired
 from jhe_mcp.config import Settings
+from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, short_name
 from jhe_mcp.tools import study as study_tools
 
 AUTH_REQUIRED_MSG = (
@@ -29,6 +31,40 @@ def build_server(
             except AuthenticationRequired as exc:
                 return AUTH_REQUIRED_MSG.format(url=exc.url)
         return None
+
+    def _make_schema_reader(sid: str):
+        async def _read() -> str:
+            return json.dumps(load_schema(sid), indent=2)
+        return _read
+
+    for schema_id in sorted(all_schema_ids()):
+        sname = short_name(schema_id)
+        uri = f"omh://schema/{sname}"
+        try:
+            schema = load_schema(schema_id)
+            description = schema.get("description", f"OMH schema: {schema_id}")
+            reader = _make_schema_reader(schema_id)
+            reader.__doc__ = description
+            reader.__name__ = f"omh_schema_{sname.replace('-', '_')}"
+            mcp.resource(uri)(reader)
+        except (KeyError, FileNotFoundError):
+            pass
+
+    @mcp.tool()
+    async def get_omh_schema(name: str) -> dict | str:
+        """Return the full OMH JSON schema for a data type short name.
+
+        Known names: blood-glucose, blood-pressure, body-temperature,
+        heart-rate, heart-rate-variability, oxygen-saturation,
+        physical-activity, respiratory-rate, rr-interval,
+        sleep-duration, sleep-episode, step-count.
+        """
+        if auth_msg := await _before():
+            return auth_msg
+        for sid in all_schema_ids():
+            if short_name(sid) == name:
+                return load_schema(sid)
+        return {"error": f"Unknown schema name {name!r}", "known": all_short_names()}
 
     @mcp.tool()
     async def get_study_count() -> int | str:

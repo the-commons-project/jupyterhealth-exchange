@@ -14,6 +14,7 @@ dependencies = [
     "fastapi>=0.115",
     "sse-starlette>=2.1",
     "uvicorn[standard]>=0.30",
+    "omh-shim>=1.0.2",
 ]
 
 [project.optional-dependencies]
