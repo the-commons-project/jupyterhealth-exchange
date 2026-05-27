@@ -4,16 +4,7 @@ from typing import Any
 
 from jhe_mcp.fhir.client import JheClient
 from jhe_mcp.fhir.models import Demographics, Observation, StudyMeta, StudyPatient
-
-# Minimal OMH short-name → FHIR/LOINC code map. Full registry lands in M2
-# alongside OMH schema Resources. Each value is "system|code" — passes
-# straight to FHIR's token-search syntax.
-_OMH_CODE_MAP: dict[str, str] = {
-    "blood-glucose": "http://loinc.org|2339-0",
-    "heart-rate": "http://loinc.org|8867-4",
-    "body-weight": "http://loinc.org|29463-7",
-    "body-temperature": "http://loinc.org|8310-5",
-}
+from jhe_mcp.omh_registry import all_short_names, lookup_code
 
 
 async def get_study_count(*, base_url: str) -> int:
@@ -77,9 +68,9 @@ async def get_patient_observations(
     """FHIR Observations for a patient, optionally filtered."""
     params: dict[str, Any] = {"patient": patient_id}
     if data_type:
-        code = _OMH_CODE_MAP.get(data_type)
+        code = lookup_code(data_type)
         if code is None:
-            raise ValueError(f"Unknown data_type {data_type!r}. Known: {sorted(_OMH_CODE_MAP)}")
+            raise ValueError(f"Unknown data_type {data_type!r}. Known: {all_short_names()}")
         params["code"] = code
     if start and end:
         params["date"] = [f"ge{start}", f"le{end}"]
