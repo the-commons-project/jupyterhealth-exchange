@@ -1,16 +1,14 @@
 from __future__ import annotations
 
+import importlib.resources
 import json
 from functools import cache
-from pathlib import Path
 from typing import Any
 
 from omh_shim._schema_loader import known_ids as _shim_known_ids
 from omh_shim._schema_loader import load as _shim_load
 
 _OMH_SYSTEM = "https://w3id.org/openmhealth"
-
-_LOCAL_SCHEMA_DIR = Path(__file__).resolve().parents[3] / "data" / "omh" / "json-schemas" / "data"
 
 _LOCAL_SCHEMAS: dict[str, str] = {
     "omh:blood-pressure:4.0": "schema-omh_blood-pressure_4-0.json",
@@ -28,8 +26,8 @@ def all_schema_ids() -> frozenset[str]:
 @cache
 def load_schema(schema_id: str) -> dict[str, Any]:
     if schema_id in _LOCAL_SCHEMAS:
-        path = _LOCAL_SCHEMA_DIR / _LOCAL_SCHEMAS[schema_id]
-        with open(path, encoding="utf-8") as f:
+        resource = importlib.resources.files("jhe_mcp.schemas").joinpath(_LOCAL_SCHEMAS[schema_id])
+        with resource.open("r", encoding="utf-8") as f:
             return json.load(f)
     return _shim_load(schema_id)
 

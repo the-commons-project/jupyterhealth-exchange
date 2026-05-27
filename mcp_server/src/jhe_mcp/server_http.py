@@ -36,6 +36,10 @@ def build_app(settings: Settings) -> FastAPI:
         set_current_auth(AuthContext(bearer_token=token, subject=subject, expires_at=0))
         return await call_next(request)
 
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
     app.mount("/", sse_app)
     return app
 
