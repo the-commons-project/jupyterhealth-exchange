@@ -8,12 +8,17 @@ import uvicorn
 from jhe_mcp.config import Settings
 from jhe_mcp.server_http import build_app
 
+_JHE_URL = os.environ.get("MCP_TEST_JHE_URL")
+_TEST_TOKEN = os.environ.get("MCP_TEST_TOKEN")
+
+_SKIP_REASON = "integration: set MCP_TEST_JHE_URL and MCP_TEST_TOKEN to run"
+
 
 @pytest.fixture(scope="module")
 def http_server(jhe_base_url):
     """Start the FastAPI app in-process on port 18401."""
     os.environ["JHE_BASE_URL"] = jhe_base_url
-    os.environ.setdefault("JHE_CLIENT_ID", "y-cAGY_FXAamPqFHRt5z_jX-W_DRvvka")
+    os.environ.setdefault("JHE_CLIENT_ID", "test-client-id")
     settings = Settings.from_env()
     app = build_app(settings)
 
@@ -38,14 +43,18 @@ def http_server(jhe_base_url):
     thread.join(timeout=5)
 
 
-def test_unauthenticated_sse_rejected(http_server):
-    r = httpx.get(f"{http_server}/sse", timeout=5.0)
+def test_unauthenticated_mcp_rejected(http_server):
+    """Unauthenticated POST /mcp must return 401 with a WWW-Authenticate header."""
+    r = httpx.post(f"{http_server}/mcp", timeout=5.0)
     assert r.status_code == 401, f"Expected 401, got {r.status_code}: {r.text[:200]}"
+    www_auth = r.headers.get("WWW-Authenticate", "")
+    assert "resource_metadata" in www_auth, f"WWW-Authenticate header missing 'resource_metadata': {www_auth!r}"
 
 
-def test_invalid_token_sse_rejected(http_server):
-    r = httpx.get(
-        f"{http_server}/sse",
+def test_invalid_token_mcp_rejected(http_server):
+    """POST /mcp with a bad bearer token must return 401."""
+    r = httpx.post(
+        f"{http_server}/mcp",
         headers={"Authorization": "Bearer not-a-real-jwt"},
         timeout=5.0,
     )
