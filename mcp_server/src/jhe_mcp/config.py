@@ -29,6 +29,9 @@ class Settings:
         mcp_resource_url = os.environ.get("MCP_RESOURCE_URL", "https://jhe-mcp.fly.dev").rstrip("/")
         raw_redirects = os.environ.get("MCP_ALLOWED_REDIRECTS", "")
         allowed_redirects = tuple(r.strip() for r in raw_redirects.split(",") if r.strip())
+        broker_key = os.environ.get("MCP_BROKER_KEY")
+        if broker_key is not None and len(broker_key) < 32:
+            raise RuntimeError("MCP_BROKER_KEY must be at least 32 characters")
         return cls(
             jhe_base_url=base,
             jhe_client_id=client_id,
@@ -38,6 +41,6 @@ class Settings:
             token_endpoint=os.environ.get("JHE_TOKEN_ENDPOINT", f"{base}/o/token/"),
             userinfo_endpoint=os.environ.get("JHE_USERINFO_ENDPOINT", f"{base}/o/userinfo/"),
             mcp_resource_url=mcp_resource_url,
-            broker_key=os.environ.get("MCP_BROKER_KEY"),
+            broker_key=broker_key,
             allowed_redirects=allowed_redirects,
         )

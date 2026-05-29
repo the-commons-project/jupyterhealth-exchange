@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -11,6 +12,8 @@ from jhe_mcp.auth.context import AuthContext, set_current_auth
 from jhe_mcp.auth.userinfo import TokenValidationError, UserinfoValidator
 from jhe_mcp.config import Settings
 from jhe_mcp.core import build_server
+
+logger = logging.getLogger(__name__)
 
 
 def build_app(settings: Settings) -> FastAPI:
@@ -46,15 +49,21 @@ def build_app(settings: Settings) -> FastAPI:
         try:
             subject = await validator.verify(token)
         except TokenValidationError as exc:
+            logger.warning("Token validation failed: %s", exc)
             return JSONResponse(
                 status_code=401,
-                content={"detail": str(exc)},
+                content={"detail": "invalid or expired token"},
                 headers={"WWW-Authenticate": challenge},
             )
         # expires_at is unused in HTTP/broker mode: token revalidation is governed by
         # UserinfoValidator's cache TTL, not this field. 0 = "not applicable here".
-        set_current_auth(AuthContext(bearer_token=token, subject=subject, expires_at=0))
-        return await call_next(request)
+        ctx_token = set_current_auth(AuthContext(bearer_token=token, subject=subject, expires_at=0))
+        try:
+            return await call_next(request)
+        finally:
+            from jhe_mcp.auth.context import _current
+
+            _current.reset(ctx_token)
 
     @app.get("/health")
     async def health():
