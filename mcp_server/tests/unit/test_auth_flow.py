@@ -18,6 +18,9 @@ def settings():
         authorize_endpoint="http://jhe/o/authorize/",
         token_endpoint="http://jhe/o/token/",
         userinfo_endpoint="http://jhe/o/userinfo/",
+        mcp_resource_url="https://jhe-mcp.fly.dev",
+        broker_key=None,
+        allowed_redirects=(),
     )
 
 
@@ -114,6 +117,9 @@ async def test_before_catches_auth_required():
         authorize_endpoint="http://jhe/o/authorize/",
         token_endpoint="http://jhe/o/token/",
         userinfo_endpoint="http://jhe/o/userinfo/",
+        mcp_resource_url="https://jhe-mcp.fly.dev",
+        broker_key=None,
+        allowed_redirects=(),
     )
     mcp = build_server(settings_obj, pre_tool_hook=hook_that_raises)
     result = await mcp.call_tool("get_study_count", {})
