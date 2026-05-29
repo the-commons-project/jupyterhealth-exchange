@@ -5,6 +5,7 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from jhe_mcp.auth.broker import build_broker_router
 from jhe_mcp.auth.context import AuthContext, set_current_auth
 from jhe_mcp.auth.userinfo import TokenValidationError, UserinfoValidator
 from jhe_mcp.config import Settings
@@ -14,9 +15,11 @@ from jhe_mcp.core import build_server
 def build_app(settings: Settings) -> FastAPI:
     mcp = build_server(settings)
     validator = UserinfoValidator(userinfo_endpoint=settings.userinfo_endpoint)
+    challenge = f'Bearer resource_metadata="{settings.mcp_resource_url}/.well-known/oauth-protected-resource"'
 
     sse_app = mcp.sse_app()
     app = FastAPI(title="jhe-mcp HTTP/SSE")
+    app.include_router(build_broker_router(settings))
 
     # FastMCP's SSE app serves both /sse (GET stream) and /messages (POST from client).
     AUTHED_PREFIXES = ("/sse", "/messages")
@@ -27,12 +30,20 @@ def build_app(settings: Settings) -> FastAPI:
             return await call_next(request)
         auth_header = request.headers.get("authorization", "")
         if not auth_header.lower().startswith("bearer "):
-            return JSONResponse(status_code=401, content={"detail": "missing bearer token"})
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "missing bearer token"},
+                headers={"WWW-Authenticate": challenge},
+            )
         token = auth_header.split(" ", 1)[1].strip()
         try:
             subject = await validator.verify(token)
         except TokenValidationError as exc:
-            return JSONResponse(status_code=401, content={"detail": str(exc)})
+            return JSONResponse(
+                status_code=401,
+                content={"detail": str(exc)},
+                headers={"WWW-Authenticate": challenge},
+            )
         set_current_auth(AuthContext(bearer_token=token, subject=subject, expires_at=0))
         return await call_next(request)
 
