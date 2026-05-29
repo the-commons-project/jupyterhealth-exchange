@@ -39,7 +39,7 @@ LLM Client (e.g. Claude Desktop)
 
 ## Registering the OAuth Client in JHE
 
-The MCP server must be registered as an OAuth 2.0 confidential client in the JHE instance it will talk to. There are two ways to do this. The example URLs below use the production instance `https://jhe.fly.dev` — substitute your own JHE host if different.
+The MCP server must be registered as an OAuth 2.0 confidential client in the JHE instance it will talk to. There are two ways to do this. In the URLs below, replace `<jhe-host>` with your JHE instance's host (for example, the host where JupyterHealth Exchange is deployed).
 
 > **Important:** Do **not** use JHE's portal "Clients" page for this. That page creates a public client with a fixed `{SITE_URL}/auth/callback` redirect URI and cannot issue a `client_secret`. Use one of the two admin paths below instead.
 
@@ -47,7 +47,7 @@ The MCP server must be registered as an OAuth 2.0 confidential client in the JHE
 
 Navigate to:
 ```
-https://jhe.fly.dev/o/applications/register/
+https://<jhe-host>/o/applications/register/
 ```
 
 Log in with a staff or superuser account, fill in the fields from the table below, and save.
@@ -56,7 +56,7 @@ Log in with a staff or superuser account, fill in the fields from the table belo
 
 Navigate to:
 ```
-https://jhe.fly.dev/admin/oauth2_provider/application/add/
+https://<jhe-host>/admin/oauth2_provider/application/add/
 ```
 
 Fill in the same fields from the table below. The admin form also exposes a **User** field — set it to the admin user creating the record, or leave it blank.
