@@ -47,6 +47,7 @@ def test_authorization_server_metadata():
     assert body["authorization_endpoint"] == "https://jhe-mcp.fly.dev/authorize"
     assert body["token_endpoint"] == "https://jhe-mcp.fly.dev/token"
     assert body["code_challenge_methods_supported"] == ["S256"]
+    assert body["registration_endpoint"] == "https://jhe-mcp.fly.dev/register"
 
 
 def test_authorize_rejects_non_loopback_redirect():
@@ -323,6 +324,115 @@ def test_token_refresh_normalizes_upstream_error():
     assert "secret_detail" not in r.text
 
 
+def test_register_issues_client_id_and_echoes_redirects():
+    r = _client().post("/register", json={"redirect_uris": ["https://app.example.com/oauth/callback"]})
+    assert r.status_code == 201
+    body = r.json()
+    assert body["client_id"]
+    assert body["redirect_uris"] == ["https://app.example.com/oauth/callback"]
+    assert body["token_endpoint_auth_method"] == "none"
+
+
+def test_register_rejects_missing_redirects():
+    assert _client().post("/register", json={}).status_code == 400
+
+
+def test_register_rejects_bad_redirect_scheme():
+    r = _client().post("/register", json={"redirect_uris": ["javascript:alert(1)"]})
+    assert r.status_code == 400
+
+
+def test_authorize_accepts_registered_https_redirect():
+    c = _client()
+    reg = c.post("/register", json={"redirect_uris": ["https://app.example.com/oauth/callback"]}).json()
+    v = pkce.generate_verifier()
+    r = c.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "redirect_uri": "https://app.example.com/oauth/callback",
+            "code_challenge": pkce.challenge_from_verifier(v),
+            "code_challenge_method": "S256",
+            "client_id": reg["client_id"],
+        },
+    )
+    assert r.status_code == 302
+    assert "jhe.fly.dev/o/authorize/" in r.headers["location"]
+
+
+def test_authorize_rejects_redirect_not_in_registration():
+    c = _client()
+    reg = c.post("/register", json={"redirect_uris": ["https://app.example.com/oauth/callback"]}).json()
+    v = pkce.generate_verifier()
+    r = c.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "redirect_uri": "https://evil.example.com/cb",
+            "code_challenge": pkce.challenge_from_verifier(v),
+            "code_challenge_method": "S256",
+            "client_id": reg["client_id"],
+        },
+    )
+    assert r.status_code == 400
+
+
+def test_authorize_non_client_token_falls_back_to_loopback():
+    # A signed blob whose "t" != "client" must NOT be treated as a registration;
+    # it falls back to the loopback/allow-list rule.
+    from jhe_mcp.auth import broker_state
+
+    s = _settings()
+    fake = broker_state.encode(s.broker_key, {"t": "state", "redirect_uris": ["https://evil.example.com/cb"]})
+    v = pkce.generate_verifier()
+    r = _client().get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "redirect_uri": "https://evil.example.com/cb",
+            "code_challenge": pkce.challenge_from_verifier(v),
+            "code_challenge_method": "S256",
+            "client_id": fake,
+        },
+    )
+    assert r.status_code == 400  # not loopback, not registered -> rejected
+
+
+@respx.mock
+def test_mcp_transport_accepts_production_host(monkeypatch):
+    monkeypatch.setenv("JHE_BASE_URL", "https://jhe.fly.dev")
+    monkeypatch.setenv("JHE_CLIENT_ID", "mcp-client")
+    monkeypatch.setenv("MCP_RESOURCE_URL", "https://jhe-mcp.fly.dev")
+    monkeypatch.setenv("MCP_BROKER_KEY", "unit-test-key")
+    respx.get("https://jhe.fly.dev/o/userinfo/").mock(return_value=httpx.Response(200, json={"sub": "user-1"}))
+    from jhe_mcp.config import Settings
+    from jhe_mcp.server_http import build_app
+
+    app = build_app(Settings.from_env())
+    with TestClient(app) as client:  # context manager runs lifespan / session manager
+        r = client.post(
+            "/mcp",
+            headers={
+                "host": "jhe-mcp.fly.dev",
+                "Authorization": "Bearer good-token",
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "1"},
+                },
+            },
+        )
+    # The key assertion: NOT a 421 host rejection. (Without FIX 1 this is 421.)
+    assert r.status_code != 421
+
+
 def test_build_app_serves_metadata_and_401_header(monkeypatch):
     monkeypatch.setenv("JHE_BASE_URL", "https://jhe.fly.dev")
     monkeypatch.setenv("JHE_CLIENT_ID", "mcp-client")
@@ -337,7 +447,7 @@ def test_build_app_serves_metadata_and_401_header(monkeypatch):
     # discovery is served by the mounted broker router
     assert client.get("/.well-known/oauth-protected-resource").status_code == 200
 
-    # unauthenticated SSE returns 401 with a resource_metadata pointer
-    r = client.get("/sse")
+    # unauthenticated /mcp returns 401 with a resource_metadata pointer
+    r = client.get("/mcp")
     assert r.status_code == 401
     assert "resource_metadata" in r.headers.get("www-authenticate", "")
