@@ -29,3 +29,26 @@ def test_settings_overrides(monkeypatch):
     settings = Settings.from_env()
     assert settings.redirect_uri == "http://localhost:9999/cb"
     assert settings.userinfo_endpoint == "https://other.example.com/userinfo"
+
+
+def test_broker_fields_from_env(monkeypatch):
+    monkeypatch.setenv("JHE_BASE_URL", "https://jhe.fly.dev")
+    monkeypatch.setenv("JHE_CLIENT_ID", "abc")
+    monkeypatch.setenv("MCP_RESOURCE_URL", "https://jhe-mcp.fly.dev/")
+    monkeypatch.setenv("MCP_BROKER_KEY", "super-secret-key")
+    monkeypatch.setenv("MCP_ALLOWED_REDIRECTS", "https://a.test/cb, https://b.test/cb")
+    from jhe_mcp.config import Settings
+
+    s = Settings.from_env()
+    assert s.mcp_resource_url == "https://jhe-mcp.fly.dev"  # trailing slash stripped
+    assert s.broker_key == "super-secret-key"
+    assert s.allowed_redirects == ("https://a.test/cb", "https://b.test/cb")
+
+
+def test_broker_key_optional(monkeypatch):
+    monkeypatch.setenv("JHE_BASE_URL", "https://jhe.fly.dev")
+    monkeypatch.setenv("JHE_CLIENT_ID", "abc")
+    monkeypatch.delenv("MCP_BROKER_KEY", raising=False)
+    from jhe_mcp.config import Settings
+
+    assert Settings.from_env().broker_key is None
