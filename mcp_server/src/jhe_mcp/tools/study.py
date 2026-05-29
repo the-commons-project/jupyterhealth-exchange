@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from jhe_mcp.fhir.client import JheClient
 from jhe_mcp.fhir.models import Demographics, Observation, StudyMeta, StudyPatient
@@ -25,10 +26,11 @@ async def list_studies(*, base_url: str) -> list[StudyMeta]:
             next_url = data.get("next")
             if not next_url:
                 break
-            from urllib.parse import parse_qs, urlparse
-
-            next_params = parse_qs(urlparse(next_url).query)
-            params = {"page": next_params["page"][0]}
+            # Forward ALL query params from the next URL so pagination works with any
+            # scheme (?page=, ?cursor=, ?offset=&limit=, etc.). parse_qs returns lists;
+            # take the first value of each key to produce a flat dict for admin_get.
+            next_qs = parse_qs(urlparse(next_url).query)
+            params = {k: v[0] for k, v in next_qs.items()}
     return results
 
 
@@ -50,7 +52,7 @@ async def get_patient_demographics(*, patient_id: str, base_url: str) -> Demogra
     """Patient demographics via JHE's Admin API.
 
     Uses `/api/v1/patients/{id}` because the FHIR `/Patient/{id}` detail view
-    400s on direct ID lookup (spike finding 2026-05-19).
+    rejects direct ID lookup with a 400; the Admin API endpoint works correctly.
     """
     async with JheClient(base_url) as client:
         data = await client.admin_get(f"patients/{patient_id}", treat_404_as_none=True)

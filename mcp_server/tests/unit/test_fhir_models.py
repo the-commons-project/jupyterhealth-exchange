@@ -83,3 +83,46 @@ def test_observation_from_fhir_entry_without_attachment():
     assert o.observation_id == "obs-2"
     assert o.omh_body is None
     assert o.effective_at is None
+
+
+def test_observation_from_fhir_entry_malformed_attachment_data():
+    """A non-base64 valueAttachment.data must not raise; omh_body is None, other
+    fields are preserved."""
+    entry = {
+        "resource": {
+            "resourceType": "Observation",
+            "id": "obs-bad",
+            "code": {"coding": [{"system": "http://loinc.org", "code": "2339-0"}]},
+            "subject": {"reference": "Patient/42"},
+            "valueAttachment": {
+                "data": "!!!notbase64!!!",
+                "contentType": "application/json",
+            },
+        }
+    }
+    o = Observation.from_fhir_entry(entry)
+    assert o.observation_id == "obs-bad"
+    assert o.patient_id == "42"
+    assert o.omh_body is None
+    assert o.effective_at is None
+
+
+def test_observation_from_fhir_entry_non_json_attachment_data():
+    """Base64-valid but non-JSON content must not raise; omh_body is None."""
+    import base64
+
+    entry = {
+        "resource": {
+            "resourceType": "Observation",
+            "id": "obs-badjson",
+            "code": {"coding": [{}]},
+            "subject": {"reference": "Patient/5"},
+            "valueAttachment": {
+                "data": base64.b64encode(b"not json at all").decode(),
+                "contentType": "application/json",
+            },
+        }
+    }
+    o = Observation.from_fhir_entry(entry)
+    assert o.observation_id == "obs-badjson"
+    assert o.omh_body is None
