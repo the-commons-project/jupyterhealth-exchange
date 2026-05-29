@@ -4,10 +4,10 @@ import logging
 import urllib.parse
 
 import httpx
-
-logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+
+logger = logging.getLogger(__name__)
 
 from jhe_mcp.auth import broker_state, pkce
 from jhe_mcp.config import Settings
@@ -16,6 +16,32 @@ STATE_TTL = 600  # seconds; authorize -> callback
 CODE_TTL = 30  # seconds; callback -> token. Short window because the stateless
 # authorization code is single-use only by TTL (no server-side consumption record),
 # so we minimize the replay window.
+CLIENT_ID_TTL = 90 * 24 * 3600  # 90 days; clients re-register periodically (no server-side revocation list)
+
+
+def _registerable_redirect(uri: str) -> bool:
+    try:
+        p = urllib.parse.urlparse(uri)
+    except ValueError:
+        return False
+    if p.username or p.password:
+        return False
+    if p.scheme == "https":
+        return bool(p.hostname)
+    return p.scheme == "http" and p.hostname in ("localhost", "127.0.0.1", "::1")
+
+
+def _registered_redirects(broker_key: str, client_id: str) -> list[str] | None:
+    if not client_id:
+        return None
+    try:
+        blob = broker_state.decode(broker_key, client_id, CLIENT_ID_TTL)
+    except broker_state.StateError:
+        return None
+    if blob.get("t") != "client":
+        return None
+    uris = blob.get("redirect_uris")
+    return uris if isinstance(uris, list) else None
 
 
 def _is_allowed_redirect(uri: str, allowed: tuple[str, ...]) -> bool:
@@ -55,6 +81,7 @@ def build_broker_router(settings: Settings) -> APIRouter:
             "issuer": base,
             "authorization_endpoint": f"{base}/authorize",
             "token_endpoint": f"{base}/token",
+            "registration_endpoint": f"{base}/register",
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code", "refresh_token"],
             "code_challenge_methods_supported": ["S256"],
@@ -67,7 +94,12 @@ def build_broker_router(settings: Settings) -> APIRouter:
         if q.get("response_type") != "code":
             return PlainTextResponse("unsupported_response_type", status_code=400)
         redirect_uri = q.get("redirect_uri", "")
-        if not _is_allowed_redirect(redirect_uri, settings.allowed_redirects):
+        registered = _registered_redirects(settings.broker_key, q.get("client_id", ""))
+        if registered is not None:
+            redirect_ok = redirect_uri in registered
+        else:
+            redirect_ok = _is_allowed_redirect(redirect_uri, settings.allowed_redirects)
+        if not redirect_ok:
             return PlainTextResponse("invalid redirect_uri", status_code=400)
         challenge = q.get("code_challenge")
         if not challenge or q.get("code_challenge_method", "S256") != "S256":
@@ -100,6 +132,35 @@ def build_broker_router(settings: Settings) -> APIRouter:
         url = f"{settings.authorize_endpoint}?{urllib.parse.urlencode(params)}"
         return RedirectResponse(url, status_code=302)
 
+    @router.post("/register")
+    async def register(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
+        redirect_uris = body.get("redirect_uris")
+        if not isinstance(redirect_uris, list) or not redirect_uris:
+            return JSONResponse(
+                {"error": "invalid_redirect_uri", "error_description": "redirect_uris is required"},
+                status_code=400,
+            )
+        if not all(isinstance(u, str) and _registerable_redirect(u) for u in redirect_uris):
+            return JSONResponse(
+                {"error": "invalid_redirect_uri", "error_description": "redirect_uris must be https or loopback http"},
+                status_code=400,
+            )
+        client_id = broker_state.encode(settings.broker_key, {"t": "client", "redirect_uris": redirect_uris})
+        return JSONResponse(
+            {
+                "client_id": client_id,
+                "redirect_uris": redirect_uris,
+                "token_endpoint_auth_method": "none",
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+            },
+            status_code=201,
+        )
+
     @router.get("/oauth/callback")
     async def oauth_callback(request: Request):
         q = request.query_params
@@ -124,7 +185,7 @@ def build_broker_router(settings: Settings) -> APIRouter:
             logger.error("JHE token exchange transport error")
             return PlainTextResponse("upstream unavailable", status_code=503)
         if resp.status_code != 200:
-            logger.error("JHE token exchange failed: %s %s", resp.status_code, resp.text)
+            logger.error("JHE token exchange failed: %s", resp.status_code)
             return PlainTextResponse("upstream error", status_code=502)
         try:
             jhe_token = resp.json()
