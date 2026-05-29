@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-if [[ $(basename $(pwd)) == "scripts" ]]; then
-  echo -e "\nRun this script from the parent directory\n"
-  exit 1
-fi
-
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 pipenv --venv

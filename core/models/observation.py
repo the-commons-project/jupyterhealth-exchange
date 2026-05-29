@@ -5,7 +5,7 @@ import logging
 from django.conf import settings
 from django.core.exceptions import BadRequest, PermissionDenied
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 from django.db.utils import IntegrityError
 from django.shortcuts import get_object_or_404
 from fhir.resources.observation import Observation as FHIRObservation
@@ -54,73 +54,54 @@ class Observation(models.Model):
         patient_id=None,
         observation_id=None,
     ):
-        # Explicitly cast to ints so no injection vulnerability
-        organization_sql_where = ""
-        if organization_id:
-            organization_sql_where = f"AND core_organization.id={int(organization_id)}"
-
-        study_sql_where = ""
-        study_scope_join = ""
-        study_scope_where = ""
-        if study_id:
-            study_sql_where = f"AND core_study.id={int(study_id)}"
-            study_scope_join = "JOIN core_studyscoperequest ON core_studyscoperequest.study_id=core_study.id"
-            study_scope_where = "AND core_observation.codeable_concept_id=core_studyscoperequest.scope_code_id"
-
-        patient_id_sql_where = ""
-        if patient_id:
-            patient_id_sql_where = f"AND core_patient.id={int(patient_id)}"
-
-        observation_sql_where = ""
-        if observation_id:
-            observation_sql_where = f"AND core_observation.id={int(observation_id)}"
-
-        # noqa
-        q = f"""
-        SELECT DISTINCT(core_observation.*),
-        core_observation.value_attachment_data as value_attachment_data_json,
-        core_codeableconcept.coding_system as coding_system,
-        core_codeableconcept.coding_code as coding_code,
-        core_codeableconcept.text as coding_text,
-        core_patient.name_family as patient_name_family,
-        core_patient.name_given as patient_name_given
-
-        FROM core_observation
-        JOIN core_codeableconcept ON core_codeableconcept.id=core_observation.codeable_concept_id
-        JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
-        JOIN core_patientorganization ON core_patientorganization.patient_id=core_patient.id
-        JOIN core_organization ON core_organization.id=core_patientorganization.organization_id
-        JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
-        LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
-        LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-        {study_scope_join}
-        WHERE core_practitionerorganization.practitioner_id = %(practitioner_id)s
-
-        {organization_sql_where}
-        {study_sql_where}
-        {study_scope_where}
-        {patient_id_sql_where}
-        {observation_sql_where}
-        ORDER BY core_observation.last_updated DESC
-        """
-
         practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
-        practitioner_id = practitioner.id
 
-        return Observation.objects.raw(q, {"practitioner_id": practitioner_id})
+        # Return the observations a practitioner is allowed to see, newest first. An
+        # observation is visible only when its patient shares an organization with the
+        # practitioner identified by jhe_user_id: the traversal walks Observation -> Patient
+        # -> PatientOrganization -> Organization -> PractitionerOrganization -> Practitioner.
+        # Keeping the patient's and the practitioner's organization lookups in one filter()
+        # call matches them against the SAME organization (Django reuses the join for lookups
+        # sharing the "subject_patient__organizations" prefix); an optional organization_id
+        # narrows that shared organization. The result is then optionally narrowed: by study
+        # (the patient must be enrolled in the study AND the observation's code must be one of
+        # that study's requested scopes, both matched against the SAME study), to a single
+        # patient, or to a single observation. The annotate() calls flatten columns from the
+        # joined CodeableConcept and Patient rows onto each observation as plain attributes for
+        # the serializer to read. distinct() collapses the duplicate observation rows produced
+        # by spanning these many-to-many relationships.
+        organization_filters = {"subject_patient__organizations__practitioners": practitioner}
+        if organization_id:
+            organization_filters["subject_patient__organizations__id"] = organization_id
+        qs = Observation.objects.filter(**organization_filters)
+
+        if study_id:
+            qs = qs.filter(
+                subject_patient__studypatient__study_id=study_id,
+                codeable_concept__studyscoperequest__study_id=study_id,
+            )
+        if patient_id:
+            qs = qs.filter(subject_patient_id=patient_id)
+        if observation_id:
+            qs = qs.filter(id=observation_id)
+
+        return (
+            qs.annotate(
+                coding_system=F("codeable_concept__coding_system"),
+                coding_code=F("codeable_concept__coding_code"),
+                coding_text=F("codeable_concept__text"),
+                patient_name_family=F("subject_patient__name_family"),
+                patient_name_given=F("subject_patient__name_given"),
+            )
+            .distinct()
+            .order_by("-last_updated")
+        )
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, observation_id):
-        if (
-            len(
-                Observation.for_practitioner_organization_study_patient(
-                    practitioner_user_id, None, None, None, observation_id
-                )
-            )
-            == 0
-        ):
-            return False
-        return True
+        return Observation.for_practitioner_organization_study_patient(
+            practitioner_user_id, None, None, None, observation_id
+        ).exists()
 
     @staticmethod
     def fhir_search(

@@ -2,8 +2,6 @@ from django.conf import settings
 from django.db import models
 from django.shortcuts import get_object_or_404
 
-from core.admin_pagination import PaginatedRawQuerySet
-
 from .codeable_concept import CodeableConcept
 from .data_source import DataSource
 from .practitioner import Practitioner
@@ -22,30 +20,27 @@ class Study(models.Model):
     @staticmethod
     def for_practitioner_organization(jhe_user_id, organization_id=None, study_id=None):
         practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
-        practitioner_id = practitioner.id
 
-        study_sql_where = f"AND core_study.id = {int(study_id)}" if study_id else ""
-        organization_sql_where = f"AND core_organization.id = {int(organization_id)}" if organization_id else ""
-
-        sql = f"""
-            SELECT DISTINCT core_study.*, core_organization.*
-            FROM core_study
-            JOIN core_organization
-              ON core_organization.id = core_study.organization_id
-            JOIN core_practitionerorganization
-              ON core_practitionerorganization.organization_id = core_organization.id
-            WHERE core_practitionerorganization.practitioner_id = %(practitioner_id)s
-            {study_sql_where}
-            {organization_sql_where}
-            ORDER BY core_study.name
-        """
-        return Study.objects.raw(sql, {"practitioner_id": practitioner_id})
+        # Return the studies a practitioner is allowed to see, ordered by name. A study matches
+        # only when the practitioner identified by jhe_user_id belongs to the study's own
+        # organization: the traversal walks Study -> Organization -> PractitionerOrganization
+        # -> Practitioner via the "practitioners" reverse relation (which spans the
+        # PractitionerOrganization join table). Optional study_id / organization_id narrow the
+        # result to a single study or to studies under one organization.
+        # select_related("organization") pulls each study's organization in the same query (the
+        # raw SQL it replaces selected both tables), and distinct() collapses the duplicate
+        # study rows produced by spanning the practitioner many-to-many relationship.
+        studies = Study.objects.filter(organization__practitioners=practitioner)
+        if study_id:
+            studies = studies.filter(id=study_id)
+        if organization_id:
+            studies = studies.filter(organization_id=organization_id)
+        return studies.select_related("organization").distinct().order_by("name")
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, study_id):
         qs = Study.for_practitioner_organization(practitioner_user_id, None, study_id)
-        qs = PaginatedRawQuerySet.from_raw(qs)[:1]
-        return len(qs) > 0
+        return qs.exists()
 
     def has_patient(study_id, patient_id):
         study_patients = StudyPatient.objects.filter(study_id=study_id, patient_id=patient_id)
@@ -55,54 +50,60 @@ class Study(models.Model):
 
     @staticmethod
     def studies_with_scopes(patient_id, pending=False):
-        sql_scope_code = "NOT NULL"
-        if pending:
-            sql_scope_code = "NULL"
-
-        # noqa
-        q = f"""
-            SELECT
-                core_study.id,
-                core_studyscoperequest.scope_code_id as scope_code_id,
-                core_codeableconcept.coding_system as code_coding_system,
-                core_codeableconcept.coding_code as code_coding_code,
-                core_codeableconcept.text as code_text,
-                core_studypatientscopeconsent.consented,
-                core_studypatientscopeconsent.consented_time
-            FROM core_studyscoperequest
-            JOIN core_codeableconcept ON core_codeableconcept.id=core_studyscoperequest.scope_code_id
-            JOIN core_study ON core_study.id=core_studyscoperequest.study_id
-            JOIN core_studypatient ON core_studypatient.study_id=core_study.id
-          LEFT JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.study_patient_id=core_studypatient.id
-                AND core_studypatientscopeconsent.scope_code_id=core_studyscoperequest.scope_code_id
-  WHERE core_studypatientscopeconsent.scope_code_id IS {sql_scope_code} AND core_studypatient.patient_id=%(patient_id)s;
-            """
-
-        studies_with_scopes = Study.objects.raw(q, {"patient_id": patient_id, "sql_scope_code": sql_scope_code})
+        # Return the studies a patient is enrolled in, each decorated with the patient's scope
+        # consents, for rendering a consent screen. With pending=False each study carries its
+        # scope_consents (requested scopes the patient already has a consent row for); with
+        # pending=True each study carries its pending_scope_consents (requested scopes the
+        # patient has NOT yet been asked about, i.e. no consent row exists). Three queries feed
+        # this: every StudyScopeRequest for studies the patient is enrolled in (StudyScopeRequest
+        # -> Study -> StudyPatient -> Patient), the patient's StudyPatient rows keyed by study,
+        # and the patient's StudyPatientScopeConsent rows keyed by (study_patient, scope_code).
+        # They are joined in Python: for each requested scope we look up the matching consent
+        # row and, depending on pending, keep either the scopes with a consent row or those
+        # without. Each study is also decorated with its data_sources. The set is small, so the
+        # per-study work and extra queries are acceptable.
+        scope_requests = (
+            StudyScopeRequest.objects.filter(study__studypatient__patient_id=patient_id)
+            .select_related("scope_code", "study")
+            .order_by("study_id", "id")
+        )
+        study_patient_ids = {sp.study_id: sp.id for sp in StudyPatient.objects.filter(patient_id=patient_id)}
+        consents = {
+            (c.study_patient_id, c.scope_code_id): c
+            for c in StudyPatientScopeConsent.objects.filter(study_patient__patient_id=patient_id)
+        }
 
         study_id_studies_map = {}
 
         # this will never be large
-        for study_with_scope in studies_with_scopes:
-            if not study_with_scope.id in study_id_studies_map:  # noqa
-                study_id_studies_map[study_with_scope.id] = Study.objects.get(pk=study_with_scope.id)
-                study_id_studies_map[study_with_scope.id].data_sources = DataSource.data_sources_with_scopes(
-                    None, study_with_scope.id
-                )
+        for scope_request in scope_requests:
+            study_patient_id = study_patient_ids.get(scope_request.study_id)
+            consent = consents.get((study_patient_id, scope_request.scope_code_id))
+            # pending=True wants scope requests with no consent row; pending=False wants those with one
+            if pending != (consent is None):
+                continue
+
+            study = study_id_studies_map.get(scope_request.study_id)
+            if study is None:
+                study = scope_request.study
+                study.data_sources = DataSource.data_sources_with_scopes(None, study.id)
+                study_id_studies_map[study.id] = study
+
+            code = scope_request.scope_code
             scope_consent = {
                 "code": {
-                    "id": study_with_scope.scope_code_id,
-                    "coding_system": study_with_scope.code_coding_system,
-                    "coding_code": study_with_scope.code_coding_code,
-                    "text": study_with_scope.code_text,
+                    "id": code.id,
+                    "coding_system": code.coding_system,
+                    "coding_code": code.coding_code,
+                    "text": code.text,
                 },
-                "consented": study_with_scope.consented,
-                "consented_time": study_with_scope.consented_time,
+                "consented": consent.consented if consent else None,
+                "consented_time": consent.consented_time if consent else None,
             }
             if pending:
-                study_id_studies_map[study_with_scope.id].pending_scope_consents.append(scope_consent)
+                study.pending_scope_consents.append(scope_consent)
             else:
-                study_id_studies_map[study_with_scope.id].scope_consents.append(scope_consent)
+                study.scope_consents.append(scope_consent)
 
         return list(study_id_studies_map.values())
 
@@ -140,15 +141,17 @@ class StudyPatientScopeConsent(models.Model):
 
     @staticmethod
     def patient_scopes(jhe_user_id):
-        q = """
-            SELECT DISTINCT core_codeableconcept.* FROM core_codeableconcept
-            JOIN core_studypatientscopeconsent ON core_studypatientscopeconsent.scope_code_id=core_codeableconcept.id
-            JOIN core_studypatient ON core_studypatient.id=core_studypatientscopeconsent.study_patient_id
-            JOIN core_patient ON core_patient.id=core_studypatient.patient_id
-            WHERE core_studypatientscopeconsent.consented IS TRUE AND core_patient.jhe_user_id=%(jhe_user_id)s;
-            """
-
-        return CodeableConcept.objects.raw(q, {{"jhe_user_id": jhe_user_id}})
+        # Return the distinct scope codes the patient identified by jhe_user_id has actively
+        # consented to, across all their study enrollments. The traversal walks CodeableConcept
+        # -> StudyPatientScopeConsent -> StudyPatient -> Patient -> JheUser, keeping only consent
+        # rows whose "consented" flag is true; both lookups share the "studypatientscopeconsent"
+        # prefix and live in one filter() call so they match the SAME consent row. distinct()
+        # collapses the duplicate code rows produced when the same scope is consented across
+        # multiple studies.
+        return CodeableConcept.objects.filter(
+            studypatientscopeconsent__consented=True,
+            studypatientscopeconsent__study_patient__patient__jhe_user_id=jhe_user_id,
+        ).distinct()
 
     class Meta:
         constraints = [
