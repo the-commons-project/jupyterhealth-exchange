@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 from collections.abc import Awaitable, Callable
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from jhe_mcp.auth.oauth_flow import AuthenticationRequired
 from jhe_mcp.config import Settings
@@ -21,7 +23,17 @@ def build_server(
     settings: Settings,
     pre_tool_hook: Callable[[], Awaitable[None]] | None = None,
 ) -> FastMCP:
-    mcp = FastMCP(name="jhe-mcp")
+    parsed = urllib.parse.urlparse(settings.mcp_resource_url)
+    public_host = parsed.netloc  # host[:port]
+    public_origin = f"{parsed.scheme}://{parsed.netloc}"
+    allowed_hosts = [public_host, f"{public_host}:*", "localhost", "localhost:*", "127.0.0.1", "127.0.0.1:*"]
+    allowed_origins = [public_origin, "http://localhost:*", "http://127.0.0.1:*"]
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
+    mcp = FastMCP(name="jhe-mcp", transport_security=transport_security)
     base_url = settings.jhe_base_url
 
     async def _before() -> str | None:
