@@ -283,6 +283,46 @@ def test_token_refresh_proxies_to_jhe():
     assert r.json()["access_token"] == "NEW-TOK"
 
 
+def test_token_rejects_expired_code(monkeypatch):
+    from jhe_mcp.auth import broker as broker_mod
+
+    monkeypatch.setattr(broker_mod, "CODE_TTL", -1)  # force any code to be expired
+    s = _settings()
+    v = pkce.generate_verifier()
+    mc = broker_state.encode(
+        s.broker_key,
+        {
+            "token": {"access_token": "JHE-TOK"},
+            "llm_code_challenge": pkce.challenge_from_verifier(v),
+            "llm_redirect_uri": "http://localhost:9999/cb",
+            "llm_client_id": "llm",
+        },
+    )
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": mc,
+            "code_verifier": v,
+            "redirect_uri": "http://localhost:9999/cb",
+            "client_id": "llm",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "invalid_grant"
+
+
+@respx.mock
+def test_token_refresh_normalizes_upstream_error():
+    respx.post("https://jhe.fly.dev/o/token/").mock(
+        return_value=httpx.Response(400, json={"error": "invalid_grant", "secret_detail": "LEAK"})
+    )
+    r = _client().post("/token", data={"grant_type": "refresh_token", "refresh_token": "rt"})
+    assert r.status_code == 400
+    assert r.json() == {"error": "invalid_grant"}  # generic; upstream body NOT echoed
+    assert "secret_detail" not in r.text
+
+
 def test_build_app_serves_metadata_and_401_header(monkeypatch):
     monkeypatch.setenv("JHE_BASE_URL", "https://jhe.fly.dev")
     monkeypatch.setenv("JHE_CLIENT_ID", "mcp-client")
