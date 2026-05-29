@@ -44,6 +44,8 @@ def build_app(settings: Settings) -> FastAPI:
                 content={"detail": str(exc)},
                 headers={"WWW-Authenticate": challenge},
             )
+        # expires_at is unused in HTTP/broker mode: token revalidation is governed by
+        # UserinfoValidator's cache TTL, not this field. 0 = "not applicable here".
         set_current_auth(AuthContext(bearer_token=token, subject=subject, expires_at=0))
         return await call_next(request)
 
