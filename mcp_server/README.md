@@ -156,7 +156,7 @@ The server is configured entirely via environment variables (or Fly secrets in p
 |---|---|---|
 | `JHE_BASE_URL` | Yes | Base URL of the JHE instance (e.g. `https://jhe.fly.dev`) |
 | `JHE_CLIENT_ID` | Yes | The broker's **confidential** OAuth client ID at JHE (server-side only; never given to end users or LLM clients) |
-| `JHE_CLIENT_SECRET` | Yes | The broker's confidential client secret at JHE (server-side only; copy immediately — hashed on save) |
+| `JHE_CLIENT_SECRET` | No (required only for a confidential client — recommended) | The broker's confidential client secret at JHE (server-side only; copy immediately — hashed on save) |
 | `MCP_RESOURCE_URL` | Yes | Public URL of this MCP server (e.g. `https://jhe-mcp.fly.dev`) |
 | `MCP_BROKER_KEY` | Yes | Random secret used to encrypt OAuth state and authorization codes; generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `MCP_ALLOWED_REDIRECTS` | No | Comma-separated list of non-loopback redirect URIs to allow (for additional MCP client types) |
@@ -194,8 +194,10 @@ Set the required environment variables (see [Configuration](#configuration)) bef
 
 The MCP server exposes the following tools to LLM clients:
 
+- **`get_omh_schema`** — Returns the full OMH JSON schema for a data type by short name (e.g. `heart-rate`, `blood-glucose`).
 - **`get_study_count`** — Returns the total number of studies the authenticated user can access.
 - **`list_studies`** — Lists all studies visible to the authenticated user, with key metadata.
 - **`get_study_metadata`** — Retrieves detailed metadata for a specific study by ID.
-- **`get_patient_demographics`** — Returns demographic information for patients in a given study.
-- **`get_patient_observations`** — Fetches health observations (e.g. vitals, device data) for a patient in a study.
+- **`list_study_patients`** — Lists patients enrolled in a specific study, returning ID, name, and email for each.
+- **`get_patient_demographics`** — Returns demographic information for a specific patient by patient ID.
+- **`get_patient_observations`** — Fetches health observations (e.g. vitals, device data) for a patient, optionally filtered by OMH data type and date range.
