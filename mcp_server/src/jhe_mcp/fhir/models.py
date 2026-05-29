@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 from typing import Any
 
@@ -82,8 +83,12 @@ class Observation(BaseModel):
         attachment = r.get("valueAttachment") or {}
         encoded = attachment.get("data")
         if encoded:
-            omh_payload = json.loads(base64.b64decode(encoded))
-            omh_body = omh_payload.get("body")
+            try:
+                omh_payload = json.loads(base64.b64decode(encoded))
+                omh_body = omh_payload.get("body")
+            except (binascii.Error, ValueError):
+                # Malformed attachment data: keep the Observation but omh_body stays None.
+                pass
         effective_at = None
         if omh_body:
             tf = omh_body.get("effective_time_frame") or {}
