@@ -79,6 +79,56 @@ async def test_list_studies_paginated(auth, fake_client):
 
 
 @pytest.mark.asyncio
+async def test_list_studies_cursor_pagination(auth, fake_client):
+    """Non-`page` pagination params (e.g. cursor) must not raise KeyError and must
+    be forwarded as-is to the next admin_get call."""
+    fake_client.admin_get.side_effect = [
+        {
+            "results": [{"id": 1, "name": "A", "organization": {"id": 10, "name": "O1"}}],
+            "next": "http://jhe/api/v1/studies?cursor=abc123",
+        },
+        {
+            "results": [{"id": 2, "name": "B", "organization": {"id": 11, "name": "O2"}}],
+            "next": None,
+        },
+    ]
+    studies = await list_studies(base_url="http://jhe")
+    assert len(studies) == 2
+    assert studies[0].name == "A"
+    assert studies[1].name == "B"
+    # The second call must have forwarded the cursor param.
+    second_call_params = (
+        fake_client.admin_get.call_args_list[1].kwargs.get("params") or fake_client.admin_get.call_args_list[1].args[1]
+        if len(fake_client.admin_get.call_args_list[1].args) > 1
+        else fake_client.admin_get.call_args_list[1].kwargs.get("params")
+    )
+    assert second_call_params is not None
+    assert second_call_params.get("cursor") == "abc123"
+
+
+@pytest.mark.asyncio
+async def test_list_studies_offset_pagination(auth, fake_client):
+    """Offset+limit pagination (?offset=20&limit=20) must not raise and must forward
+    both params to the next request."""
+    fake_client.admin_get.side_effect = [
+        {
+            "results": [{"id": 1, "name": "A", "organization": {}}],
+            "next": "http://jhe/api/v1/studies?offset=20&limit=20",
+        },
+        {
+            "results": [{"id": 2, "name": "B", "organization": {}}],
+            "next": None,
+        },
+    ]
+    studies = await list_studies(base_url="http://jhe")
+    assert len(studies) == 2
+    second_params = fake_client.admin_get.call_args_list[1].kwargs.get("params")
+    assert second_params is not None
+    assert second_params.get("offset") == "20"
+    assert second_params.get("limit") == "20"
+
+
+@pytest.mark.asyncio
 async def test_list_study_patients(auth, fake_client):
     fake_client.admin_get.return_value = [
         {"id": 1, "nameGiven": "Pat", "nameFamily": "Jones", "telecomEmail": "pat@ex.com"},
