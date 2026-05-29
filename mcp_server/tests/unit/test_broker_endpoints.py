@@ -281,3 +281,23 @@ def test_token_refresh_proxies_to_jhe():
     r = _client().post("/token", data={"grant_type": "refresh_token", "refresh_token": "rt"})
     assert r.status_code == 200
     assert r.json()["access_token"] == "NEW-TOK"
+
+
+def test_build_app_serves_metadata_and_401_header(monkeypatch):
+    monkeypatch.setenv("JHE_BASE_URL", "https://jhe.fly.dev")
+    monkeypatch.setenv("JHE_CLIENT_ID", "mcp-client")
+    monkeypatch.setenv("MCP_RESOURCE_URL", "https://jhe-mcp.fly.dev")
+    monkeypatch.setenv("MCP_BROKER_KEY", "unit-test-key")
+    from jhe_mcp.config import Settings
+    from jhe_mcp.server_http import build_app
+
+    app = build_app(Settings.from_env())
+    client = TestClient(app, follow_redirects=False)
+
+    # discovery is served by the mounted broker router
+    assert client.get("/.well-known/oauth-protected-resource").status_code == 200
+
+    # unauthenticated SSE returns 401 with a resource_metadata pointer
+    r = client.get("/sse")
+    assert r.status_code == 401
+    assert "resource_metadata" in r.headers.get("www-authenticate", "")
