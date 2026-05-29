@@ -39,7 +39,7 @@ LLM Client (e.g. Claude Desktop)
 
 ## Registering the OAuth Client in JHE
 
-The MCP server must be registered as an OAuth 2.0 confidential client in the JHE instance it will talk to. There are two ways to do this.
+The MCP server must be registered as an OAuth 2.0 confidential client in the JHE instance it will talk to. There are two ways to do this. The example URLs below use the production instance `https://jhe.fly.dev` — substitute your own JHE host if different.
 
 > **Important:** Do **not** use JHE's portal "Clients" page for this. That page creates a public client with a fixed `{SITE_URL}/auth/callback` redirect URI and cannot issue a `client_secret`. Use one of the two admin paths below instead.
 
@@ -47,7 +47,7 @@ The MCP server must be registered as an OAuth 2.0 confidential client in the JHE
 
 Navigate to:
 ```
-https://<JHE-host>/o/applications/register/
+https://jhe.fly.dev/o/applications/register/
 ```
 
 Log in with a staff or superuser account, fill in the fields from the table below, and save.
@@ -56,7 +56,7 @@ Log in with a staff or superuser account, fill in the fields from the table belo
 
 Navigate to:
 ```
-https://<JHE-host>/admin/oauth2_provider/application/add/
+https://jhe.fly.dev/admin/oauth2_provider/application/add/
 ```
 
 Fill in the same fields from the table below. The admin form also exposes a **User** field — set it to the admin user creating the record, or leave it blank.
@@ -94,22 +94,75 @@ fly secrets set -a jhe-mcp \
 
 ## Connecting an LLM Client
 
-The MCP server uses static OAuth client registration — clients use a fixed `client_id` rather than Dynamic Client Registration (DCR). Use `mcp-remote` to connect:
+The server speaks the MCP **SSE transport** and uses OAuth with a **static, pre-registered `client_id`** (no Dynamic Client Registration). The universal way to connect a desktop client is the [`mcp-remote`](https://github.com/geelen/mcp-remote) stdio bridge: it runs the JHE OAuth login in the browser using the static client and forwards MCP over the remote SSE connection. Pass the JHE client with `--static-oauth-client-info` and force SSE with `--transport sse-only`:
+
+```bash
+npx -y mcp-remote https://jhe-mcp.fly.dev/sse \
+  --transport sse-only \
+  --static-oauth-client-info '{"client_id":"<client_id>","client_secret":"<client_secret>"}'
+```
+
+Our JHE client is **confidential**, so pass both `client_id` and `client_secret`. The first run opens a JHE login in the browser; `mcp-remote` caches the token under `~/.mcp-auth/` and refreshes it automatically. (Tip: instead of inlining the JSON you can use `--static-oauth-client-info @/absolute/path/to/client.json` to avoid shell-quoting.)
+
+### Claude Desktop
+
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
   "mcpServers": {
     "jhe": {
       "command": "npx",
-      "args": ["mcp-remote", "https://jhe-mcp.fly.dev/sse", "--static-oauth-client-id", "<client_id>"]
+      "args": ["-y", "mcp-remote", "https://jhe-mcp.fly.dev/sse",
+               "--transport", "sse-only",
+               "--static-oauth-client-info", "{\"client_id\":\"<client_id>\",\"client_secret\":\"<client_secret>\"}"]
     }
   }
 }
 ```
 
-The first connection opens a JHE login page in the browser. After the user authenticates, `mcp-remote` caches the token locally and handles refresh automatically on subsequent connections.
+Restart Claude Desktop after editing.
 
-> **Note:** Claude.ai **web** connectors are not supported. They require Dynamic Client Registration (DCR), which JHE does not offer. Use a desktop client (e.g. Claude Desktop, Cursor) with `mcp-remote` instead.
+### Claude Code
+
+Claude Code's *native* remote-MCP OAuth (`claude mcp add --transport sse …`) currently requires Dynamic Client Registration, which JHE does not offer — so use the `mcp-remote` bridge:
+
+```bash
+claude mcp add jhe -- npx -y mcp-remote https://jhe-mcp.fly.dev/sse \
+  --transport sse-only \
+  --static-oauth-client-info '{"client_id":"<client_id>","client_secret":"<client_secret>"}'
+```
+
+Verify with `claude mcp list` and `claude mcp get jhe`.
+
+### Google Gemini (Gemini CLI)
+
+`~/.gemini/settings.json` — same `mcp-remote` bridge:
+
+```json
+{
+  "mcpServers": {
+    "jhe": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://jhe-mcp.fly.dev/sse",
+               "--transport", "sse-only",
+               "--static-oauth-client-info", "{\"client_id\":\"<client_id>\",\"client_secret\":\"<client_secret>\"}"]
+    }
+  }
+}
+```
+
+(Gemini CLI can also reach the SSE endpoint natively via a `url` + `headers` entry if you already hold a JHE access token, but the bridge handles the browser login for you.)
+
+### ChatGPT (OpenAI)
+
+- **Responses / Agents API — supported.** Obtain a JHE access token yourself, then pass it on the `mcp` tool (the API does not manage OAuth for you):
+  ```json
+  {"type":"mcp","server_label":"jhe","server_url":"https://jhe-mcp.fly.dev/sse","authorization":"<JHE access token>","require_approval":"never"}
+  ```
+- **ChatGPT app "Connectors" (developer mode) — may work, unverified.** The server exposes the discovery metadata ChatGPT needs (`/.well-known/oauth-protected-resource` + `/.well-known/oauth-authorization-server`) and supports static clients, but ChatGPT connectors prefer CIMD/DCR; the static-client path here is not yet verified. The API path above is the reliable one.
+
+> **Not supported:** clients that require Dynamic Client Registration with no static-client fallback — notably **Claude.ai web** connectors. Use a desktop client with `mcp-remote` instead.
 
 ---
 
