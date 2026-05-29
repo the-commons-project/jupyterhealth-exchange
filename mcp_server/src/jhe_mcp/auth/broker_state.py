@@ -23,7 +23,8 @@ def encode(key: str, payload: dict[str, Any]) -> str:
     return token.decode("ascii")
 
 
-def decode(key: str, token: str, max_age: int) -> dict[str, Any]:
+def decode(key: str, token: str, max_age: int | None) -> dict[str, Any]:
+    # max_age=None disables the Fernet TTL check (token never expires).
     try:
         raw = _fernet(key).decrypt(token.encode("ascii"), ttl=max_age)
     except (InvalidToken, ValueError) as exc:
