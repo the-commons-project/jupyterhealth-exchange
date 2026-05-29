@@ -13,6 +13,9 @@ class Settings:
     authorize_endpoint: str
     token_endpoint: str
     userinfo_endpoint: str
+    mcp_resource_url: str
+    broker_key: str | None
+    allowed_redirects: tuple[str, ...]
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -23,6 +26,9 @@ class Settings:
         if not client_id:
             raise RuntimeError("JHE_CLIENT_ID is required")
         base = base.rstrip("/")
+        mcp_resource_url = os.environ.get("MCP_RESOURCE_URL", "https://jhe-mcp.fly.dev").rstrip("/")
+        raw_redirects = os.environ.get("MCP_ALLOWED_REDIRECTS", "")
+        allowed_redirects = tuple(r.strip() for r in raw_redirects.split(",") if r.strip())
         return cls(
             jhe_base_url=base,
             jhe_client_id=client_id,
@@ -31,4 +37,7 @@ class Settings:
             authorize_endpoint=os.environ.get("JHE_AUTHORIZE_ENDPOINT", f"{base}/o/authorize/"),
             token_endpoint=os.environ.get("JHE_TOKEN_ENDPOINT", f"{base}/o/token/"),
             userinfo_endpoint=os.environ.get("JHE_USERINFO_ENDPOINT", f"{base}/o/userinfo/"),
+            mcp_resource_url=mcp_resource_url,
+            broker_key=os.environ.get("MCP_BROKER_KEY"),
+            allowed_redirects=allowed_redirects,
         )
