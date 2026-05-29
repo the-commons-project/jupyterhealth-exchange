@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -17,12 +18,18 @@ def build_app(settings: Settings) -> FastAPI:
     validator = UserinfoValidator(userinfo_endpoint=settings.userinfo_endpoint)
     challenge = f'Bearer resource_metadata="{settings.mcp_resource_url}/.well-known/oauth-protected-resource"'
 
-    sse_app = mcp.sse_app()
-    app = FastAPI(title="jhe-mcp HTTP/SSE")
+    streamable_app = mcp.streamable_http_app()
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        async with mcp.session_manager.run():
+            yield
+
+    app = FastAPI(title="jhe-mcp HTTP", lifespan=lifespan)
     app.include_router(build_broker_router(settings))
 
-    # FastMCP's SSE app serves both /sse (GET stream) and /messages (POST from client).
-    AUTHED_PREFIXES = ("/sse", "/messages")
+    # The Streamable HTTP app serves the MCP endpoint at /mcp.
+    AUTHED_PREFIXES = ("/mcp",)
 
     @app.middleware("http")
     async def attach_auth(request: Request, call_next):
@@ -53,7 +60,7 @@ def build_app(settings: Settings) -> FastAPI:
     async def health():
         return {"status": "ok"}
 
-    app.mount("/", sse_app)
+    app.mount("/", streamable_app)
     return app
 
 
