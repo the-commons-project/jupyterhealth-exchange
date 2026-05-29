@@ -1,6 +1,7 @@
 import pytest
 from jhe_mcp.auth import broker_state
 
+
 KEY = "test-broker-key"
 
 
