@@ -16,9 +16,10 @@ STATE_TTL = 600  # seconds; authorize -> callback
 CODE_TTL = 30  # seconds; callback -> token. Short window because the stateless
 # authorization code is single-use only by TTL (no server-side consumption record),
 # so we minimize the replay window.
-# Registered client_ids do not expire (None = no Fernet TTL). They are revoked only
-# by rotating MCP_BROKER_KEY, which invalidates all registrations at once.
-CLIENT_ID_TTL = None
+# Registered client_ids expire after 7 days; clients re-register on expiry. Because the
+# broker is stateless (no revocation list), a bounded lifetime caps how long a signed
+# registration stays valid. To revoke everything at once, rotate MCP_BROKER_KEY.
+CLIENT_ID_TTL = 7 * 24 * 3600  # 7 days
 
 
 def _registerable_redirect(uri: str) -> bool:
