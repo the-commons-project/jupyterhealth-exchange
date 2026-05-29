@@ -10,7 +10,7 @@ The server is deployed at **`https://jhe-mcp.fly.dev`** (Fly app `jhe-mcp`).
 
 ```
 LLM Client (e.g. Claude Desktop)
-        │  MCP over HTTP/SSE
+        │  MCP over Streamable HTTP (/mcp)
         ▼
 ┌─────────────────────────────────────┐
 │         JHE MCP Server              │
@@ -29,11 +29,15 @@ LLM Client (e.g. Claude Desktop)
 ```
 
 **Flow:**
-1. The LLM client connects to the MCP server's SSE endpoint and initiates OAuth.
-2. The MCP server redirects the user to JHE's login page.
-3. The user authenticates at JHE; JHE issues an authorization code.
+1. The LLM client connects to the MCP server's Streamable HTTP endpoint (`/mcp`) and initiates OAuth.
+2. The MCP server redirects the user to **JHE's own login screen**.
+3. The user enters **their own** JHE credentials; JHE issues an authorization code to the MCP server.
 4. The MCP server exchanges the code for JHE tokens and hands them back to the client. The server is **stateless** — it stores no tokens; the client holds and refreshes them.
 5. Subsequent MCP tool calls carry the user's token, which the server forwards to JHE REST API requests — RBAC is enforced entirely by JHE.
+
+> **Two distinct OAuth identities — don't conflate them:**
+> - **MCP server ↔ JHE:** the MCP server is a **confidential** OAuth client of JHE, holding `JHE_CLIENT_ID` + `JHE_CLIENT_SECRET`. These live **only in the server deployment** (Fly secrets) and are never seen by end users.
+> - **LLM client ↔ MCP server:** the LLM client (e.g. via `mcp-remote`) authenticates to the broker as a **public** client — a `client_id` only, **no secret**. The end user's actual identity is established by logging in at JHE with their own credentials.
 
 ---
 
@@ -94,75 +98,53 @@ fly secrets set -a jhe-mcp \
 
 ## Connecting an LLM Client
 
-The server speaks the MCP **SSE transport** and uses OAuth with a **static, pre-registered `client_id`** (no Dynamic Client Registration). The universal way to connect a desktop client is the [`mcp-remote`](https://github.com/geelen/mcp-remote) stdio bridge: it runs the JHE OAuth login in the browser using the static client and forwards MCP over the remote SSE connection. Pass the JHE client with `--static-oauth-client-info` and force SSE with `--transport sse-only`:
+The server speaks the modern MCP **Streamable HTTP transport** at `/mcp` and implements **OAuth 2.0 Dynamic Client Registration (DCR, RFC 7591)** plus discovery metadata (RFC 9728 / RFC 8414). That means clients **connect directly to the URL and register themselves** — no bridge, no manually-issued client ID. On first connect the user is sent to **JHE's own login page**; after they sign in, the client caches and refreshes the JHE-issued token automatically.
 
-```bash
-npx -y mcp-remote https://jhe-mcp.fly.dev/sse \
-  --transport sse-only \
-  --static-oauth-client-info '{"client_id":"<client_id>","client_secret":"<client_secret>"}'
-```
+> **The end user supplies nothing but their JHE login.** The broker's confidential JHE credentials (`JHE_CLIENT_ID` / `JHE_CLIENT_SECRET`) live solely in the server deployment and are never seen by clients or users. Each client mints its own public client ID via DCR.
 
-Our JHE client is **confidential**, so pass both `client_id` and `client_secret`. The first run opens a JHE login in the browser; `mcp-remote` caches the token under `~/.mcp-auth/` and refreshes it automatically. (Tip: instead of inlining the JSON you can use `--static-oauth-client-info @/absolute/path/to/client.json` to avoid shell-quoting.)
-
-### Claude Desktop
-
-`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
-
-```json
-{
-  "mcpServers": {
-    "jhe": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://jhe-mcp.fly.dev/sse",
-               "--transport", "sse-only",
-               "--static-oauth-client-info", "{\"client_id\":\"<client_id>\",\"client_secret\":\"<client_secret>\"}"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop after editing.
+In every client below, the only value you provide is the server URL: **`https://jhe-mcp.fly.dev/mcp`**.
 
 ### Claude Code
 
-Claude Code's *native* remote-MCP OAuth (`claude mcp add --transport sse …`) currently requires Dynamic Client Registration, which JHE does not offer — so use the `mcp-remote` bridge:
-
 ```bash
-claude mcp add jhe -- npx -y mcp-remote https://jhe-mcp.fly.dev/sse \
-  --transport sse-only \
-  --static-oauth-client-info '{"client_id":"<client_id>","client_secret":"<client_secret>"}'
+claude mcp add --transport http jhe https://jhe-mcp.fly.dev/mcp
 ```
 
-Verify with `claude mcp list` and `claude mcp get jhe`.
+The first tool call opens JHE's login in your browser. Verify with `claude mcp list` / `claude mcp get jhe`.
+
+### Claude Desktop
+
+Add a connector via **Settings → Connectors → Add custom connector**, with URL `https://jhe-mcp.fly.dev/mcp`. (Recent desktop builds support remote connectors with OAuth + DCR directly.)
 
 ### Google Gemini (Gemini CLI)
 
-`~/.gemini/settings.json` — same `mcp-remote` bridge:
+`~/.gemini/settings.json` — use the `httpUrl` field for Streamable HTTP:
 
 ```json
 {
   "mcpServers": {
     "jhe": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://jhe-mcp.fly.dev/sse",
-               "--transport", "sse-only",
-               "--static-oauth-client-info", "{\"client_id\":\"<client_id>\",\"client_secret\":\"<client_secret>\"}"]
+      "httpUrl": "https://jhe-mcp.fly.dev/mcp"
     }
   }
 }
 ```
 
-(Gemini CLI can also reach the SSE endpoint natively via a `url` + `headers` entry if you already hold a JHE access token, but the bridge handles the browser login for you.)
-
 ### ChatGPT (OpenAI)
 
-- **Responses / Agents API — supported.** Obtain a JHE access token yourself, then pass it on the `mcp` tool (the API does not manage OAuth for you):
+- **ChatGPT app "Connectors" (developer mode):** add a connector with URL `https://jhe-mcp.fly.dev/mcp`. The server advertises the discovery metadata and DCR that ChatGPT expects.
+- **Responses / Agents API:** the API does not run the OAuth flow for you — obtain a JHE access token out-of-band and pass it on the `mcp` tool:
   ```json
-  {"type":"mcp","server_label":"jhe","server_url":"https://jhe-mcp.fly.dev/sse","authorization":"<JHE access token>","require_approval":"never"}
+  {"type":"mcp","server_label":"jhe","server_url":"https://jhe-mcp.fly.dev/mcp","authorization":"<JHE access token>","require_approval":"never"}
   ```
-- **ChatGPT app "Connectors" (developer mode) — may work, unverified.** The server exposes the discovery metadata ChatGPT needs (`/.well-known/oauth-protected-resource` + `/.well-known/oauth-authorization-server`) and supports static clients, but ChatGPT connectors prefer CIMD/DCR; the static-client path here is not yet verified. The API path above is the reliable one.
 
-> **Not supported:** clients that require Dynamic Client Registration with no static-client fallback — notably **Claude.ai web** connectors. Use a desktop client with `mcp-remote` instead.
+### Fallback: stdio-only clients
+
+For a client that cannot speak remote Streamable HTTP at all, bridge with [`mcp-remote`](https://github.com/geelen/mcp-remote) (it will DCR automatically — no client ID needed):
+
+```bash
+npx -y mcp-remote https://jhe-mcp.fly.dev/mcp
+```
 
 ---
 
@@ -173,8 +155,8 @@ The server is configured entirely via environment variables (or Fly secrets in p
 | Variable | Required | Purpose |
 |---|---|---|
 | `JHE_BASE_URL` | Yes | Base URL of the JHE instance (e.g. `https://jhe.fly.dev`) |
-| `JHE_CLIENT_ID` | Yes | OAuth client ID issued by JHE when registering the application |
-| `JHE_CLIENT_SECRET` | Yes | OAuth client secret issued by JHE (copy immediately — hashed on save) |
+| `JHE_CLIENT_ID` | Yes | The broker's **confidential** OAuth client ID at JHE (server-side only; never given to end users or LLM clients) |
+| `JHE_CLIENT_SECRET` | Yes | The broker's confidential client secret at JHE (server-side only; copy immediately — hashed on save) |
 | `MCP_RESOURCE_URL` | Yes | Public URL of this MCP server (e.g. `https://jhe-mcp.fly.dev`) |
 | `MCP_BROKER_KEY` | Yes | Random secret used to encrypt OAuth state and authorization codes; generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `MCP_ALLOWED_REDIRECTS` | No | Comma-separated list of non-loopback redirect URIs to allow (for additional MCP client types) |
