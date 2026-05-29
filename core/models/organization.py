@@ -68,27 +68,20 @@ class Organization(models.Model):
 
     @staticmethod
     def for_practitioner(practitioner_user_id):
-        q = """
-            SELECT core_organization.*
-            FROM core_organization
-            JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
-            JOIN core_practitioner ON core_practitioner.id=core_practitionerorganization.practitioner_id
-            WHERE core_practitioner.jhe_user_id=%(practitioner_user_id)s
-            """
-
-        return Organization.objects.raw(q, {"practitioner_user_id": practitioner_user_id})
+        # Return the organizations the practitioner identified by practitioner_user_id belongs
+        # to. The traversal walks Organization -> PractitionerOrganization -> Practitioner ->
+        # JheUser via the "practitioners" reverse relation (which spans the
+        # PractitionerOrganization join table), so an organization matches only when the
+        # practitioner is one of its members.
+        return Organization.objects.filter(practitioners__jhe_user_id=practitioner_user_id)
 
     @staticmethod
     def for_patient(patient_user_id):
-        q = """
-            SELECT core_organization.*
-            FROM core_organization
-            JOIN core_patientorganization ON core_patientorganization.organization_id=core_organization.id
-            JOIN core_patient ON core_patient.id=core_patientorganization.patient_id
-            WHERE core_patient.jhe_user_id=%(patient_user_id)s
-            """
-
-        return Organization.objects.raw(q, {"patient_user_id": patient_user_id})
+        # Return the organizations the patient identified by patient_user_id belongs to. The
+        # traversal walks Organization -> PatientOrganization -> Patient -> JheUser via the
+        # "patients" reverse relation (which spans the PatientOrganization join table), so an
+        # organization matches only when the patient is one of its members.
+        return Organization.objects.filter(patients__jhe_user_id=patient_user_id)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
