@@ -13,7 +13,9 @@ from jhe_mcp.auth import broker_state, pkce
 from jhe_mcp.config import Settings
 
 STATE_TTL = 600  # seconds; authorize -> callback
-CODE_TTL = 60  # seconds; callback -> token
+CODE_TTL = 30  # seconds; callback -> token. Short window because the stateless
+# authorization code is single-use only by TTL (no server-side consumption record),
+# so we minimize the replay window.
 
 
 def _is_allowed_redirect(uri: str, allowed: tuple[str, ...]) -> bool:
@@ -78,6 +80,10 @@ def build_broker_router(settings: Settings) -> APIRouter:
                 "llm_redirect_uri": redirect_uri,
                 "llm_state": q.get("state"),
                 "llm_code_challenge": challenge,
+                # client_id is intentionally not validated against a fixed value: for public
+                # PKCE clients the security boundary is PKCE + the loopback/allow-listed
+                # redirect_uri, not a shared static client_id. /token re-checks that the
+                # client_id presented there matches the one bound into the code here.
                 "llm_client_id": q.get("client_id"),
                 "up_verifier": up_verifier,
             },
@@ -175,12 +181,16 @@ def build_broker_router(settings: Settings) -> APIRouter:
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.post(settings.token_endpoint, data=data)
-                body = resp.json()
             except httpx.HTTPError:
                 return JSONResponse({"error": "temporarily_unavailable"}, status_code=503)
+            if resp.status_code != 200:
+                logger.error("JHE refresh_token exchange failed: %s", resp.status_code)
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            try:
+                body = resp.json()
             except ValueError:
                 return JSONResponse({"error": "temporarily_unavailable"}, status_code=503)
-            return JSONResponse(body, status_code=resp.status_code)
+            return JSONResponse(body, status_code=200)
 
         return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
 
