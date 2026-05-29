@@ -302,7 +302,6 @@ dependencies = [
     { name = "mcp" },
     { name = "omh-shim" },
     { name = "pydantic" },
-    { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -326,7 +325,6 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "sse-starlette", specifier = ">=2.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 provides-extras = ["dev"]
