@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import urllib.parse
 
 import httpx
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
@@ -17,10 +20,14 @@ def _is_allowed_redirect(uri: str, allowed: tuple[str, ...]) -> bool:
     if uri in allowed:
         return True
     try:
-        host = urllib.parse.urlparse(uri).hostname
+        parsed = urllib.parse.urlparse(uri)
     except ValueError:
         return False
-    return host in ("localhost", "127.0.0.1", "::1")
+    if parsed.username or parsed.password:  # reject userinfo open-redirect tricks
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    return parsed.hostname in ("localhost", "127.0.0.1", "::1")
 
 
 def build_broker_router(settings: Settings) -> APIRouter:
@@ -104,15 +111,25 @@ def build_broker_router(settings: Settings) -> APIRouter:
         }
         if settings.jhe_client_secret:
             data["client_secret"] = settings.jhe_client_secret
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(settings.token_endpoint, data=data)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(settings.token_endpoint, data=data)
+        except httpx.HTTPError:
+            logger.error("JHE token exchange transport error")
+            return PlainTextResponse("upstream unavailable", status_code=503)
         if resp.status_code != 200:
-            return PlainTextResponse(f"upstream token error: {resp.text}", status_code=502)
+            logger.error("JHE token exchange failed: %s %s", resp.status_code, resp.text)
+            return PlainTextResponse("upstream error", status_code=502)
+        try:
+            jhe_token = resp.json()
+        except ValueError:
+            logger.error("JHE token endpoint returned non-JSON")
+            return PlainTextResponse("upstream error", status_code=502)
 
         mc = broker_state.encode(
             settings.broker_key,
             {
-                "token": resp.json(),
+                "token": jhe_token,
                 "llm_code_challenge": st["llm_code_challenge"],
                 "llm_redirect_uri": st["llm_redirect_uri"],
                 "llm_client_id": st["llm_client_id"],
@@ -141,6 +158,8 @@ def build_broker_router(settings: Settings) -> APIRouter:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
             if not code_verifier or not pkce.verify(code_verifier, blob["llm_code_challenge"]):
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            if client_id != blob.get("llm_client_id"):
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
             if redirect_uri != blob["llm_redirect_uri"]:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
             return JSONResponse(blob["token"])
@@ -153,9 +172,15 @@ def build_broker_router(settings: Settings) -> APIRouter:
             }
             if settings.jhe_client_secret:
                 data["client_secret"] = settings.jhe_client_secret
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(settings.token_endpoint, data=data)
-            return JSONResponse(resp.json(), status_code=resp.status_code)
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(settings.token_endpoint, data=data)
+                body = resp.json()
+            except httpx.HTTPError:
+                return JSONResponse({"error": "temporarily_unavailable"}, status_code=503)
+            except ValueError:
+                return JSONResponse({"error": "temporarily_unavailable"}, status_code=503)
+            return JSONResponse(body, status_code=resp.status_code)
 
         return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
 
