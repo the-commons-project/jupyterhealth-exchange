@@ -201,3 +201,19 @@ The MCP server exposes the following tools to LLM clients:
 - **`list_study_patients`** — Lists patients enrolled in a specific study, returning ID, name, and email for each.
 - **`get_patient_demographics`** — Returns demographic information for a specific patient by patient ID.
 - **`get_patient_observations`** — Fetches health observations (e.g. vitals, device data) for a patient, optionally filtered by OMH data type and date range.
+
+---
+
+## Security considerations & known limitations
+
+The broker is intentionally **stateless** (no database), which shapes a few deliberate tradeoffs. These are by design — call them out in review rather than treat them as oversights:
+
+- **Authorization codes are single-use *by TTL only*.** The broker stores no consumption record, so a code is valid until it expires (`CODE_TTL`, 30s) rather than being invalidated on first use. The exposure is bounded by the short TTL, PKCE, and the exact `redirect_uri` binding. True single-use would require shared server-side state.
+- **Open Dynamic Client Registration.** `/register` is unauthenticated and accepts any `https` (or loopback `http`) redirect URI — this is the standard public-DCR model. A registered client may use any `https` redirect it declared, so the protection against token redirection is **JHE's login + consent screen** (the user must authenticate and approve), PKCE, and the exact redirect match. Issued `client_id`s are Fernet-signed and expire after 7 days; the only bulk revocation is rotating `MCP_BROKER_KEY`.
+- **Token revalidation latency.** Bearer tokens are validated against JHE's `/o/userinfo`, cached for 60s. A token revoked at JHE may remain accepted for up to that window.
+
+### Operational follow-ups (not yet implemented)
+
+- **Rate-limit `/register`, `/authorize`, `/token`** at the edge (e.g. Fly/proxy) — the stateless design can't bound request volume in-process.
+- **Pin the Docker build to `uv.lock`** for fully reproducible images (the current `Dockerfile` installs from `pyproject.toml` version ranges).
+- **Per-client revocation** would require introducing a small persistent client store (trades away statelessness).
