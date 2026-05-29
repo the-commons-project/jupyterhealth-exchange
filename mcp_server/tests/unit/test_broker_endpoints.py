@@ -109,6 +109,7 @@ def test_callback_exchanges_and_redirects_back():
     state = broker_state.encode(
         s.broker_key,
         {
+            "t": "state",
             "llm_redirect_uri": "http://localhost:9999/cb",
             "llm_state": "llm-state-123",
             "llm_code_challenge": "chal",
@@ -131,6 +132,7 @@ def test_token_authorization_code_returns_jhe_token():
     mc = broker_state.encode(
         s.broker_key,
         {
+            "t": "code",
             "token": {"access_token": "JHE-TOK", "token_type": "Bearer"},
             "llm_code_challenge": pkce.challenge_from_verifier(v),
             "llm_redirect_uri": "http://localhost:9999/cb",
@@ -157,6 +159,7 @@ def test_token_rejects_bad_verifier():
     mc = broker_state.encode(
         s.broker_key,
         {
+            "t": "code",
             "token": {"access_token": "JHE-TOK"},
             "llm_code_challenge": pkce.challenge_from_verifier(v),
             "llm_redirect_uri": "http://localhost:9999/cb",
@@ -210,6 +213,7 @@ def test_token_rejects_client_id_mismatch():
     mc = broker_state.encode(
         s.broker_key,
         {
+            "t": "code",
             "token": {"access_token": "JHE-TOK"},
             "llm_code_challenge": pkce.challenge_from_verifier(v),
             "llm_redirect_uri": "http://localhost:9999/cb",
@@ -236,6 +240,7 @@ def test_token_rejects_redirect_uri_mismatch():
     mc = broker_state.encode(
         s.broker_key,
         {
+            "t": "code",
             "token": {"access_token": "JHE-TOK"},
             "llm_code_challenge": pkce.challenge_from_verifier(v),
             "llm_redirect_uri": "http://localhost:9999/cb",
@@ -263,6 +268,7 @@ def test_callback_returns_502_on_upstream_error():
     state = broker_state.encode(
         s.broker_key,
         {
+            "t": "state",
             "llm_redirect_uri": "http://localhost:9999/cb",
             "llm_state": None,
             "llm_code_challenge": "chal",
@@ -293,6 +299,7 @@ def test_token_rejects_expired_code(monkeypatch):
     mc = broker_state.encode(
         s.broker_key,
         {
+            "t": "code",
             "token": {"access_token": "JHE-TOK"},
             "llm_code_challenge": pkce.challenge_from_verifier(v),
             "llm_redirect_uri": "http://localhost:9999/cb",
@@ -403,7 +410,7 @@ def test_mcp_transport_accepts_production_host(monkeypatch):
     monkeypatch.setenv("JHE_BASE_URL", "https://jhe.fly.dev")
     monkeypatch.setenv("JHE_CLIENT_ID", "mcp-client")
     monkeypatch.setenv("MCP_RESOURCE_URL", "https://jhe-mcp.fly.dev")
-    monkeypatch.setenv("MCP_BROKER_KEY", "unit-test-key")
+    monkeypatch.setenv("MCP_BROKER_KEY", "unit-test-key-padded-to-32-chars!")
     respx.get("https://jhe.fly.dev/o/userinfo/").mock(return_value=httpx.Response(200, json={"sub": "user-1"}))
     from jhe_mcp.config import Settings
     from jhe_mcp.server_http import build_app
@@ -437,7 +444,7 @@ def test_build_app_serves_metadata_and_401_header(monkeypatch):
     monkeypatch.setenv("JHE_BASE_URL", "https://jhe.fly.dev")
     monkeypatch.setenv("JHE_CLIENT_ID", "mcp-client")
     monkeypatch.setenv("MCP_RESOURCE_URL", "https://jhe-mcp.fly.dev")
-    monkeypatch.setenv("MCP_BROKER_KEY", "unit-test-key")
+    monkeypatch.setenv("MCP_BROKER_KEY", "unit-test-key-padded-to-32-chars!")
     from jhe_mcp.config import Settings
     from jhe_mcp.server_http import build_app
 
@@ -451,3 +458,86 @@ def test_build_app_serves_metadata_and_401_header(monkeypatch):
     r = client.get("/mcp")
     assert r.status_code == 401
     assert "resource_metadata" in r.headers.get("www-authenticate", "")
+
+
+# FIX 1: upstream error redirect -------------------------------------------
+
+
+def test_callback_error_redirects_to_client_without_token_call():
+    # Valid state + error=access_denied must redirect error back to client;
+    # no token endpoint should be called (no respx mock needed — a network call
+    # would raise an error, and we assert 302, not 502).
+    s = _settings()
+    state = broker_state.encode(
+        s.broker_key,
+        {
+            "t": "state",
+            "llm_redirect_uri": "http://localhost:9999/cb",
+            "llm_state": "llm-state-123",
+            "llm_code_challenge": "chal",
+            "llm_client_id": "llm",
+            "up_verifier": pkce.generate_verifier(),
+        },
+    )
+    r = _client().get(
+        "/oauth/callback",
+        params={"error": "access_denied", "state": state},
+    )
+    assert r.status_code == 302
+    loc = urllib.parse.urlparse(r.headers["location"])
+    q = urllib.parse.parse_qs(loc.query)
+    assert loc.netloc == "localhost:9999"
+    assert q["error"] == ["access_denied"]
+    assert q["state"] == ["llm-state-123"]
+    assert "code" not in q
+
+
+# FIX 2: domain-separated type tags ----------------------------------------
+
+
+def test_token_rejects_state_blob_used_as_code():
+    # A state-typed blob must not be accepted as an authorization code.
+    s = _settings()
+    v = pkce.generate_verifier()
+    state_blob = broker_state.encode(
+        s.broker_key,
+        {
+            "t": "state",
+            "llm_redirect_uri": "http://localhost:9999/cb",
+            "llm_state": "x",
+            "llm_code_challenge": pkce.challenge_from_verifier(v),
+            "llm_client_id": "llm",
+            "up_verifier": pkce.generate_verifier(),
+        },
+    )
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": state_blob,
+            "code_verifier": v,
+            "redirect_uri": "http://localhost:9999/cb",
+            "client_id": "llm",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "invalid_grant"
+
+
+def test_callback_rejects_code_blob_used_as_state():
+    # A code-typed blob must not be accepted as a state param in /oauth/callback.
+    s = _settings()
+    v = pkce.generate_verifier()
+    code_blob = broker_state.encode(
+        s.broker_key,
+        {
+            "t": "code",
+            "token": {"access_token": "JHE-TOK"},
+            "llm_code_challenge": pkce.challenge_from_verifier(v),
+            "llm_redirect_uri": "http://localhost:9999/cb",
+            "llm_client_id": "llm",
+        },
+    )
+    r = _client().get("/oauth/callback", params={"code": "JHE-CODE", "state": code_blob})
+    assert r.status_code == 400
+    assert "invalid state" in r.text
