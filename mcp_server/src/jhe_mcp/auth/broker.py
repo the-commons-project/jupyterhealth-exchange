@@ -7,10 +7,10 @@ import httpx
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
-logger = logging.getLogger(__name__)
-
 from jhe_mcp.auth import broker_state, pkce
 from jhe_mcp.config import Settings
+
+logger = logging.getLogger(__name__)
 
 STATE_TTL = 600  # seconds; authorize -> callback
 CODE_TTL = 30  # seconds; callback -> token. Short window because the stateless
@@ -112,6 +112,7 @@ def build_broker_router(settings: Settings) -> APIRouter:
         state = broker_state.encode(
             settings.broker_key,
             {
+                "t": "state",
                 "llm_redirect_uri": redirect_uri,
                 "llm_state": q.get("state"),
                 "llm_code_challenge": challenge,
@@ -171,6 +172,19 @@ def build_broker_router(settings: Settings) -> APIRouter:
             st = broker_state.decode(settings.broker_key, q.get("state", ""), STATE_TTL)
         except broker_state.StateError:
             return PlainTextResponse("invalid state", status_code=400)
+        if st.get("t") != "state":
+            return PlainTextResponse("invalid state", status_code=400)
+
+        error = q.get("error")
+        if error:
+            err_params: dict[str, str] = {"error": error}
+            if q.get("error_description"):
+                err_params["error_description"] = q["error_description"]
+            if st.get("llm_state"):
+                err_params["state"] = st["llm_state"]
+            sep = "&" if "?" in st["llm_redirect_uri"] else "?"
+            location = f"{st['llm_redirect_uri']}{sep}{urllib.parse.urlencode(err_params)}"
+            return RedirectResponse(location, status_code=302)
 
         data = {
             "grant_type": "authorization_code",
@@ -199,6 +213,7 @@ def build_broker_router(settings: Settings) -> APIRouter:
         mc = broker_state.encode(
             settings.broker_key,
             {
+                "t": "code",
                 "token": jhe_token,
                 "llm_code_challenge": st["llm_code_challenge"],
                 "llm_redirect_uri": st["llm_redirect_uri"],
@@ -226,13 +241,15 @@ def build_broker_router(settings: Settings) -> APIRouter:
                 blob = broker_state.decode(settings.broker_key, code or "", CODE_TTL)
             except broker_state.StateError:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            if blob.get("t") != "code":
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
             if not code_verifier or not pkce.verify(code_verifier, blob["llm_code_challenge"]):
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
             if client_id != blob.get("llm_client_id"):
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
             if redirect_uri != blob["llm_redirect_uri"]:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
-            return JSONResponse(blob["token"])
+            return JSONResponse(blob["token"], headers={"Cache-Control": "no-store"})
 
         if grant_type == "refresh_token":
             data = {
@@ -254,7 +271,7 @@ def build_broker_router(settings: Settings) -> APIRouter:
                 body = resp.json()
             except ValueError:
                 return JSONResponse({"error": "temporarily_unavailable"}, status_code=503)
-            return JSONResponse(body, status_code=200)
+            return JSONResponse(body, status_code=200, headers={"Cache-Control": "no-store"})
 
         return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
 
