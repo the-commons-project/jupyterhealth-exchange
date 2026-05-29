@@ -210,7 +210,11 @@ def start_auth_flow(settings: Settings, cache: TokenCache) -> str:
             state=state,
         )
         _active_listener = _start_callback_listener(
-            settings.redirect_uri, settings, pair, state, cache,
+            settings.redirect_uri,
+            settings,
+            pair,
+            state,
+            cache,
         )
         _active_url = url
         return url
