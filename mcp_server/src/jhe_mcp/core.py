@@ -35,6 +35,7 @@ def build_server(
     def _make_schema_reader(sid: str):
         async def _read() -> str:
             return json.dumps(load_schema(sid), indent=2)
+
         return _read
 
     for schema_id in sorted(all_schema_ids()):

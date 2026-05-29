@@ -52,11 +52,7 @@ def test_observation_from_fhir_entry_with_omh_body():
         "resource": {
             "resourceType": "Observation",
             "id": "obs-1",
-            "code": {
-                "coding": [
-                    {"system": "https://w3id.org/openmhealth", "code": "omh:blood-pressure:4.0"}
-                ]
-            },
+            "code": {"coding": [{"system": "https://w3id.org/openmhealth", "code": "omh:blood-pressure:4.0"}]},
             "subject": {"reference": "Patient/7"},
             "valueAttachment": {
                 "data": _encode_omh(omh_payload),
