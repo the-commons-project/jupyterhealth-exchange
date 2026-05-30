@@ -23,7 +23,7 @@ import httpx
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
 from jhe_mcp.auth.userinfo import TokenValidationError, UserinfoValidator
-from jhe_mcp.config import JHE_SCOPES, Settings
+from jhe_mcp.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -54,28 +54,15 @@ class JheTokenVerifier(TokenVerifier):
 
     async def verify_token(self, token: str) -> AccessToken | None:
         # Layer 1: userinfo validation -> subject. Failure means reject.
-        # A transport-level failure (httpx.HTTPError) must fail closed as a clean
-        # 401 reject, not surface as a 500.
         try:
             subject = await self._validator.verify(token)
         except TokenValidationError:
-            logger.warning("Userinfo rejected the token; rejecting request")
-            return None
-        except httpx.HTTPError as exc:
-            # Fail closed, but this is an infra problem (JHE unreachable/timeout),
-            # not a bad token — log at error with the cause so "auth server down"
-            # is distinguishable from "unauthorized" in the logs.
-            logger.error("Userinfo transport error (%s); rejecting token", type(exc).__name__)
             return None
 
         # Layer 2: best-effort audience check via introspection.
         client_id = await self._introspect_client_id(token)
         if client_id is None:
-            # Introspection unavailable. Fail closed when MCP_REQUIRE_AUDIENCE is
-            # set (production), else fall back to userinfo-only (dev default).
-            if self._settings.require_audience:
-                logger.warning("Audience required but introspection unavailable; rejecting token")
-                return None
+            # Introspection unavailable; fall back to userinfo-only.
             client_id = self._settings.jhe_client_id
         elif client_id != self._settings.jhe_client_id:
             # Token was issued to a different client -> wrong audience. Reject.
@@ -85,7 +72,7 @@ class JheTokenVerifier(TokenVerifier):
         return JheAccessToken(
             token=token,
             client_id=client_id,
-            scopes=list(JHE_SCOPES),
+            scopes=["openid", "email"],
             subject=subject,
         )
 
