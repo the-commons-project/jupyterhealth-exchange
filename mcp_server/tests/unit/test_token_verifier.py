@@ -34,6 +34,16 @@ async def test_invalid_token_returns_none():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_userinfo_transport_error_returns_none():
+    # FIX 3: a transport-level failure on the userinfo call must fail closed
+    # (return None -> clean 401), not raise (which would surface as a 500).
+    respx.get(f"{_BASE}/o/userinfo/").mock(side_effect=httpx.ConnectError("boom"))
+    v = JheTokenVerifier(_settings())
+    assert await v.verify_token("AAA") is None
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_introspection_unavailable_falls_back_to_userinfo():
     respx.get(f"{_BASE}/o/userinfo/").mock(return_value=httpx.Response(200, json={"sub": "subjectA"}))
     respx.post(f"{_BASE}/o/introspect/").mock(return_value=httpx.Response(403))

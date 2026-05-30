@@ -24,6 +24,20 @@ CLIENT_ID_TTL = 7 * 24 * 3600  # 7 days
 # so decode them with no TTL check.
 REFRESH_TTL: int | None = None
 
+# RFC 6749 §4.1.2.1 authorization error codes. Any upstream error outside this
+# set is collapsed to server_error before being relayed to the client.
+_RFC6749_ERROR_CODES = frozenset(
+    {
+        "invalid_request",
+        "unauthorized_client",
+        "access_denied",
+        "unsupported_response_type",
+        "invalid_scope",
+        "server_error",
+        "temporarily_unavailable",
+    }
+)
+
 
 def _wrap_refresh_token(broker_key: str, token: dict, client_id: str | None) -> dict:
     """Return ``token`` with any raw JHE ``refresh_token`` replaced by a wrapped blob.
@@ -118,6 +132,11 @@ def build_broker_router(settings: Settings) -> APIRouter:
         q = request.query_params
         if q.get("response_type") != "code":
             return PlainTextResponse("unsupported_response_type", status_code=400)
+        # RFC 6749 §4.1.1 requires client_id. A missing/empty client_id would bind
+        # the issued code/refresh token to None, which any other client that also
+        # omits client_id could redeem (None == None). Require it to be non-empty.
+        if not q.get("client_id"):
+            return PlainTextResponse("client_id required", status_code=400)
         redirect_uri = q.get("redirect_uri", "")
         registered = _registered_redirects(settings.broker_key, q.get("client_id", ""))
         if registered is not None:
@@ -199,9 +218,12 @@ def build_broker_router(settings: Settings) -> APIRouter:
 
         error = q.get("error")
         if error:
+            # Sanitize: only relay an RFC 6749 §4.1.2.1 error code; never forward
+            # upstream error_description text (could carry attacker-controlled or
+            # sensitive content). Unknown codes collapse to server_error.
+            if error not in _RFC6749_ERROR_CODES:
+                error = "server_error"
             err_params: dict[str, str] = {"error": error}
-            if q.get("error_description"):
-                err_params["error_description"] = q["error_description"]
             if st.get("llm_state"):
                 err_params["state"] = st["llm_state"]
             sep = "&" if "?" in st["llm_redirect_uri"] else "?"
@@ -285,6 +307,10 @@ def build_broker_router(settings: Settings) -> APIRouter:
             except broker_state.StateError:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
             if wrapped.get("t") != "refresh":
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            # Defense-in-depth: never let a falsy client_id satisfy the binding
+            # check (a None/"" wrapper redeemed by a None/"" presenter).
+            if not client_id or not wrapped.get("client_id"):
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
             if wrapped.get("client_id") != client_id:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
