@@ -20,6 +20,28 @@ CODE_TTL = 30  # seconds; callback -> token. Short window because the stateless
 # broker is stateless (no revocation list), a bounded lifetime caps how long a signed
 # registration stays valid. To revoke everything at once, rotate MCP_BROKER_KEY.
 CLIENT_ID_TTL = 7 * 24 * 3600  # 7 days
+# Wrapped refresh tokens are long-lived; binding (not expiry) is the control here,
+# so decode them with no TTL check.
+REFRESH_TTL: int | None = None
+
+
+def _wrap_refresh_token(broker_key: str, token: dict, client_id: str | None) -> dict:
+    """Return ``token`` with any raw JHE ``refresh_token`` replaced by a wrapped blob.
+
+    The wrapper binds the underlying JHE refresh token to ``client_id`` so it can
+    only be redeemed by the public client it was issued to. The raw JHE refresh
+    token is never returned to clients. Non-dict tokens / tokens without a
+    refresh_token are returned unchanged (copy).
+    """
+    if not isinstance(token, dict) or "refresh_token" not in token:
+        return token
+    wrapped = broker_state.encode(
+        broker_key,
+        {"t": "refresh", "jhe_refresh": token["refresh_token"], "client_id": client_id},
+    )
+    out = dict(token)
+    out["refresh_token"] = wrapped
+    return out
 
 
 def _registerable_redirect(uri: str) -> bool:
@@ -249,12 +271,26 @@ def build_broker_router(settings: Settings) -> APIRouter:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
             if redirect_uri != blob["llm_redirect_uri"]:
                 return JSONResponse({"error": "invalid_grant"}, status_code=400)
-            return JSONResponse(blob["token"], headers={"Cache-Control": "no-store"})
+            token = _wrap_refresh_token(settings.broker_key, blob["token"], blob.get("llm_client_id"))
+            return JSONResponse(token, headers={"Cache-Control": "no-store"})
 
         if grant_type == "refresh_token":
+            # The incoming refresh_token is a broker-issued wrapper that binds the
+            # underlying JHE refresh token to the client_id it was issued to. Unwrap
+            # it, require the presenting client_id to match, then forward the raw
+            # JHE refresh token. This prevents a refresh token leaked from one public
+            # client being redeemed by another (confused-deputy).
+            try:
+                wrapped = broker_state.decode(settings.broker_key, refresh_token or "", REFRESH_TTL)
+            except broker_state.StateError:
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            if wrapped.get("t") != "refresh":
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
+            if wrapped.get("client_id") != client_id:
+                return JSONResponse({"error": "invalid_grant"}, status_code=400)
             data = {
                 "grant_type": "refresh_token",
-                "refresh_token": refresh_token or "",
+                "refresh_token": wrapped.get("jhe_refresh") or "",
                 "client_id": settings.jhe_client_id,
             }
             if settings.jhe_client_secret:
@@ -271,6 +307,7 @@ def build_broker_router(settings: Settings) -> APIRouter:
                 body = resp.json()
             except ValueError:
                 return JSONResponse({"error": "temporarily_unavailable"}, status_code=503)
+            body = _wrap_refresh_token(settings.broker_key, body, client_id)
             return JSONResponse(body, status_code=200, headers={"Cache-Control": "no-store"})
 
         return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)

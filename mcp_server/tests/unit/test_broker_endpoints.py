@@ -280,14 +280,32 @@ def test_callback_returns_502_on_upstream_error():
     assert r.status_code == 502
 
 
+def _wrapped_refresh(client_id: str, jhe_refresh: str = "JHE-RT") -> str:
+    s = _settings()
+    return broker_state.encode(
+        s.broker_key,
+        {"t": "refresh", "jhe_refresh": jhe_refresh, "client_id": client_id},
+    )
+
+
 @respx.mock
 def test_token_refresh_proxies_to_jhe():
-    respx.post("https://jhe.fly.dev/o/token/").mock(
+    route = respx.post("https://jhe.fly.dev/o/token/").mock(
         return_value=httpx.Response(200, json={"access_token": "NEW-TOK", "token_type": "Bearer"})
     )
-    r = _client().post("/token", data={"grant_type": "refresh_token", "refresh_token": "rt"})
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": _wrapped_refresh("llm", "JHE-RT"),
+            "client_id": "llm",
+        },
+    )
     assert r.status_code == 200
     assert r.json()["access_token"] == "NEW-TOK"
+    # The raw JHE refresh token is forwarded upstream, never the wrapper.
+    sent = urllib.parse.parse_qs(route.calls[0].request.content.decode())
+    assert sent["refresh_token"] == ["JHE-RT"]
 
 
 def test_token_rejects_expired_code(monkeypatch):
@@ -325,7 +343,14 @@ def test_token_refresh_normalizes_upstream_error():
     respx.post("https://jhe.fly.dev/o/token/").mock(
         return_value=httpx.Response(400, json={"error": "invalid_grant", "secret_detail": "LEAK"})
     )
-    r = _client().post("/token", data={"grant_type": "refresh_token", "refresh_token": "rt"})
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": _wrapped_refresh("llm"),
+            "client_id": "llm",
+        },
+    )
     assert r.status_code == 400
     assert r.json() == {"error": "invalid_grant"}  # generic; upstream body NOT echoed
     assert "secret_detail" not in r.text
@@ -544,3 +569,118 @@ def test_callback_rejects_code_blob_used_as_state():
     r = _client().get("/oauth/callback", params={"code": "JHE-CODE", "state": code_blob})
     assert r.status_code == 400
     assert "invalid state" in r.text
+
+
+# FIX A: refresh tokens bound to the issuing client ------------------------
+
+
+def test_token_authorization_code_wraps_refresh_token():
+    # The authorization_code response must NOT expose the raw JHE refresh_token;
+    # it is replaced with an opaque broker-issued wrapper bound to the client.
+    s = _settings()
+    v = pkce.generate_verifier()
+    mc = broker_state.encode(
+        s.broker_key,
+        {
+            "t": "code",
+            "token": {"access_token": "JHE-TOK", "refresh_token": "RAW-JHE-RT", "token_type": "Bearer"},
+            "llm_code_challenge": pkce.challenge_from_verifier(v),
+            "llm_redirect_uri": "http://localhost:9999/cb",
+            "llm_client_id": "llm",
+        },
+    )
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": mc,
+            "code_verifier": v,
+            "redirect_uri": "http://localhost:9999/cb",
+            "client_id": "llm",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["access_token"] == "JHE-TOK"
+    # opaque / wrapped: not the raw value
+    assert body["refresh_token"] != "RAW-JHE-RT"
+    assert "RAW-JHE-RT" not in r.text
+    # and it decodes to a refresh-typed blob bound to this client
+    decoded = broker_state.decode(s.broker_key, body["refresh_token"], None)
+    assert decoded["t"] == "refresh"
+    assert decoded["client_id"] == "llm"
+    assert decoded["jhe_refresh"] == "RAW-JHE-RT"
+
+
+@respx.mock
+def test_token_refresh_matching_client_succeeds_and_rewraps():
+    respx.post("https://jhe.fly.dev/o/token/").mock(
+        return_value=httpx.Response(
+            200, json={"access_token": "NEW-TOK", "refresh_token": "NEW-JHE-RT", "token_type": "Bearer"}
+        )
+    )
+    s = _settings()
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": _wrapped_refresh("llm", "JHE-RT"),
+            "client_id": "llm",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["access_token"] == "NEW-TOK"
+    # response re-wrapped: not the raw new JHE refresh token
+    assert body["refresh_token"] != "NEW-JHE-RT"
+    assert "NEW-JHE-RT" not in r.text
+    decoded = broker_state.decode(s.broker_key, body["refresh_token"], None)
+    assert decoded["t"] == "refresh"
+    assert decoded["client_id"] == "llm"
+    assert decoded["jhe_refresh"] == "NEW-JHE-RT"
+
+
+def test_token_refresh_client_id_mismatch_rejected():
+    # A wrapped refresh token issued to "client-a" cannot be redeemed by "client-b".
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": _wrapped_refresh("client-a"),
+            "client_id": "client-b",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "invalid_grant"
+
+
+def test_token_refresh_rejects_non_refresh_typed_blob():
+    # A blob whose "t" != "refresh" must not be accepted as a refresh token.
+    s = _settings()
+    not_refresh = broker_state.encode(
+        s.broker_key,
+        {"t": "code", "jhe_refresh": "x", "client_id": "llm"},
+    )
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": not_refresh,
+            "client_id": "llm",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "invalid_grant"
+
+
+# FIX C: log hygiene -------------------------------------------------------
+
+
+def test_configure_logging_quiets_httpx():
+    import logging
+
+    from jhe_mcp.server_http import configure_logging
+
+    logging.getLogger("httpx").setLevel(logging.INFO)
+    configure_logging()
+    assert logging.getLogger("httpx").level == logging.WARNING
