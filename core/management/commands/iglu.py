@@ -15,6 +15,7 @@ from core.models import (
     JheUser,
     Observation,
     Organization,
+    PatientIdentifier,
     Study,
     StudyDataSource,
     StudyPatient,
@@ -265,7 +266,7 @@ class Command(BaseCommand):
                     # Find or create patient once per subject_id
                     if subject_id not in subject_cache:
                         sp = (
-                            StudyPatient.objects.filter(patient__identifier=subject_id, study=iglu_study)
+                            StudyPatient.objects.filter(patient__identifiers__value=subject_id, study=iglu_study)
                             .select_related("patient")
                             .first()
                         )
@@ -293,6 +294,10 @@ class Command(BaseCommand):
                             patient.telecom_phone = mp["telecom_phone"]
                             patient.save()
                             patient.organizations.add(organization)
+                            # Record the subject id as a PatientIdentifier so this patient is
+                            # found by the lookup above on subsequent runs (identifier moved
+                            # off the Patient model to PatientIdentifier).
+                            PatientIdentifier.objects.get_or_create(patient=patient, system="iglu", value=subject_id)
 
                             study_patient, _ = StudyPatient.objects.get_or_create(study=iglu_study, patient=patient)
 

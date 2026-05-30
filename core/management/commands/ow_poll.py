@@ -199,7 +199,7 @@ class Command(BaseCommand):
             Observation.objects.filter(
                 subject_patient=patient,
                 codeable_concept=hr_code,
-                observationidentifier__system=NORMALIZED_SYSTEM,
+                identifiers__system=NORMALIZED_SYSTEM,
             )
             .order_by("-last_updated")
             .first()
@@ -298,7 +298,7 @@ class Command(BaseCommand):
             Observation.objects.filter(
                 subject_patient=patient,
                 codeable_concept=hr_code,
-                observationidentifier__system=RAW_SYSTEM,
+                identifiers__system=RAW_SYSTEM,
             )
             .order_by("-last_updated")
             .first()

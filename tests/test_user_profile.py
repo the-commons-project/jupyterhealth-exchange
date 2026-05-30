@@ -42,7 +42,7 @@ PATIENT_NESTED_REDACTED_FIELDS = {
 PATIENT_USER_EXPECTED_FIELDS = {"id", "patient", "userType", "isSuperuser"}
 
 # Nested patient fields expected for patient users
-PATIENT_NESTED_EXPECTED_FIELDS = {"id", "jheUserId", "identifier", "organizations"}
+PATIENT_NESTED_EXPECTED_FIELDS = {"id", "jheUserId", "identifiers", "organizations"}
 
 # Full field set for practitioners (unchanged behaviour)
 PRACTITIONER_USER_EXPECTED_FIELDS = {
@@ -123,7 +123,7 @@ class TestPatientProfileSerializerUnit:
     @pytest.mark.django_db
     def test_fields_list_includes_expected(self):
         declared = set(PatientProfileSerializer.Meta.fields)
-        for expected in ("id", "jhe_user_id", "identifier", "organizations"):
+        for expected in ("id", "jhe_user_id", "identifiers", "organizations"):
             assert expected in declared
 
     @pytest.mark.django_db
@@ -136,7 +136,7 @@ class TestPatientProfileSerializerUnit:
     def test_serialized_output_includes_expected(self, patient_with_details):
         data = PatientProfileSerializer(patient_with_details).data
         # Direct serializer output uses snake_case (camelCase is applied by DRF response middleware)
-        for key in ("id", "jhe_user_id", "identifier", "organizations"):
+        for key in ("id", "jhe_user_id", "identifiers", "organizations"):
             assert key in data, f"Expected key '{key}' missing from PatientProfileSerializer output"
 
 

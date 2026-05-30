@@ -355,7 +355,11 @@ class GetDefaultOrgsTests(TestCase):
 
 
 class FhirSearchGetSettingTests(TestCase):
-    """Regression: fhir_search SQL must use get_setting for SITE_URL, not ENV."""
+    """Regression: Observation.fhir_search SQL must use get_setting for SITE_URL, not ENV.
+
+    Patient.fhir_search no longer builds SQL — it returns an ORM queryset and the
+    serializer handles FHIR rendering — so it must NOT depend on get_setting/SITE_URL.
+    """
 
     def setUp(self):
         self.org = Organization.objects.create(name="Search Org", type="prov")
@@ -367,24 +371,22 @@ class FhirSearchGetSettingTests(TestCase):
         )
         self.user.practitioner.organizations.add(self.org)
 
-    @patch(GET_SETTING_PATIENT, return_value="https://db-fhir.example.com")
-    def test_patient_fhir_search_calls_get_setting(self, mock_gs):
-        """Unit: Patient.fhir_search should call get_setting for SITE_URL.
-        We don't execute the raw SQL (requires full schema joins); we just
-        verify the method obtains the setting before building the query."""
-        Patient.fhir_search(self.user.id)
-        # RawQuerySet is lazy — calling fhir_search builds SQL but doesn't execute
-        # Verify get_setting was called for site.url
-        calls = [c for c in mock_gs.call_args_list if c[0][0] == "site.url"]
-        self.assertGreaterEqual(len(calls), 1)
+    @patch(GET_SETTING_PATIENT)
+    def test_patient_fhir_search_does_not_use_get_setting(self, mock_gs):
+        """Patient.fhir_search now uses the ORM, so it must not read SITE_URL."""
+        list(Patient.fhir_search(self.user.id))
+        site_calls = [c for c in mock_gs.call_args_list if c[0] and c[0][0] == "site.url"]
+        self.assertEqual(site_calls, [])
 
-    @patch(GET_SETTING_OBSERVATION, return_value="https://db-fhir.example.com")
-    def test_observation_fhir_search_calls_get_setting(self, mock_gs):
-        """Integration: Observation.fhir_search should call get_setting for SITE_URL."""
-        qs = Observation.fhir_search(self.user.id)
-        list(qs)
-        calls = [c for c in mock_gs.call_args_list if c[0][0] == "site.url"]
-        self.assertGreaterEqual(len(calls), 1)
+    @patch(GET_SETTING_SVC)
+    def test_observation_fhir_search_does_not_use_get_setting(self, mock_gs):
+        """Observation.fhir_search now uses the ORM, so it must not read SITE_URL.
+
+        observation.py no longer imports get_setting, so patch the service source.
+        """
+        list(Observation.fhir_search(self.user.id))
+        site_calls = [c for c in mock_gs.call_args_list if c[0] and c[0][0] == "site.url"]
+        self.assertEqual(site_calls, [])
 
 
 # =====================================================================

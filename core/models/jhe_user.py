@@ -123,7 +123,6 @@ class JheUser(AbstractUser):
                     name_family=self.last_name or "",
                     name_given=self.first_name or "",
                     birth_date=timezone.now().date(),  # TBD, do we want a default value equivalent to this?
-                    identifier=self.identifier,
                 )
             elif self.user_type == "practitioner" and not hasattr(self, "practitioner_profile"):
                 with transaction.atomic():

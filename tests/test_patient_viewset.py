@@ -1,5 +1,7 @@
 import pytest
+from django.db import connection
 from django.db.utils import IntegrityError
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from core.models import (
@@ -9,7 +11,14 @@ from core.models import (
     StudyPatientScopeConsent,
 )
 
-from .utils import Code, add_patient_to_study, add_patients, fetch_paginated
+from .utils import (
+    Code,
+    add_patient_to_study,
+    add_patients,
+    assert_valid_fhir_bundle,
+    create_study,
+    fetch_paginated,
+)
 
 
 def test_patient_practitioner_can_update_own_consents(hr_study):
@@ -120,7 +129,6 @@ def test_fhir_list_patients(api_client, organization, hr_study):
     assert len(patients) == n
 
 
-@pytest.mark.xfail(reason="fhir list patients query is wrong")
 def test_fhir_list_patients_by_study(api_client, organization, hr_study):
     n = 25
     per_page = 10
@@ -134,6 +142,42 @@ def test_fhir_list_patients_by_study(api_client, organization, hr_study):
         {"_count": per_page, "_has:Group:member:_id": hr_study.id},
     )
     assert len(patients) == n
+
+
+def test_patient_pagination(api_client, organization):
+    n = 25
+    per_page = 10
+    study = create_study(organization=organization, codes=[Code.HeartRate])
+    for patient in add_patients(n, organization=organization):
+        add_patient_to_study(patient, study)
+
+    params = {"_has:Group:member:_id": study.id, "_count": per_page}
+    with CaptureQueriesContext(connection) as ctx:
+        r = api_client.get("/fhir/r5/Patient", params)
+    assert r.status_code == 200, r.text
+    page = r.json()
+    assert page["resourceType"] == "Bundle"
+    assert page["type"] == "searchset"
+    assert page["total"] == n
+    assert len(page["entry"]) == per_page
+    # paginated at the DB level (LIMIT, no OFFSET on page 1); identifiers are prefetched in a
+    # separate bounded query, so locate the paginated query rather than assuming it is last.
+    paginated_queries = [q["sql"] for q in ctx.captured_queries if "LIMIT 10" in q["sql"]]
+    assert len(paginated_queries) == 1
+    assert "OFFSET" not in paginated_queries[0]
+    # the search Bundle envelope (and its nested Patient resources) is valid FHIR
+    assert_valid_fhir_bundle(page)
+
+    pages = fetch_paginated(api_client, "/fhir/r5/Patient", params, return_pages=True)
+    assert len(pages) == 3
+    assert len(pages[0]["entry"]) == per_page
+    assert len(pages[-1]["entry"]) == n % per_page
+    assert sum(len(p["entry"]) for p in pages) == n
+    for bundle in pages:
+        assert_valid_fhir_bundle(bundle)
+    # no 'next' link on the last page
+    link_rels = [link["relation"] for link in pages[-1]["link"]]
+    assert "next" not in link_rels
 
 
 def test_fhir_list_patients_by_identifier(api_client, organization):

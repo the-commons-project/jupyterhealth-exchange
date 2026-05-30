@@ -12,6 +12,7 @@ from .utils import (
     Code,
     add_observations,
     add_patient_to_study,
+    assert_valid_fhir_bundle,
     create_study,
     fetch_paginated,
 )
@@ -42,12 +43,17 @@ def test_observation_pagination(hr_study, patient, api_client, get_observations)
     with CaptureQueriesContext(connection) as ctx:
         page = get_observations(_count=per_page)
     assert len(ctx.captured_queries) < 8
-    last_query = ctx.captured_queries[-1]["sql"]
-    assert "LIMIT 10" in last_query
-    assert "OFFSET" not in last_query
+    # The main observation query is paginated at the DB level (LIMIT, no OFFSET on page 1).
+    # identifiers are prefetched in a separate bounded query, so locate the paginated
+    # query rather than assuming it is the last one captured.
+    paginated_queries = [q["sql"] for q in ctx.captured_queries if "LIMIT 10" in q["sql"]]
+    assert len(paginated_queries) == 1
+    assert "OFFSET" not in paginated_queries[0]
     assert page["type"] == "searchset"
     assert page["resourceType"] == "Bundle"
     assert page["total"] == n
+    # the search Bundle envelope (and its nested Observation resources) is valid FHIR
+    assert_valid_fhir_bundle(page)
 
     with CaptureQueriesContext(connection) as ctx:
         pages = fetch_paginated(
@@ -59,10 +65,11 @@ def test_observation_pagination(hr_study, patient, api_client, get_observations)
     assert len(pages[0]["entry"]) == per_page
     assert len(pages[-1]["entry"]) == n % per_page
     assert sum(len(page["entry"]) for page in pages) == n
+    for bundle in pages:
+        assert_valid_fhir_bundle(bundle)
 
-    last_query = ctx.captured_queries[-1]["sql"]
-    # try to make sure our offset/limit were applied
-    assert "OFFSET 100" in last_query
+    # try to make sure our offset/limit were applied (the final page's paginated query)
+    assert any("OFFSET 100" in q["sql"] for q in ctx.captured_queries)
 
     # no 'next' link on last page
     link_rels = [link["relation"] for link in pages[-1]["link"]]

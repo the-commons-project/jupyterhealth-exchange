@@ -9,6 +9,15 @@ class CodeableConcept(models.Model):
     def __str__(self):
         return self.text or self.coding_code
 
+    def as_fhir_element(self):
+        # FHIR Coding shape; the data-mapping engine calls this when fanning out
+        # Observation.codeable_concepts into code.coding. Empty values are pruned upstream.
+        return {
+            "system": self.coding_system,
+            "code": self.coding_code,
+            "display": self.text,
+        }
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
