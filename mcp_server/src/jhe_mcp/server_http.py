@@ -40,13 +40,26 @@ def build_app(settings: Settings) -> FastAPI:
     return app
 
 
+def configure_logging() -> None:
+    """Log hygiene: keep PHI-adjacent identifiers out of general logs.
+
+    httpx emits an INFO line per request that includes the full request URL
+    (which embeds study/patient ids); raising it to WARNING suppresses those.
+    Uvicorn's access log echoes request lines and is disabled at ``main()``.
+    The deliberate ``jhe_mcp.audit`` log (and other ``jhe_mcp.*`` loggers) is
+    the controlled record and is intentionally left untouched.
+    """
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
 def main() -> None:
     import uvicorn
 
+    configure_logging()
     settings = Settings.from_env()
     app = build_app(settings)
     port = int(os.environ.get("MCP_HTTP_PORT", "8401"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port, access_log=False)
 
 
 if __name__ == "__main__":
