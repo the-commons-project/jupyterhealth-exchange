@@ -6,7 +6,8 @@ from typing import Any
 import httpx
 from mcp.server.auth.middleware.auth_context import get_access_token
 
-from jhe_mcp.auth.context import current_auth_required
+from jhe_mcp.audit import log_access
+from jhe_mcp.auth.context import current_auth, current_auth_required
 
 
 def _per_request_bearer() -> str | None:
@@ -34,6 +35,33 @@ def _per_request_bearer() -> str | None:
     # AuthContextMiddleware (only correct when not crossing the session task).
     tok = get_access_token()
     return tok.token if tok is not None else None
+
+
+def _per_request_subject() -> str | None:
+    """Return the authenticated subject for the current request, or None.
+
+    Mirrors ``_per_request_bearer``: prefer the per-request ``JheAccessToken``
+    carried on the ASGI request context, then fall back to the SDK contextvar
+    and finally the stdio AuthContext. Returns None when no subject is known.
+    """
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+
+        ctx = request_ctx.get()
+    except (ImportError, LookupError):
+        ctx = None
+    request = getattr(ctx, "request", None) if ctx is not None else None
+    user = getattr(request, "user", None) if request is not None else None
+    access_token = getattr(user, "access_token", None)
+    subject = getattr(access_token, "subject", None)
+    if subject is not None:
+        return subject
+    tok = get_access_token()
+    subject = getattr(tok, "subject", None)
+    if subject is not None:
+        return subject
+    stdio_ctx = current_auth()
+    return stdio_ctx.subject if stdio_ctx is not None else None
 
 
 class JheClientError(Exception):
@@ -88,6 +116,7 @@ class JheClient:
         bearer = _per_request_bearer()
         if bearer is None:
             bearer = current_auth_required().bearer_token
+        subject = _per_request_subject()
         url = f"{self._base_url}{path}"
         headers = {"Authorization": f"Bearer {bearer}"}
         # One retry on transport errors or 5xx; everything else returns/raises immediately.
@@ -96,14 +125,17 @@ class JheClient:
                 resp = await self._client.get(url, params=params, headers=headers)
             except httpx.HTTPError as exc:
                 if is_retry:
+                    log_access(subject=subject, method="GET", path=path, status=0)
                     raise JheClientError(0, str(exc)) from exc
                 await asyncio.sleep(0.5)
                 continue
             if resp.status_code == 404 and treat_404_as_none:
+                log_access(subject=subject, method="GET", path=path, status=resp.status_code)
                 return None
             if 500 <= resp.status_code < 600 and not is_retry:
                 await asyncio.sleep(0.5)
                 continue
+            log_access(subject=subject, method="GET", path=path, status=resp.status_code)
             if resp.status_code >= 400:
                 raise JheClientError(resp.status_code, resp.text)
             return resp.json()
