@@ -1,0 +1,68 @@
+name: MCP Server CI
+run-name: MCP Server CI triggered by ${{ github.event_name }} to ${{ github.ref }}
+
+on:
+  push:
+    paths:
+      - 'mcp_server/**'
+      - '.github/workflows/mcp_server_ci.yml'
+  pull_request:
+    paths:
+      - 'mcp_server/**'
+      - '.github/workflows/mcp_server_ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp_server
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+        with:
+          version: "0.8.4"
+
+      - name: Sync dependencies from lockfile
+        run: uv sync --frozen --extra dev
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit -q
+
+  build:
+    name: Reproducible Docker build
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build image (no push) with SBOM and provenance
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: ./mcp_server
+          file: ./mcp_server/Dockerfile
+          push: false
+          load: true
+          tags: jhe-mcp:ci
+          provenance: true
+          sbom: true
