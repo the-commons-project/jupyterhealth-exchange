@@ -66,7 +66,7 @@ class UserinfoValidator:
             self._cache.pop(token, None)
             raise TokenValidationError("token rejected by userinfo endpoint")
         if resp.status_code != 200:
-            raise TokenValidationError(f"userinfo returned {resp.status_code}: {resp.text}")
+            raise TokenValidationError(f"userinfo returned {resp.status_code}")
         sub = resp.json().get("sub")
         if not sub:
             raise TokenValidationError("userinfo response missing 'sub' claim")

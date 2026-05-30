@@ -412,6 +412,9 @@ def test_mcp_transport_accepts_production_host(monkeypatch):
     monkeypatch.setenv("MCP_RESOURCE_URL", "https://jhe-mcp.fly.dev")
     monkeypatch.setenv("MCP_BROKER_KEY", "unit-test-key-padded-to-32-chars!")
     respx.get("https://jhe.fly.dev/o/userinfo/").mock(return_value=httpx.Response(200, json={"sub": "user-1"}))
+    # The resource-server TokenVerifier also probes JHE introspection for the
+    # audience check; 403 = introspection unavailable -> userinfo-only fallback.
+    respx.post("https://jhe.fly.dev/o/introspect/").mock(return_value=httpx.Response(403))
     from jhe_mcp.config import Settings
     from jhe_mcp.server_http import build_app
 

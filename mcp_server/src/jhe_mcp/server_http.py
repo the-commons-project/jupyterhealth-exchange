@@ -4,12 +4,9 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from jhe_mcp.auth.broker import build_broker_router
-from jhe_mcp.auth.context import AuthContext, set_current_auth
-from jhe_mcp.auth.userinfo import TokenValidationError, UserinfoValidator
 from jhe_mcp.config import Settings
 from jhe_mcp.core import build_server
 
@@ -18,9 +15,13 @@ logger = logging.getLogger(__name__)
 
 def build_app(settings: Settings) -> FastAPI:
     mcp = build_server(settings)
-    validator = UserinfoValidator(userinfo_endpoint=settings.userinfo_endpoint)
-    challenge = f'Bearer resource_metadata="{settings.mcp_resource_url}/.well-known/oauth-protected-resource"'
 
+    # In resource-server mode the MCP SDK wraps /mcp with RequireAuthMiddleware,
+    # which verifies the bearer token on *every* request via JheTokenVerifier and
+    # binds the per-request principal (see core.build_server). We therefore do NOT
+    # gate /mcp in a FastAPI middleware here — doing so would double-auth and, worse,
+    # snapshot the initialize-time token into a contextvar (the original isolation
+    # bug). The broker routes and /health were never gated and remain open.
     streamable_app = mcp.streamable_http_app()
 
     @asynccontextmanager
@@ -30,40 +31,6 @@ def build_app(settings: Settings) -> FastAPI:
 
     app = FastAPI(title="jhe-mcp HTTP", lifespan=lifespan)
     app.include_router(build_broker_router(settings))
-
-    # The Streamable HTTP app serves the MCP endpoint at /mcp.
-    AUTHED_PREFIXES = ("/mcp",)
-
-    @app.middleware("http")
-    async def attach_auth(request: Request, call_next):
-        if not any(request.url.path.startswith(p) for p in AUTHED_PREFIXES):
-            return await call_next(request)
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header.lower().startswith("bearer "):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "missing bearer token"},
-                headers={"WWW-Authenticate": challenge},
-            )
-        token = auth_header.split(" ", 1)[1].strip()
-        try:
-            subject = await validator.verify(token)
-        except TokenValidationError as exc:
-            logger.warning("Token validation failed: %s", exc)
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "invalid or expired token"},
-                headers={"WWW-Authenticate": challenge},
-            )
-        # expires_at is unused in HTTP/broker mode: token revalidation is governed by
-        # UserinfoValidator's cache TTL, not this field. 0 = "not applicable here".
-        ctx_token = set_current_auth(AuthContext(bearer_token=token, subject=subject, expires_at=0))
-        try:
-            return await call_next(request)
-        finally:
-            from jhe_mcp.auth.context import _current
-
-            _current.reset(ctx_token)
 
     @app.get("/health")
     async def health():

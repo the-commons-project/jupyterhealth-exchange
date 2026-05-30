@@ -4,8 +4,36 @@ import asyncio
 from typing import Any
 
 import httpx
+from mcp.server.auth.middleware.auth_context import get_access_token
 
 from jhe_mcp.auth.context import current_auth_required
+
+
+def _per_request_bearer() -> str | None:
+    """Return the bearer for the *current* MCP request, or None.
+
+    In HTTP resource-server mode the SDK runs each session's tools inside a
+    long-lived task started at ``initialize``; a plain contextvar (like
+    ``get_access_token()``) therefore returns the *initialize-time* token, which
+    is the original auth-isolation bug. The per-request principal is instead
+    carried on the request context's ASGI ``Request`` (``scope["user"]``), set
+    fresh by the SDK's auth middleware for every HTTP request. Read that first.
+    """
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+
+        ctx = request_ctx.get()
+    except (ImportError, LookupError):
+        ctx = None
+    request = getattr(ctx, "request", None) if ctx is not None else None
+    user = getattr(request, "user", None) if request is not None else None
+    access_token = getattr(user, "access_token", None)
+    if access_token is not None:
+        return access_token.token
+    # Fallback for non-HTTP / direct invocation: the contextvar set by the SDK's
+    # AuthContextMiddleware (only correct when not crossing the session task).
+    tok = get_access_token()
+    return tok.token if tok is not None else None
 
 
 class JheClientError(Exception):
@@ -54,9 +82,14 @@ class JheClient:
     ) -> Any:
         if self._client is None:
             raise RuntimeError("JheClient must be used as async context manager")
-        ctx = current_auth_required()
+        # Prefer the SDK's per-request token (HTTP resource-server mode): it is
+        # verified per request and reflects the *current* caller, not whoever
+        # initialized the session. Fall back to the stdio contextvar.
+        bearer = _per_request_bearer()
+        if bearer is None:
+            bearer = current_auth_required().bearer_token
         url = f"{self._base_url}{path}"
-        headers = {"Authorization": f"Bearer {ctx.bearer_token}"}
+        headers = {"Authorization": f"Bearer {bearer}"}
         # One retry on transport errors or 5xx; everything else returns/raises immediately.
         for is_retry in (False, True):
             try:
