@@ -14,13 +14,15 @@ logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=1)
 def _get_oidc_client_id():
+    Application = get_application_model()
     try:
-        Application = get_application_model()
-        return Application.objects.filter(name="JHE Admin UI").values_list("client_id", flat=True).first()
-    except Exception as exc:
-        logger.warning(
-            "Unable to load the OAuth2 client ID for 'JHE Admin UI' from the database: %s",
-            exc,
+        client_id = Application.objects.filter(name="JHE Admin UI").values_list("client_id", flat=True).first()
+    except Exception:
+        logger.exception("Error looking up OAuth2 client ID for 'JHE Admin UI'")
+        client_id = None
+    if client_id is None:
+        logger.error(
+            "Unable to load the OAuth2 client ID for 'JHE Admin UI' from the database. Make sure it is defined in Applications via the django admin interface (/admin/)."
         )
 
 
