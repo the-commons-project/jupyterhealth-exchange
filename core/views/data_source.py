@@ -1,6 +1,7 @@
 import logging
 
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
@@ -50,14 +51,16 @@ class DataSourceViewSet(ModelViewSet):
             serializer = DataSourceSupportedScopeSerializer(scopes, many=True)
             return Response(serializer.data)
         else:
+            scope_code_id = request.data.get("scope_code_id")
+            if scope_code_id is None:
+                raise ValidationError("scope_code_id is required.")
+
             response = None
             if request.method == "POST":
-                response = DataSourceSupportedScope.objects.create(
-                    data_source_id=pk, scope_code_id=request.data["scope_code_id"]
-                )
+                response = DataSourceSupportedScope.objects.create(data_source_id=pk, scope_code_id=scope_code_id)
             else:
                 response = DataSourceSupportedScope.objects.filter(
-                    data_source_id=pk, scope_code_id=request.data["scope_code_id"]
+                    data_source_id=pk, scope_code_id=scope_code_id
                 ).delete()
 
             return Response(DataSourceSupportedScopeSerializer(response, many=False).data)
