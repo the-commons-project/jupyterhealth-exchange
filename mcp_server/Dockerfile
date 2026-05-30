@@ -2,7 +2,7 @@
 
 # ---- Builder stage ---------------------------------------------------------
 # Reproducible install from the committed uv.lock (no version-range resolution).
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm@sha256:93ab4b7fa528b25124c97bcc755415e60eb671a86b4dbe0328df2fe2d1c1193d AS builder
 
 # Pinned uv binary for deterministic, lockfile-driven installs.
 COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # ---- Runtime stage ---------------------------------------------------------
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.12-slim-bookworm@sha256:93ab4b7fa528b25124c97bcc755415e60eb671a86b4dbe0328df2fe2d1c1193d AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -40,6 +40,13 @@ WORKDIR /app
 
 # Copy the fully built application (including the .venv) from the builder.
 COPY --from=builder --chown=10001:10001 /app /app
+
+# Remove the system package manager from the runtime image to shrink the RCE
+# blast radius. The app runs from the prebuilt /app/.venv on PATH and needs no
+# pip at runtime. Use the absolute system interpreter (not the venv python that
+# leads on PATH) so the base-image pip/setuptools/wheel are actually removed.
+# Done while still root, before dropping to the non-root user.
+RUN /usr/local/bin/python -m pip uninstall -y pip setuptools wheel 2>/dev/null || true
 
 USER 10001
 
