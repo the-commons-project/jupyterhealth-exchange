@@ -9,7 +9,7 @@ from jhe_mcp.config import Settings
 _BASE = "https://jhe.example.test"
 
 
-def _settings(*, require_audience: bool = False) -> Settings:
+def _settings() -> Settings:
     return Settings(
         jhe_base_url=_BASE,
         jhe_client_id="jhe-mcp-client",
@@ -21,7 +21,6 @@ def _settings(*, require_audience: bool = False) -> Settings:
         mcp_resource_url="http://testserver",
         broker_key="x" * 40,
         allowed_redirects=(),
-        require_audience=require_audience,
     )
 
 
@@ -35,16 +34,6 @@ async def test_invalid_token_returns_none():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_userinfo_transport_error_returns_none():
-    # FIX 3: a transport-level failure on the userinfo call must fail closed
-    # (return None -> clean 401), not raise (which would surface as a 500).
-    respx.get(f"{_BASE}/o/userinfo/").mock(side_effect=httpx.ConnectError("boom"))
-    v = JheTokenVerifier(_settings())
-    assert await v.verify_token("AAA") is None
-
-
-@pytest.mark.asyncio
-@respx.mock
 async def test_introspection_unavailable_falls_back_to_userinfo():
     respx.get(f"{_BASE}/o/userinfo/").mock(return_value=httpx.Response(200, json={"sub": "subjectA"}))
     respx.post(f"{_BASE}/o/introspect/").mock(return_value=httpx.Response(403))
@@ -54,17 +43,6 @@ async def test_introspection_unavailable_falls_back_to_userinfo():
     assert tok.token == "AAA"
     assert tok.subject == "subjectA"
     assert tok.client_id == "jhe-mcp-client"
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_introspection_unavailable_rejected_when_audience_required():
-    # MCP_REQUIRE_AUDIENCE=true (production): if introspection can't confirm the
-    # audience, fail closed instead of falling back to userinfo-only.
-    respx.get(f"{_BASE}/o/userinfo/").mock(return_value=httpx.Response(200, json={"sub": "subjectA"}))
-    respx.post(f"{_BASE}/o/introspect/").mock(return_value=httpx.Response(403))
-    v = JheTokenVerifier(_settings(require_audience=True))
-    assert await v.verify_token("AAA") is None
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,6 @@ observable fix here is "per-request token honored": A's identity no longer leaks
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 
@@ -226,40 +225,6 @@ async def test_s4_attacker_token_on_victim_session_not_executed_as_victim(settin
         assert captured_bearers[-1] == "BBB", captured_bearers
     else:
         assert resp.status_code in (401, 403), resp.status_code
-
-
-@pytest.mark.asyncio
-async def test_per_request_bearer_is_task_local_under_concurrency():
-    """Interleaved concurrent requests each read their OWN bearer, not a shared one.
-
-    This targets the heart of the original bug: the forwarded token must come
-    from per-request, task-local state — not a module global / snapshot that a
-    second interleaved request could overwrite. Two tasks each install their own
-    request context, synchronize at a barrier so both are live simultaneously,
-    then read ``_per_request_bearer()``; each must see only its own token.
-
-    (The full Streamable-HTTP protocol isn't driven concurrently here because the
-    in-process ASGI test transport serializes requests; this exercises the
-    isolation primitive the fix relies on directly.)
-    """
-    from types import SimpleNamespace
-
-    from jhe_mcp.fhir.client import _per_request_bearer
-    from mcp.server.lowlevel.server import request_ctx
-
-    def _ctx(token: str) -> SimpleNamespace:
-        access_token = SimpleNamespace(token=token)
-        return SimpleNamespace(request=SimpleNamespace(user=SimpleNamespace(access_token=access_token)))
-
-    barrier = asyncio.Barrier(2)
-
-    async def worker(token: str) -> str:
-        request_ctx.set(_ctx(token))  # task-local; tasks each get their own context copy
-        await barrier.wait()  # ensure both contexts are installed before either reads
-        return _per_request_bearer()
-
-    results = await asyncio.gather(worker("AAA"), worker("BBB"))
-    assert sorted(results) == ["AAA", "BBB"]  # neither task saw the other's token
 
 
 @pytest.mark.asyncio

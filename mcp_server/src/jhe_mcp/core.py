@@ -4,10 +4,12 @@ import json
 import urllib.parse
 from collections.abc import Awaitable, Callable
 
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from jhe_mcp.auth.oauth_flow import AuthenticationRequired
+from jhe_mcp.auth.token_verifier import JheTokenVerifier
 from jhe_mcp.config import Settings
 from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, short_name
 from jhe_mcp.tools import study as study_tools
@@ -33,7 +35,17 @@ def build_server(
         allowed_hosts=allowed_hosts,
         allowed_origins=allowed_origins,
     )
-    mcp = FastMCP(name="jhe-mcp", transport_security=transport_security)
+    mcp = FastMCP(
+        name="jhe-mcp",
+        transport_security=transport_security,
+        token_verifier=JheTokenVerifier(settings),
+        auth=AuthSettings(
+            # Our broker is the authorization server the clients use.
+            issuer_url=settings.mcp_resource_url,
+            resource_server_url=settings.mcp_resource_url,
+            required_scopes=None,
+        ),
+    )
     base_url = settings.jhe_base_url
 
     async def _before() -> str | None:
