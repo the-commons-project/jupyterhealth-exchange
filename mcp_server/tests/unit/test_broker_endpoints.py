@@ -509,7 +509,11 @@ def test_callback_error_redirects_to_client_without_token_call():
     )
     r = _client().get(
         "/oauth/callback",
-        params={"error": "access_denied", "state": state},
+        params={
+            "error": "access_denied",
+            "error_description": "user cancelled SECRET-DETAIL",
+            "state": state,
+        },
     )
     assert r.status_code == 302
     loc = urllib.parse.urlparse(r.headers["location"])
@@ -518,6 +522,39 @@ def test_callback_error_redirects_to_client_without_token_call():
     assert q["error"] == ["access_denied"]
     assert q["state"] == ["llm-state-123"]
     assert "code" not in q
+    # FIX 4: upstream error_description is never relayed.
+    assert "error_description" not in q
+    assert "SECRET-DETAIL" not in r.text
+
+
+def test_callback_error_sanitizes_unknown_error_code():
+    # FIX 4: an upstream error code outside the RFC 6749 set collapses to
+    # server_error and the description is dropped.
+    s = _settings()
+    state = broker_state.encode(
+        s.broker_key,
+        {
+            "t": "state",
+            "llm_redirect_uri": "http://localhost:9999/cb",
+            "llm_state": "llm-state-123",
+            "llm_code_challenge": "chal",
+            "llm_client_id": "llm",
+            "up_verifier": pkce.generate_verifier(),
+        },
+    )
+    r = _client().get(
+        "/oauth/callback",
+        params={
+            "error": "weird_upstream_code<script>",
+            "error_description": "leaky text",
+            "state": state,
+        },
+    )
+    assert r.status_code == 302
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(r.headers["location"]).query)
+    assert q["error"] == ["server_error"]
+    assert "error_description" not in q
+    assert "leaky text" not in r.text
 
 
 # FIX 2: domain-separated type tags ----------------------------------------
@@ -648,6 +685,38 @@ def test_token_refresh_client_id_mismatch_rejected():
             "grant_type": "refresh_token",
             "refresh_token": _wrapped_refresh("client-a"),
             "client_id": "client-b",
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "invalid_grant"
+
+
+def test_authorize_requires_client_id():
+    # FIX 1: /authorize without client_id must be rejected (RFC 6749 §4.1.1),
+    # otherwise the issued code/refresh would be bound to None.
+    v = pkce.generate_verifier()
+    r = _client().get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "redirect_uri": "http://localhost:9999/cb",
+            "code_challenge": pkce.challenge_from_verifier(v),
+            "code_challenge_method": "S256",
+        },
+    )
+    assert r.status_code == 400
+    assert "client_id required" in r.text
+
+
+def test_token_refresh_rejects_empty_client_id():
+    # FIX 1 (defensive): a wrapper bound to "" presented with an empty/missing
+    # client_id must be rejected (no None == None / "" == "" bypass).
+    r = _client().post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": _wrapped_refresh(""),
+            "client_id": "",
         },
     )
     assert r.status_code == 400

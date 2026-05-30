@@ -54,9 +54,12 @@ class JheTokenVerifier(TokenVerifier):
 
     async def verify_token(self, token: str) -> AccessToken | None:
         # Layer 1: userinfo validation -> subject. Failure means reject.
+        # A transport-level failure (httpx.HTTPError) must fail closed as a clean
+        # 401 reject, not surface as a 500.
         try:
             subject = await self._validator.verify(token)
-        except TokenValidationError:
+        except (TokenValidationError, httpx.HTTPError):
+            logger.warning("Userinfo validation failed; rejecting token")
             return None
 
         # Layer 2: best-effort audience check via introspection.
