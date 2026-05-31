@@ -62,7 +62,6 @@ jobs:
           context: ./mcp_server
           file: ./mcp_server/Dockerfile
           push: false
-          load: true
           tags: jhe-mcp:ci
           provenance: true
           sbom: true
