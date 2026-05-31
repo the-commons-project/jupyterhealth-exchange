@@ -89,3 +89,42 @@ async def test_summarize_groups_by_type_with_date_range(auth, fake_client):
     assert summary["Blood glucose"]["earliest"] == "2026-04-10T08:00:00Z"
     assert summary["Blood glucose"]["latest"] == "2026-04-15T08:00:00Z"
     assert summary["Heart rate"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_patient_observations_date_filter_client_side(auth, fake_client):
+    # Backend ignores `date`; tool fetches all, filters by effective_at, paginates in process.
+    fake_client.fhir_get.return_value = {
+        "total": 3,
+        "entry": [
+            _entry("o1", "omh:blood-glucose:4.0", "Blood glucose", "2026-04-05T00:00:00Z", 90),
+            _entry("o2", "omh:blood-glucose:4.0", "Blood glucose", "2026-04-20T00:00:00Z", 95),
+            _entry("o3", "omh:blood-glucose:4.0", "Blood glucose", "2026-05-10T00:00:00Z", 99),
+        ],
+    }
+    result = await get_patient_observations(
+        patient_id="40006", start="2026-04-01", end="2026-04-30", limit=50, page=1, base_url="http://jhe"
+    )
+    assert result["total"] == 2  # filtered client-side, not the backend's 3
+    assert result["returned"] == 2
+    assert [o["observation_id"] for o in result["observations"]] == ["o1", "o2"]
+    sent = fake_client.fhir_get.await_args.kwargs["params"]
+    assert sent["_count"] == 1000  # full-fetch path, not the page-size path
+
+
+@pytest.mark.asyncio
+async def test_summarize_respects_date_window(auth, fake_client):
+    fake_client.fhir_get.return_value = {
+        "total": 3,
+        "entry": [
+            _entry("o1", "omh:blood-glucose:4.0", "Blood glucose", "2026-04-05T00:00:00Z", 90),
+            _entry("o2", "omh:blood-glucose:4.0", "Blood glucose", "2026-05-10T00:00:00Z", 95),
+            _entry("o3", "omh:heart-rate:2.0", "Heart rate", "2026-04-12T00:00:00Z", 70),
+        ],
+    }
+    summary = await summarize_patient_observations(
+        patient_id="40006", start="2026-04-01", end="2026-04-30", base_url="http://jhe"
+    )
+    assert summary["Blood glucose"]["count"] == 1  # only the April record
+    assert summary["Blood glucose"]["latest"] == "2026-04-05T00:00:00Z"
+    assert summary["Heart rate"]["count"] == 1

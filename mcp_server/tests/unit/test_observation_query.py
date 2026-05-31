@@ -5,15 +5,27 @@ from jhe_mcp.fhir.observation_query import (
     build_observation_params,
     count_observations,
     fetch_observation_page,
+    in_date_range,
     iter_all_observations,
 )
 
 
-def test_build_params_patient_and_filters():
-    params = build_observation_params(patient_id="7", data_type="blood-glucose", start="2026-04-01", end="2026-05-01")
+def test_build_params_patient_and_code():
+    params = build_observation_params(patient_id="7", data_type="blood-glucose")
     assert params["patient"] == "7"
     assert "omh:blood-glucose:4.0" in params["code"]
-    assert params["date"] == ["ge2026-04-01", "le2026-05-01"]
+    # date is filtered client-side, never sent to the backend
+    assert "date" not in params
+
+
+def test_in_date_range_inclusive_and_undated():
+    assert in_date_range("2026-04-15T08:00:00Z", "2026-04-01", "2026-04-30") is True
+    assert in_date_range("2026-04-01T00:00:00Z", "2026-04-01", "2026-04-30") is True  # start inclusive
+    assert in_date_range("2026-04-30T23:59:00Z", "2026-04-01", "2026-04-30") is True  # end inclusive
+    assert in_date_range("2026-05-01T00:00:00Z", "2026-04-01", "2026-04-30") is False
+    assert in_date_range("2026-03-31T00:00:00Z", "2026-04-01", None) is False
+    assert in_date_range(None, "2026-04-01", "2026-04-30") is False  # undated excluded
+    assert in_date_range("2026-04-15T08:00:00Z", None, None) is True  # no window
 
 
 def test_build_params_study_scope():

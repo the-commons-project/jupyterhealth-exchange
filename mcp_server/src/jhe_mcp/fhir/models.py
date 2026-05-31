@@ -115,7 +115,10 @@ def extract_value_unit(omh_body: dict[str, Any] | None) -> tuple[Any, str | None
     """
     if not omh_body:
         return None, None
-    for v in omh_body.values():
+    for key, v in omh_body.items():
+        # effective_time_frame is metadata, never the measured scalar
+        if key == "effective_time_frame":
+            continue
         if isinstance(v, dict) and "value" in v:
             return v.get("value"), v.get("unit")
     if "value" in omh_body:
