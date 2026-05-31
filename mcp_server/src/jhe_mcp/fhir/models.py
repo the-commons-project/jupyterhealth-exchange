@@ -102,3 +102,43 @@ class Observation(BaseModel):
             effective_at=effective_at,
             omh_body=omh_body,
         )
+
+
+def extract_value_unit(omh_body: dict[str, Any] | None) -> tuple[Any, str | None]:
+    """Best-effort scalar extraction from an OMH body.
+
+    OMH measure bodies typically nest the measure under a type key, e.g.
+    ``{"blood_glucose": {"value": 92, "unit": "mg/dL"}}``. Returns the first
+    ``(value, unit)`` found in a nested mapping, then falls back to a top-level
+    ``value``/``unit``. Returns ``(None, None)`` when no scalar leaf exists
+    (e.g. sleep episodes), so the caller can fetch the full record instead.
+    """
+    if not omh_body:
+        return None, None
+    for v in omh_body.values():
+        if isinstance(v, dict) and "value" in v:
+            return v.get("value"), v.get("unit")
+    if "value" in omh_body:
+        return omh_body.get("value"), omh_body.get("unit")
+    return None, None
+
+
+class SlimObservation(BaseModel):
+    observation_id: str
+    patient_id: str | None = None
+    type: str | None = None
+    effective_at: str | None = None
+    value: Any = None
+    unit: str | None = None
+
+    @classmethod
+    def from_observation(cls, obs: Observation) -> SlimObservation:
+        value, unit = extract_value_unit(obs.omh_body)
+        return cls(
+            observation_id=obs.observation_id,
+            patient_id=obs.patient_id,
+            type=obs.code_display or obs.code,
+            effective_at=obs.effective_at,
+            value=value,
+            unit=unit,
+        )

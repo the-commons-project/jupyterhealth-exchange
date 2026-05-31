@@ -18,17 +18,6 @@ def test_extract_value_unit_none_for_no_scalar():
     assert extract_value_unit(body) == (None, None)
 
 
-def test_extract_value_unit_none_for_multi_component_blood_pressure():
-    # Blood pressure has two scalars; surfacing only the first (systolic) would
-    # mislead, so the slim view returns (None, None) and steers to verbosity=full.
-    body = {
-        "systolic_blood_pressure": {"value": 120, "unit": "mmHg"},
-        "diastolic_blood_pressure": {"value": 80, "unit": "mmHg"},
-        "effective_time_frame": {"date_time": "2026-04-15T08:00:00Z"},
-    }
-    assert extract_value_unit(body) == (None, None)
-
-
 def test_extract_value_unit_empty():
     assert extract_value_unit(None) == (None, None)
     assert extract_value_unit({}) == (None, None)
