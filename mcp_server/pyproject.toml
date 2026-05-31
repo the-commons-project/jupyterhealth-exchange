@@ -13,7 +13,7 @@ dependencies = [
     "pydantic>=2.13,<3",
     "fastapi>=0.136,<1",
     "uvicorn[standard]>=0.47,<1",
-    "omh-shim>=1.0.2",
+    "omh-shim>=1.1.0",
     "cryptography>=44,<49",
 ]
 
