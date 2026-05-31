@@ -92,7 +92,13 @@ class Observation(BaseModel):
         effective_at = None
         if omh_body:
             tf = omh_body.get("effective_time_frame") or {}
+            # OMH time-frame is either a point-in-time `date_time` or a
+            # `time_interval` (used by sleep/activity/wearable records). Prefer
+            # the interval's start, falling back to its end.
             effective_at = tf.get("date_time")
+            if effective_at is None:
+                interval = tf.get("time_interval") or {}
+                effective_at = interval.get("start_date_time") or interval.get("end_date_time")
         return cls(
             observation_id=str(r["id"]),
             patient_id=patient_id,
