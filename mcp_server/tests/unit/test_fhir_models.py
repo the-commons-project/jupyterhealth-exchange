@@ -70,6 +70,56 @@ def test_observation_from_fhir_entry_with_omh_body():
     assert o.omh_body["diastolic_blood_pressure"]["value"] == 80
 
 
+def test_observation_from_fhir_entry_interval_time_frame():
+    """Wearable records use effective_time_frame.time_interval (not date_time);
+    effective_at must come from the interval's start_date_time."""
+    omh_payload = {
+        "body": {
+            "total_sleep_time": {"unit": "sec", "value": 25513},
+            "effective_time_frame": {
+                "time_interval": {
+                    "start_date_time": "2015-06-10T23:30:00Z",
+                    "end_date_time": "2015-06-11T07:00:00Z",
+                }
+            },
+        },
+    }
+    entry = {
+        "resource": {
+            "resourceType": "Observation",
+            "id": "obs-iv",
+            "code": {"coding": [{"system": "https://w3id.org/openmhealth", "code": "omh:sleep-duration:2.0"}]},
+            "subject": {"reference": "Patient/40006"},
+            "valueAttachment": {"data": _encode_omh(omh_payload)},
+        }
+    }
+    o = Observation.from_fhir_entry(entry)
+    assert o.effective_at == "2015-06-10T23:30:00Z"
+
+
+def test_observation_from_fhir_entry_interval_end_only_fallback():
+    """If the interval has no start_date_time, fall back to end_date_time."""
+    omh_payload = {
+        "body": {
+            "physical_activity": {"unit": "m", "value": 4757.1},
+            "effective_time_frame": {
+                "time_interval": {"end_date_time": "2015-06-11T07:00:00Z", "duration": {"value": 30, "unit": "min"}}
+            },
+        },
+    }
+    entry = {
+        "resource": {
+            "resourceType": "Observation",
+            "id": "obs-iv2",
+            "code": {"coding": [{"code": "omh:physical-activity:1.0"}]},
+            "subject": {"reference": "Patient/40006"},
+            "valueAttachment": {"data": _encode_omh(omh_payload)},
+        }
+    }
+    o = Observation.from_fhir_entry(entry)
+    assert o.effective_at == "2015-06-11T07:00:00Z"
+
+
 def test_observation_from_fhir_entry_without_attachment():
     entry = {
         "resource": {
