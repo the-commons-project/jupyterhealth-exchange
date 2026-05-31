@@ -214,4 +214,15 @@ def build_server(
             patient_id=patient_id, start=start, end=end, base_url=base_url
         )
 
+    @mcp.tool()
+    async def get_patient_date_range(patient_id: str) -> dict | str:
+        """Earliest and latest observation dates and total count for a patient.
+
+        Returns {earliest, latest, count}. Use this for first/last-data questions
+        instead of paging through all of a patient's observations.
+        """
+        if auth_msg := await _before():
+            return auth_msg
+        return await observation_views.get_patient_date_range(patient_id=patient_id, base_url=base_url)
+
     return mcp
