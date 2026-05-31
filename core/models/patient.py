@@ -179,7 +179,7 @@ class PatientOrganization(models.Model):
 
 
 class PatientIdentifier(models.Model):
-    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="identifiers", db_index=True)
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="identifiers")
     system = models.CharField(db_index=True)
     value = models.CharField(db_index=True)
 

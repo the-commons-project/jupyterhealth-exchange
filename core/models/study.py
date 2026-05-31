@@ -135,7 +135,7 @@ class StudyPatientScopeConsent(models.Model):
         # https://build.fhir.org/ig/HL7/smart-app-launch/scopes-and-launch-context.html#scopes-for-requesting-fhir-resources
         default="rs",
     )
-    scope_code = models.ForeignKey("CodeableConcept", on_delete=models.CASCADE)
+    scope_code = models.ForeignKey("CodeableConcept", on_delete=models.PROTECT)
     consented = models.BooleanField(null=False, blank=False)
     consented_time = models.DateTimeField()
 
@@ -165,7 +165,7 @@ class StudyPatientScopeConsent(models.Model):
 class StudyScopeRequest(models.Model):
     study = models.ForeignKey(Study, on_delete=models.CASCADE)
     scope_actions = models.CharField(null=True, blank=False, default="rs")
-    scope_code = models.ForeignKey("CodeableConcept", on_delete=models.CASCADE)
+    scope_code = models.ForeignKey("CodeableConcept", on_delete=models.PROTECT)
 
     class Meta:
         constraints = [
@@ -179,6 +179,14 @@ class StudyScopeRequest(models.Model):
 class StudyDataSource(models.Model):
     study = models.ForeignKey(Study, on_delete=models.CASCADE)
     data_source = models.ForeignKey("DataSource", on_delete=models.CASCADE)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["study", "data_source"],
+                name="core_studydatasource_unique_study_id_data_source_id",
+            )
+        ]
 
 
 class StudyClient(models.Model):
