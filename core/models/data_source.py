@@ -6,7 +6,7 @@ from .codeable_concept import CodeableConcept
 
 class DataSource(models.Model):
     DATA_SOURCE_TYPES = {"medical_device": "Medical Device", "personal_device": "Personal Device"}
-    name = models.CharField(null=True, blank=False)
+    name = models.CharField(null=True, blank=True)
     type = models.CharField(
         choices=list(DATA_SOURCE_TYPES.items()),
         null=False,
@@ -49,7 +49,15 @@ class DataSource(models.Model):
 
 class DataSourceSupportedScope(models.Model):
     data_source = models.ForeignKey(DataSource, on_delete=models.CASCADE)
-    scope_code = models.ForeignKey("CodeableConcept", on_delete=models.CASCADE)
+    scope_code = models.ForeignKey("CodeableConcept", on_delete=models.PROTECT)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["data_source", "scope_code"],
+                name="core_datasourcesupportedscope_unique_data_source_id_scope_code_id",
+            )
+        ]
 
 
 class ClientDataSource(models.Model):

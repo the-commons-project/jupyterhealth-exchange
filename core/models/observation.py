@@ -24,10 +24,11 @@ logger = logging.getLogger(__name__)
 # Observation per record: https://stackoverflow.com/a/61484800 (author worked at ONC)
 class Observation(models.Model):
     subject_patient = models.ForeignKey("Patient", on_delete=models.CASCADE)
-    codeable_concept = models.ForeignKey("CodeableConcept", on_delete=models.CASCADE)
+    codeable_concept = models.ForeignKey("CodeableConcept", on_delete=models.PROTECT)
     data_source = models.ForeignKey("DataSource", on_delete=models.SET_NULL, null=True)
     value_attachment_data = models.JSONField()
     last_updated = models.DateTimeField(auto_now=True)
+    ow_key = models.CharField(max_length=512, null=True, blank=True, db_index=True)
     aux_data = models.JSONField(null=True)
 
     # https://build.fhir.org/valueset-observation-status.html
@@ -44,6 +45,12 @@ class Observation(models.Model):
     }
 
     status = models.CharField(choices=list(OBSERVATION_STATUSES.items()), null=False, blank=False, default="final")
+
+    class Meta:
+        indexes = [
+            # Matches the common access pattern: a patient's observations, newest first.
+            models.Index(fields=["subject_patient", "-last_updated"]),
+        ]
 
     @property
     def codeable_concepts(self):
@@ -310,13 +317,13 @@ class Observation(models.Model):
 
 class ObservationIdentifier(models.Model):
     observation = models.ForeignKey(Observation, on_delete=models.CASCADE, related_name="identifiers")
-    system = models.CharField(null=True, blank=False)
-    value = models.CharField(null=True, blank=False)
+    system = models.CharField(null=True, blank=True)
+    value = models.CharField(null=True, blank=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["system", "value"],
-                name="core_observation_identifier_unique_observation_system_value",
+                name="core_observationidentifier_unique_system_value",
             )
         ]
