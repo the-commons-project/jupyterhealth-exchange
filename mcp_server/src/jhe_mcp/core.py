@@ -21,6 +21,41 @@ AUTH_REQUIRED_MSG = (
     "After logging in, retry your request."
 )
 
+# Sent to every client in the MCP `initialize` handshake; compliant clients
+# surface this to the model so any connecting LLM knows how to use the server.
+SERVER_INSTRUCTIONS = """\
+JupyterHealth Exchange (JHE) MCP server — access to patient-consented health data.
+
+Model: studies contain enrolled patients; patients have observations (measurements)
+encoded as Open mHealth (OMH) bodies. Every tool runs as the authenticated user and
+only returns data that user is authorized to see.
+
+Tools by purpose:
+- Studies: get_study_count, list_studies, get_study_metadata, list_study_patients
+- Patients: get_patient_demographics, get_patient_date_range
+- Observations: count_patient_observations, count_study_observations,
+  summarize_patient_observations, get_patient_observations
+- OMH schemas: get_omh_schema(name); also browsable as resources at omh://schema/<name>
+
+Key behaviors:
+- Dates are OPTIONAL on observation tools. Pass start/end as YYYY-MM-DD (inclusive)
+  to filter by the observation's effective time; omit them to include everything.
+- get_patient_observations returns {total, page, page_size, returned, has_more,
+  observations}. It defaults to compact "slim" records (type, time, value, unit) and
+  omits the raw OMH body. Pass verbosity="full" only when you need raw bodies. Page
+  with limit/page and use total/has_more to know when you've read everything.
+
+Efficient workflows — do NOT dump or page through records just to count or find dates:
+- Counts: use count_patient_observations / count_study_observations
+  (count_study_observations(by_patient=true) returns {patient_id: count} in one call).
+- First/last data for a patient: get_patient_date_range(patient_id) ->
+  {earliest, latest, count}. Never page to the end to find min/max dates.
+- "Show me everything" for a patient: start with summarize_patient_observations
+  (per-type {count, earliest, latest}) for the overview, then page
+  get_patient_observations (slim); fetch verbosity="full" only for specific records.
+- Need a data type's schema: get_omh_schema("blood-glucose"), etc.
+"""
+
 
 def build_server(
     settings: Settings,
@@ -38,6 +73,7 @@ def build_server(
     )
     mcp = FastMCP(
         name="jhe-mcp",
+        instructions=SERVER_INSTRUCTIONS,
         transport_security=transport_security,
         token_verifier=JheTokenVerifier(settings),
         auth=AuthSettings(
