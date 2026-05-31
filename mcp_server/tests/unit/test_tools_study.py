@@ -1,12 +1,9 @@
-import base64
-import json
 from unittest.mock import AsyncMock
 
 import pytest
 from jhe_mcp.auth.context import AuthContext, set_current_auth
 from jhe_mcp.tools.study import (
     get_patient_demographics,
-    get_patient_observations,
     get_study_count,
     get_study_metadata,
     list_studies,
@@ -175,55 +172,3 @@ async def test_get_patient_demographics(auth, fake_client):
     assert d is not None
     assert d.given_name == "Sam"
     fake_client.admin_get.assert_awaited_once_with("patients/7", treat_404_as_none=True)
-
-
-@pytest.mark.asyncio
-async def test_get_patient_observations_no_filters(auth, fake_client):
-    fake_client.fhir_get.return_value = {"resourceType": "Bundle", "entry": []}
-    obs = await get_patient_observations(patient_id="7", base_url="http://jhe")
-    assert obs == []
-    fake_client.fhir_get.assert_awaited_once_with("Observation", params={"patient": "7"})
-
-
-@pytest.mark.asyncio
-async def test_get_patient_observations_with_filters(auth, fake_client):
-    omh_payload = {
-        "body": {
-            "blood_glucose": {"unit": "mg/dL", "value": 92},
-            "effective_time_frame": {"date_time": "2026-04-15T08:00:00Z"},
-        },
-        "header": {"schema_id": {"name": "blood-glucose", "version": "4.0"}},
-    }
-    fake_client.fhir_get.return_value = {
-        "resourceType": "Bundle",
-        "entry": [
-            {
-                "resource": {
-                    "resourceType": "Observation",
-                    "id": "o1",
-                    "code": {"coding": [{"system": "https://w3id.org/openmhealth", "code": "omh:blood-glucose:4.0"}]},
-                    "subject": {"reference": "Patient/7"},
-                    "valueAttachment": {
-                        "data": base64.b64encode(json.dumps(omh_payload).encode()).decode(),
-                        "contentType": "application/json",
-                    },
-                }
-            }
-        ],
-    }
-    obs = await get_patient_observations(
-        patient_id="7",
-        data_type="blood-glucose",
-        start="2026-04-01",
-        end="2026-05-01",
-        base_url="http://jhe",
-    )
-    assert len(obs) == 1
-    assert obs[0].code == "omh:blood-glucose:4.0"
-    assert obs[0].omh_body["blood_glucose"]["value"] == 92
-    assert obs[0].effective_at == "2026-04-15T08:00:00Z"
-    sent_params = fake_client.fhir_get.await_args.kwargs["params"]
-    assert sent_params["patient"] == "7"
-    assert "omh:blood-glucose:4.0" in sent_params["code"]
-    assert "ge2026-04-01" in sent_params["date"]
-    assert "le2026-05-01" in sent_params["date"]
