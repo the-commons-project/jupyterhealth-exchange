@@ -1,7 +1,7 @@
 import pytest
+from jhe_mcp.tools.observation_views import get_patient_observations
 from jhe_mcp.tools.study import (
     get_patient_demographics,
-    get_patient_observations,
     get_study_count,
     get_study_metadata,
     list_studies,
@@ -46,6 +46,7 @@ async def test_get_patient_demographics_40001(jhe_base_url):
 
 @pytest.mark.asyncio
 async def test_get_patient_observations_40001(jhe_base_url):
-    obs = await get_patient_observations(patient_id="40001", base_url=jhe_base_url)
-    assert isinstance(obs, list)
-    assert len(obs) >= 2  # seed gives patient 40001 at least 2 observations
+    result = await get_patient_observations(patient_id="40001", base_url=jhe_base_url)
+    assert isinstance(result, dict)
+    assert result["total"] >= 2  # seed gives patient 40001 at least 2 observations
+    assert "observations" in result

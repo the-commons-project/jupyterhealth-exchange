@@ -4,8 +4,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from jhe_mcp.fhir.client import JheClient
-from jhe_mcp.fhir.models import Demographics, Observation, StudyMeta, StudyPatient
-from jhe_mcp.omh_registry import all_short_names, lookup_code
+from jhe_mcp.fhir.models import Demographics, StudyMeta, StudyPatient
 
 
 async def get_study_count(*, base_url: str) -> int:
@@ -57,29 +56,3 @@ async def get_patient_demographics(*, patient_id: str, base_url: str) -> Demogra
     async with JheClient(base_url) as client:
         data = await client.admin_get(f"patients/{patient_id}", treat_404_as_none=True)
         return Demographics.from_admin(data) if data is not None else None
-
-
-async def get_patient_observations(
-    *,
-    patient_id: str,
-    data_type: str | None = None,
-    start: str | None = None,
-    end: str | None = None,
-    base_url: str,
-) -> list[Observation]:
-    """FHIR Observations for a patient, optionally filtered."""
-    params: dict[str, Any] = {"patient": patient_id}
-    if data_type:
-        code = lookup_code(data_type)
-        if code is None:
-            raise ValueError(f"Unknown data_type {data_type!r}. Known: {all_short_names()}")
-        params["code"] = code
-    if start and end:
-        params["date"] = [f"ge{start}", f"le{end}"]
-    elif start:
-        params["date"] = f"ge{start}"
-    elif end:
-        params["date"] = f"le{end}"
-    async with JheClient(base_url) as client:
-        bundle = await client.fhir_get("Observation", params=params)
-        return [Observation.from_fhir_entry(e) for e in bundle.get("entry", [])]
