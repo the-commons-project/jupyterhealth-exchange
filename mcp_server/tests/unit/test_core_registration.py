@@ -16,4 +16,5 @@ async def test_observation_tools_registered(monkeypatch):
         "count_patient_observations",
         "count_study_observations",
         "summarize_patient_observations",
+        "get_patient_date_range",
     } <= names

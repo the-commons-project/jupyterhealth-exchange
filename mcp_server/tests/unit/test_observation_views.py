@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from jhe_mcp.auth.context import AuthContext, set_current_auth
 from jhe_mcp.tools.observation_views import (
+    get_patient_date_range,
     get_patient_observations,
     summarize_patient_observations,
 )
@@ -128,3 +129,26 @@ async def test_summarize_respects_date_window(auth, fake_client):
     assert summary["Blood glucose"]["count"] == 1  # only the April record
     assert summary["Blood glucose"]["latest"] == "2026-04-05T00:00:00Z"
     assert summary["Heart rate"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_patient_date_range(auth, fake_client):
+    fake_client.fhir_get.return_value = {
+        "total": 3,
+        "entry": [
+            _entry("o1", "omh:blood-glucose:4.0", "Blood glucose", "2024-03-12T22:00:00Z", 90),
+            _entry("o2", "omh:blood-glucose:4.0", "Blood glucose", "2023-01-05T08:00:00Z", 95),
+            _entry("o3", "omh:heart-rate:2.0", "Heart rate", "2024-03-15T23:16:00Z", 70),
+        ],
+    }
+    result = await get_patient_date_range(patient_id="40006", base_url="http://jhe")
+    assert result["earliest"] == "2023-01-05T08:00:00Z"
+    assert result["latest"] == "2024-03-15T23:16:00Z"
+    assert result["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_get_patient_date_range_empty(auth, fake_client):
+    fake_client.fhir_get.return_value = {"total": 0, "entry": []}
+    result = await get_patient_date_range(patient_id="40099", base_url="http://jhe")
+    assert result == {"earliest": None, "latest": None, "count": 0}

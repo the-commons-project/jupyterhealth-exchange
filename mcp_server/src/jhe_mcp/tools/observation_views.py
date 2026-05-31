@@ -36,6 +36,29 @@ async def summarize_patient_observations(
     return summary
 
 
+async def get_patient_date_range(
+    *,
+    patient_id: str,
+    base_url: str,
+) -> dict[str, Any]:
+    """Earliest/latest observation timestamp and total count for a patient.
+
+    Fetches the patient's observations server-side and reduces to a compact
+    ``{earliest, latest, count}`` so the caller gets exact first/last dates in a
+    single call instead of paging to the end. ``earliest``/``latest`` are
+    ISO-8601 strings (``None`` if no record has a parseable timestamp).
+    """
+    params = build_observation_params(patient_id=patient_id)
+    async with JheClient(base_url) as client:
+        observations = await collect_observations(client, params)
+    dated = [o.effective_at for o in observations if o.effective_at]
+    return {
+        "earliest": min(dated) if dated else None,
+        "latest": max(dated) if dated else None,
+        "count": len(observations),
+    }
+
+
 async def get_patient_observations(
     *,
     patient_id: str,
