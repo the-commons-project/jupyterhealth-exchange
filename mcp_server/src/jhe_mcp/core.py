@@ -12,6 +12,7 @@ from jhe_mcp.auth.oauth_flow import AuthenticationRequired
 from jhe_mcp.auth.token_verifier import JheTokenVerifier
 from jhe_mcp.config import Settings
 from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, short_name
+from jhe_mcp.tools import observation_counts, observation_views
 from jhe_mcp.tools import study as study_tools
 
 AUTH_REQUIRED_MSG = (
@@ -136,20 +137,81 @@ def build_server(
         data_type: str | None = None,
         start: str | None = None,
         end: str | None = None,
-    ) -> list[dict] | str:
-        """
-        Observations for a patient, optionally filtered by OMH data type short
-        name (e.g., 'blood-glucose', 'heart-rate') and ISO date range.
+        verbosity: str = "slim",
+        limit: int = 50,
+        page: int = 1,
+    ) -> dict | str:
+        """One page of a patient's observations, with total and pagination.
+
+        Returns {total, page, page_size, returned, has_more, observations}.
+        verbosity='slim' (default) returns compact records (type, time,
+        value/unit) and omits the raw OMH body; verbosity='full' includes it.
+        Filter by OMH data type short name (e.g. 'blood-glucose') and ISO dates.
         """
         if auth_msg := await _before():
             return auth_msg
-        obs = await study_tools.get_patient_observations(
+        return await observation_views.get_patient_observations(
             patient_id=patient_id,
             data_type=data_type,
             start=start,
             end=end,
+            verbosity=verbosity,
+            limit=limit,
+            page=page,
             base_url=base_url,
         )
-        return [o.model_dump() for o in obs]
+
+    @mcp.tool()
+    async def count_patient_observations(
+        patient_id: str,
+        data_type: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+    ) -> int | str:
+        """Exact number of observations for a patient, without returning records."""
+        if auth_msg := await _before():
+            return auth_msg
+        return await observation_counts.count_patient_observations(
+            patient_id=patient_id, data_type=data_type, start=start, end=end, base_url=base_url
+        )
+
+    @mcp.tool()
+    async def count_study_observations(
+        study_id: str,
+        data_type: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        by_patient: bool = False,
+    ) -> int | dict | str:
+        """Observation count across a whole study in one call.
+
+        With by_patient=True, returns {patient_id: count} instead of a total.
+        """
+        if auth_msg := await _before():
+            return auth_msg
+        return await observation_counts.count_study_observations(
+            study_id=study_id,
+            data_type=data_type,
+            start=start,
+            end=end,
+            by_patient=by_patient,
+            base_url=base_url,
+        )
+
+    @mcp.tool()
+    async def summarize_patient_observations(
+        patient_id: str,
+        start: str | None = None,
+        end: str | None = None,
+    ) -> dict | str:
+        """Compact per-data-type digest for a patient: {type: {count, earliest, latest}}.
+
+        Use this for 'show me everything' overviews instead of dumping records.
+        """
+        if auth_msg := await _before():
+            return auth_msg
+        return await observation_views.summarize_patient_observations(
+            patient_id=patient_id, start=start, end=end, base_url=base_url
+        )
 
     return mcp
