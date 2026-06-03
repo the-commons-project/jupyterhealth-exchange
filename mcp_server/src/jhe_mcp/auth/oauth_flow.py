@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import html
 import http.server
 import logging
 import secrets
@@ -181,15 +182,19 @@ def _start_callback_listener(
                     )
                     cache.save(cached)
                     logger.info("Token exchange complete, cached successfully")
+                except (TokenExchangeError, httpx.HTTPError, KeyError, ValueError) as exc:
+                    # Expected failure modes: surface *why* (so the user/log can
+                    # tell "session expired, re-login" from a transport blip)
+                    # rather than a generic "try again" that loops silently.
+                    reason = getattr(exc, "detail", None) or str(exc) or type(exc).__name__
+                    logger.error("Token exchange failed in callback: %s", reason)
+                    self._send_login_failed(reason)
+                    completed.set()
+                    return
                 except Exception:
-                    logger.exception("Token exchange failed in callback")
-                    self.send_response(500)
-                    self.send_header("Content-Type", "text/html")
-                    self.end_headers()
-                    self.wfile.write(
-                        b"<html><body><h1>Login failed</h1>"
-                        b"<p>Token exchange failed. Please retry your request.</p></body></html>"
-                    )
+                    # Never leave the waiting main thread hung: always signal done.
+                    logger.exception("Unexpected error in OAuth callback")
+                    self._send_login_failed("Unexpected error during login.")
                     completed.set()
                     return
             self.send_response(200)
@@ -200,6 +205,16 @@ def _start_callback_listener(
                 b"You may close this window and retry your request.</body></html>"
             )
             completed.set()
+
+        def _send_login_failed(self, reason: str) -> None:
+            self.send_response(500)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            body = (
+                f"<html><body><h1>Login failed</h1><p>{html.escape(reason)}</p>"
+                "<p>Please retry your request.</p></body></html>"
+            )
+            self.wfile.write(body.encode())
 
         def log_message(self, *args: object) -> None:
             pass
