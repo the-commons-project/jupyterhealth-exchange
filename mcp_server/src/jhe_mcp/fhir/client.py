@@ -10,6 +10,20 @@ from jhe_mcp.audit import log_access
 from jhe_mcp.auth.context import current_auth, current_auth_required
 
 
+def assert_request_ctx_importable() -> None:
+    """Fail fast if the per-request context import has moved.
+
+    HTTP resource-server mode depends on ``mcp.server.lowlevel.server.request_ctx``
+    to read the *current* request's token (see ``_per_request_bearer``). That is a
+    non-public import path; if an ``mcp`` upgrade relocates it, ``_per_request_bearer``
+    would silently swallow the ``ImportError`` and fall back to the initialize-time
+    token — the exact session-isolation bug this server fixes, with no error. Call
+    this at HTTP startup so a broken import path is a loud boot failure, not a quiet
+    auth regression.
+    """
+    from mcp.server.lowlevel.server import request_ctx  # noqa: F401
+
+
 def _per_request_bearer() -> str | None:
     """Return the bearer for the *current* MCP request, or None.
 

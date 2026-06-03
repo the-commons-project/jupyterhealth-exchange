@@ -110,6 +110,18 @@ class Observation(BaseModel):
         )
 
 
+# OMH bodies that carry more than one measured scalar (e.g. blood pressure has
+# both systolic and diastolic). A single (value, unit) can't represent these
+# faithfully, so the slim view returns (None, None) and the caller fetches the
+# full record (verbosity="full") rather than silently showing one of two numbers.
+_MULTI_COMPONENT_KEYS: frozenset[str] = frozenset(
+    {
+        "systolic_blood_pressure",
+        "diastolic_blood_pressure",
+    }
+)
+
+
 def extract_value_unit(omh_body: dict[str, Any] | None) -> tuple[Any, str | None]:
     """Best-effort scalar extraction from an OMH body.
 
@@ -119,12 +131,14 @@ def extract_value_unit(omh_body: dict[str, Any] | None) -> tuple[Any, str | None
     ``value``/``unit``. Returns ``(None, None)`` when no scalar leaf exists
     (e.g. sleep episodes), so the caller can fetch the full record instead.
 
-    Note: multi-component bodies (e.g. blood pressure, which has both
-    ``systolic_blood_pressure`` and ``diastolic_blood_pressure``) only surface
-    the *first* component in the slim view — use ``verbosity="full"`` to get all
-    components.
+    Multi-component bodies (e.g. blood pressure, which carries both
+    ``systolic_blood_pressure`` and ``diastolic_blood_pressure``) also return
+    ``(None, None)``: surfacing only the first component would mislead, so the
+    caller is steered to ``verbosity="full"`` to get all components.
     """
     if not omh_body:
+        return None, None
+    if any(key in omh_body for key in _MULTI_COMPONENT_KEYS):
         return None, None
     for key, v in omh_body.items():
         # effective_time_frame is metadata, never the measured scalar

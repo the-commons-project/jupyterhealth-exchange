@@ -9,11 +9,15 @@ from fastapi import FastAPI
 from jhe_mcp.auth.broker import build_broker_router
 from jhe_mcp.config import Settings
 from jhe_mcp.core import build_server
+from jhe_mcp.fhir.client import assert_request_ctx_importable
 
 logger = logging.getLogger(__name__)
 
 
 def build_app(settings: Settings) -> FastAPI:
+    # Fail fast at boot if the per-request token context import has moved (e.g.
+    # after an mcp upgrade); otherwise per-request auth would silently regress.
+    assert_request_ctx_importable()
     mcp = build_server(settings)
 
     # In resource-server mode the MCP SDK wraps /mcp with RequireAuthMiddleware,
