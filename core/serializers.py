@@ -1,3 +1,4 @@
+import base64
 import json
 
 import humps
@@ -7,6 +8,8 @@ from fhir.resources.patient import Patient as FHIRPatient
 from oauth2_provider.models import get_application_model
 from rest_framework import serializers
 
+from core.fhir_config import get_resource_mapping
+from core.fhir_mapping import build_fhir_resource
 from core.models import (
     ClientDataSource,
     CodeableConcept,
@@ -112,7 +115,6 @@ class PatientSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "jhe_user_id",
-            "identifier",
             "identifiers",
             "name_family",
             "name_given",
@@ -145,7 +147,6 @@ class PractitionerSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "jhe_user_id",
-            "identifier",
             "name_family",
             "name_given",
             "telecom_phone",
@@ -158,17 +159,21 @@ class PatientProfileSerializer(serializers.ModelSerializer):
     """Patient serializer with PHI stripped for patient-facing profile endpoint."""
 
     organizations = serializers.SerializerMethodField()
+    identifiers = serializers.SerializerMethodField()
 
     def get_organizations(self, obj):
         organizations = obj.organizations.all()
         return OrganizationSerializer(organizations, many=True).data
+
+    def get_identifiers(self, obj):
+        return PatientIdentifierSerializer(obj.identifiers.all(), many=True).data
 
     class Meta:
         model = Patient
         fields = [
             "id",
             "jhe_user_id",
-            "identifier",
+            "identifiers",
             "organizations",
         ]
 
@@ -470,40 +475,22 @@ class JheSettingSerializer(serializers.ModelSerializer):
         return instance
 
 
-class FHIRObservationSerializer(serializers.ModelSerializer):
-    # top-level fields not in table
-    resource_type = serializers.CharField()
-    id = serializers.CharField()  # cast as string as per spec
-    meta = serializers.JSONField()
-    identifier = serializers.JSONField(required=False)
-    # status in model
-    subject = serializers.JSONField()
-    code = serializers.JSONField()
-    value_attachment = serializers.JSONField()
+class FHIRObservationSerializer(serializers.Serializer):
+    """Renders an Observation model instance into a FHIR R5 Observation resource.
 
-    class Meta:
-        model = Observation
-        fields = [
-            "resource_type",
-            "id",
-            "meta",
-            "identifier",
-            "status",
-            "subject",
-            "code",
-            "value_attachment",
-        ]
+    The shape is driven by the data_mapping in jhe/fhir_config.json. The encoding of
+    valueAttachment.data to Base64 (per the FHIR Attachment spec) is not expressible in
+    the config, so it is applied here after the generic mapping has run.
+    """
 
-    def to_representation(self, record):
-        # deserialize json fields
-        record.meta = json.loads(record.meta)
-        record.identifier = list(filter(lambda item: item is not None, json.loads(record.identifier)))
-        if len(record.identifier) == 0:
-            del record.identifier
-        record.subject = json.loads(record.subject)
-        record.code = json.loads(record.code)
-        record.value_attachment = json.loads(record.value_attachment)
-        as_dict = super().to_representation(record)
+    def to_representation(self, observation):
+        mapping = get_resource_mapping("Observation")
+        as_dict = build_fhir_resource(observation, "Observation", mapping, aux_data=observation.aux_data)
+        # valueAttachment.data must be Base64-encoded binary per FHIR; the mapping yields
+        # the raw JSON object, so encode it here (mirrors fhir_create's decode path).
+        attachment = as_dict.get("valueAttachment")
+        if attachment and attachment.get("data") is not None:
+            attachment["data"] = base64.b64encode(json.dumps(attachment["data"]).encode("utf-8")).decode("ascii")
         # validate
         try:
             FHIRObservation.parse_obj(humps.camelize(as_dict))
@@ -517,37 +504,17 @@ class FHIRBundledObservationSerializer(serializers.Serializer):
     resource = FHIRObservationSerializer(required=False, read_only=True, source="*")
 
 
-class FHIRPatientSerializer(serializers.ModelSerializer):
-    # top-level fields not in table
-    resource_type = serializers.CharField()
-    id = serializers.CharField()  # cast as string as per spec
-    meta = serializers.JSONField()
-    identifier = serializers.JSONField(required=False)
-    name = serializers.JSONField()
-    # birth_date in model
-    telecom = serializers.JSONField()
+class FHIRPatientSerializer(serializers.Serializer):
+    """Renders a Patient model instance into a FHIR R5 Patient resource.
 
-    class Meta:
-        model = Patient
-        fields = [
-            "resource_type",
-            "id",
-            "meta",
-            "identifier",
-            "name",
-            "birth_date",
-            "telecom",
-        ]
+    The shape is driven by the data_mapping in jhe/fhir_config.json: Django model
+    fields are combined with the patient's aux_data (Django-mapped fields take
+    precedence), then validated against the fhir.resources Patient model.
+    """
 
-    def to_representation(self, record):
-        # jsonb in raw is not automagically cast
-        record.meta = json.loads(record.meta)
-        record.identifier = json.loads(record.identifier)
-        if len(record.identifier) == 0:
-            del record.identifier
-        record.name = json.loads(record.name)
-        record.telecom = json.loads(record.telecom)
-        as_dict = super().to_representation(record)
+    def to_representation(self, patient):
+        mapping = get_resource_mapping("Patient")
+        as_dict = build_fhir_resource(patient, "Patient", mapping, aux_data=patient.aux_data)
         # validate
         try:
             FHIRPatient.parse_obj(humps.camelize(as_dict))

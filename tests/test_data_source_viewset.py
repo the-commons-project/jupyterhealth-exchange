@@ -97,7 +97,6 @@ def test_supported_scopes(api_client, superuser, device):
     assert len(scopes) == 0
 
 
-@pytest.mark.xfail(reason="missing argument validation")
 def test_supported_scopes_invalid(api_client, superuser, device):
     api_client.force_authenticate(superuser)
     scopes_url = f"/api/v1/data_sources/{device.id}/supported_scopes"

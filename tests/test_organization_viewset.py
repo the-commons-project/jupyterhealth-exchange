@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from core.models import JheUser, Organization
+from core.models import JheUser, Organization, PractitionerOrganization
 
 from .utils import fetch_paginated
 
@@ -129,17 +129,23 @@ def test_add_remove_organization_users(api_client, user, organization):
     )
     assert r.status_code == 403, r.text
 
-    # FIXME: modifying role doesn't work because
-    # it tries to create duplicate record;
-    # have to remove and re-add
-    # r = api_client.post(user_url, {
-    #     "jhe_user_id": user2.id,
-    #     "organization_partitioner_role": "manager",
-    # })
-    # assert r.status_code == 200, r.text
-    # response = r.json()
-    # assert response["role"] == "manager"
-    # assert response["practitioner"]["id"] == user2.id
+    # modifying an existing role should update it, not fail with a duplicate
+    r = api_client.post(
+        user_url,
+        {
+            "jhe_user_id": user2.id,
+            "organization_partitioner_role": "manager",
+        },
+    )
+    assert r.status_code == 200, r.text
+    response = r.json()
+    assert response["role"] == "manager"
+    assert response["practitioner"]["id"] == user2.practitioner.id
+
+    # role updated in place, no duplicate added
+    r = api_client.get(users_url)
+    users = r.json()
+    assert len(users) == 2
 
     r = api_client.delete(
         f"/api/v1/organizations/{organization.id}/remove_user",
@@ -153,25 +159,41 @@ def test_add_remove_organization_users(api_client, user, organization):
     users = r.json()
     assert len(users) == 1
 
-    # add a patient
-    # FIXME: adding patient on this endpoint doesn't work,
-    # but it's partially implemented
-    # should the implementation be removed? It's redundant
-    # patient = add_patients(1)[0]
-    # r = api_client.post(user_url, {
-    #     # FIXME: argument type doesn't match input
-    #     # (it's patient id, not user id)
-    #     "jhe_user_id": patient.id,
-    #     "user_type": "patient",
-    # })
-    # assert r.status_code == 200, r.text
-    # assert r.json() == {}
+    # Note: this endpoint manages practitioners only. Patients are added to /
+    # removed from an organization via the patients endpoint (see issue #285).
 
 
-#
-# r = api_client.get(users_url)
-# users = r.json()
-# assert len(users) == 2
+def test_manager_of_sub_org_can_add_user(organization):
+    # ref: https://github.com/jupyterhealth/jupyterhealth-exchange/issues/390
+    # A manager of a non-root org must be able to add a practitioner to that org,
+    # even though they have no membership in the parent ("true root") org.
+    sub_org = Organization.objects.create(name="Sub Org", type="other", part_of=organization)
+    manager = JheUser.objects.create_user(
+        email="sub-manager@example.org",
+        user_type="practitioner",
+    )
+    PractitionerOrganization.objects.create(
+        practitioner=manager.practitioner,
+        organization=sub_org,
+        role="manager",
+    )
+    client = APIClient()
+    client.default_format = "json"
+    client.force_authenticate(manager)
+
+    new_user = JheUser.objects.create_user(
+        email="sub-new@example.org",
+        user_type="practitioner",
+    )
+    r = client.post(
+        f"/api/v1/organizations/{sub_org.id}/user",
+        {
+            "jhe_user_id": new_user.id,
+            "organization_partitioner_role": "viewer",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "viewer"
 
 
 def test_add_user_invalid(api_client, organization):

@@ -39,8 +39,8 @@ class PractitionerAdmin(admin.ModelAdmin):
 
 @admin.register(Patient)
 class PatientAdmin(admin.ModelAdmin):
-    list_display = ("__str__", "email", "identifier", "birth_date", "id")
-    search_fields = ("name_given", "name_family", "jhe_user__email", "identifier")
+    list_display = ("__str__", "email", "birth_date", "id")
+    search_fields = ("name_given", "name_family", "jhe_user__email", "identifiers__value")
 
     @admin.display(description="Email")
     def email(self, obj):

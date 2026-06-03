@@ -1,0 +1,55 @@
+{
+  "fhir_version": "R5",
+  "data_mapping": {
+    "resources": {
+      "Patient":
+        {
+          "id": "Patient.id",
+          "identifier": "Patient.identifiers",
+          "meta": {
+            "lastUpdated": "Patient.last_updated"
+          },
+          "name": [
+            {
+              "family": "Patient.name_family",
+              "given": [
+                "Patient.name_given"
+              ]
+            }
+          ],
+          "birthDate": "Patient.birth_date",
+          "telecom": [
+            {
+              "system": "'phone'",
+              "value": "Patient.telecom_phone",
+              "use": "'mobile'"
+            },
+            {
+              "system": "'email'",
+              "value": "Patient.jhe_user.email",
+              "use": "'home'"
+            }
+          ]
+        },
+      "Observation":
+      {
+        "id": "Observation.id",
+        "identifier": "Observation.identifiers",
+        "meta": {
+          "lastUpdated": "Observation.last_updated"
+        },
+        "status": "'final'",
+        "code": {
+          "coding": "Observation.codeable_concepts"
+        },
+        "subject": {
+          "reference": "'Patient/' + Observation.subject_patient"
+        },
+        "valueAttachment": {
+          "contentType": "'application/json'",
+          "data": "Observation.value_attachment_data"
+        }
+      }
+    }
+  }
+}

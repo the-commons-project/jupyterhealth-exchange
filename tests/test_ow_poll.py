@@ -25,9 +25,7 @@ OW_API_KEY = "test-key"
 
 
 def _set_jhe_setting(key, value, value_type="bool"):
-    setting, _ = JheSetting.objects.update_or_create(
-        key=key, setting_id=None, defaults={"value_type": value_type}
-    )
+    setting, _ = JheSetting.objects.update_or_create(key=key, setting_id=None, defaults={"value_type": value_type})
     setting.set_value(value_type, value)
     setting.save()
     from django.core.cache import cache
@@ -43,15 +41,25 @@ def _clear_sync_lock():
 def _hold_sync_lock(acquired_at=None):
     """Set ow.sync_in_progress to a recent ISO timestamp (lock held)."""
     acquired_at = acquired_at or timezone.now()
-    _set_jhe_setting(
-        "ow.sync_in_progress", acquired_at.isoformat(), value_type="string"
-    )
+    _set_jhe_setting("ow.sync_in_progress", acquired_at.isoformat(), value_type="string")
 
 
 @pytest.fixture(autouse=True)
 def _ow_settings(settings):
     settings.OW_API_URL = OW_API_URL
     settings.OW_API_KEY = OW_API_KEY
+
+
+@pytest.fixture(autouse=True)
+def _clear_jhe_setting_cache():
+    """JheSetting values are cached process-wide; clear between tests so a
+    leftover key (e.g. ow.ingest_mode='bogus' from test_unknown_mode_aborts)
+    cannot leak into the next test whose DB row was already rolled back."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture
@@ -143,9 +151,7 @@ def test_dedupes_via_observation_identifier(db, ow_user, patient_with_consent, h
         call_command("ow_poll", stdout=StringIO())
         call_command("ow_poll", stdout=StringIO())
 
-    assert ObservationIdentifier.objects.filter(
-        system=NORMALIZED_SYSTEM, value="same-uuid"
-    ).count() == 1
+    assert ObservationIdentifier.objects.filter(system=NORMALIZED_SYSTEM, value="same-uuid").count() == 1
     assert Observation.objects.count() == 1
 
 
@@ -225,9 +231,7 @@ def test_raw_mode_creates_observation_and_dedupes(db, ow_user, patient_with_cons
     )
 
     with (
-        patch(
-            "core.management.commands.ow_poll.list_new_objects", return_value=[fake_obj]
-        ) as mock_list,
+        patch("core.management.commands.ow_poll.list_new_objects", return_value=[fake_obj]) as mock_list,
         patch(
             "core.management.commands.ow_poll.read_object",
             return_value={"data": [{"x": 1}]},
@@ -242,9 +246,7 @@ def test_raw_mode_creates_observation_and_dedupes(db, ow_user, patient_with_cons
         call_command("ow_poll", stdout=StringIO())
 
     assert mock_list.called
-    assert ObservationIdentifier.objects.filter(
-        system="ow:raw", value="raw-uuid-1"
-    ).count() == 1
+    assert ObservationIdentifier.objects.filter(system="ow:raw", value="raw-uuid-1").count() == 1
     assert Observation.objects.count() == 1
 
 
@@ -292,6 +294,7 @@ def test_stale_lock_is_force_released(db, ow_user, patient_with_consent, hr_conc
     from core.management.commands.ow_poll import LOCK_STALE_AFTER
 
     _set_jhe_setting("module.ow", True)
+    _set_jhe_setting("ow.ingest_mode", "normalized", value_type="string")
     # Held longer than the stale window -> treat as abandoned (crashed worker).
     stale_at = timezone.now() - (LOCK_STALE_AFTER + timedelta(minutes=1))
     _hold_sync_lock(acquired_at=stale_at)

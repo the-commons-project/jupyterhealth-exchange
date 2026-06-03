@@ -26,12 +26,6 @@ logger = logging.getLogger(__name__)
 
 class JheUserManager(BaseUserManager):
     def create_user(self, email, password=None, user_type=None, **extra_fields):
-        """
-        Args:
-            email (str): A valid email.
-            password (str): A valid password or no password for SSO users.
-            user_type: Practitioner or Patient.
-        """
         if not email:
             raise ValueError(_("The Email must be set"))
         email = self.normalize_email(email)
@@ -129,7 +123,6 @@ class JheUser(AbstractUser):
                     name_family=self.last_name or "",
                     name_given=self.first_name or "",
                     birth_date=timezone.now().date(),  # TBD, do we want a default value equivalent to this?
-                    identifier=self.identifier,
                 )
             elif self.user_type == "practitioner" and not hasattr(self, "practitioner_profile"):
                 with transaction.atomic():

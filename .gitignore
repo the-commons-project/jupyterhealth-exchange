@@ -119,6 +119,9 @@ jhe/jhe/dev.env
 # mypy
 .mypy_cache/
 
+# ruff
+.ruff_cache/
+
 # Sublime Text #
 *.tmlanguage.cache
 *.tmPreferences.cache

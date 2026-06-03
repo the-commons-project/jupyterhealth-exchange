@@ -5,13 +5,12 @@ import logging
 from django.conf import settings
 from django.core.exceptions import BadRequest, PermissionDenied
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 from django.db.utils import IntegrityError
 from django.shortcuts import get_object_or_404
 from fhir.resources.observation import Observation as FHIRObservation
 from jsonschema import ValidationError
 
-from core.jhe_settings.service import get_setting
 from core.utils import validate_with_registry
 
 from .codeable_concept import CodeableConcept
@@ -25,11 +24,12 @@ logger = logging.getLogger(__name__)
 # Observation per record: https://stackoverflow.com/a/61484800 (author worked at ONC)
 class Observation(models.Model):
     subject_patient = models.ForeignKey("Patient", on_delete=models.CASCADE)
-    codeable_concept = models.ForeignKey("CodeableConcept", on_delete=models.CASCADE)
+    codeable_concept = models.ForeignKey("CodeableConcept", on_delete=models.PROTECT)
     data_source = models.ForeignKey("DataSource", on_delete=models.SET_NULL, null=True)
     value_attachment_data = models.JSONField()
     last_updated = models.DateTimeField(auto_now=True)
     ow_key = models.CharField(max_length=512, null=True, blank=True, db_index=True)
+    aux_data = models.JSONField(null=True)
 
     # https://build.fhir.org/valueset-observation-status.html
     OBSERVATION_STATUSES = {
@@ -46,6 +46,18 @@ class Observation(models.Model):
 
     status = models.CharField(choices=list(OBSERVATION_STATUSES.items()), null=False, blank=False, default="final")
 
+    class Meta:
+        indexes = [
+            # Matches the common access pattern: a patient's observations, newest first.
+            models.Index(fields=["subject_patient", "-last_updated"]),
+        ]
+
+    @property
+    def codeable_concepts(self):
+        # Each Observation has exactly one CodeableConcept; expose it as a one-element
+        # iterable so the data-mapping engine fans it out into the code.coding array.
+        return [self.codeable_concept]
+
     @staticmethod
     def for_practitioner_organization_study_patient(
         jhe_user_id,
@@ -54,73 +66,54 @@ class Observation(models.Model):
         patient_id=None,
         observation_id=None,
     ):
-        # Explicitly cast to ints so no injection vulnerability
-        organization_sql_where = ""
-        if organization_id:
-            organization_sql_where = f"AND core_organization.id={int(organization_id)}"
-
-        study_sql_where = ""
-        study_scope_join = ""
-        study_scope_where = ""
-        if study_id:
-            study_sql_where = f"AND core_study.id={int(study_id)}"
-            study_scope_join = "JOIN core_studyscoperequest ON core_studyscoperequest.study_id=core_study.id"
-            study_scope_where = "AND core_observation.codeable_concept_id=core_studyscoperequest.scope_code_id"
-
-        patient_id_sql_where = ""
-        if patient_id:
-            patient_id_sql_where = f"AND core_patient.id={int(patient_id)}"
-
-        observation_sql_where = ""
-        if observation_id:
-            observation_sql_where = f"AND core_observation.id={int(observation_id)}"
-
-        # noqa
-        q = f"""
-        SELECT DISTINCT(core_observation.*),
-        core_observation.value_attachment_data as value_attachment_data_json,
-        core_codeableconcept.coding_system as coding_system,
-        core_codeableconcept.coding_code as coding_code,
-        core_codeableconcept.text as coding_text,
-        core_patient.name_family as patient_name_family,
-        core_patient.name_given as patient_name_given
-
-        FROM core_observation
-        JOIN core_codeableconcept ON core_codeableconcept.id=core_observation.codeable_concept_id
-        JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
-        JOIN core_patientorganization ON core_patientorganization.patient_id=core_patient.id
-        JOIN core_organization ON core_organization.id=core_patientorganization.organization_id
-        JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
-        LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
-        LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-        {study_scope_join}
-        WHERE core_practitionerorganization.practitioner_id = %(practitioner_id)s
-
-        {organization_sql_where}
-        {study_sql_where}
-        {study_scope_where}
-        {patient_id_sql_where}
-        {observation_sql_where}
-        ORDER BY core_observation.last_updated DESC
-        """
-
         practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
-        practitioner_id = practitioner.id
 
-        return Observation.objects.raw(q, {"practitioner_id": practitioner_id})
+        # Return the observations a practitioner is allowed to see, newest first. An
+        # observation is visible only when its patient shares an organization with the
+        # practitioner identified by jhe_user_id: the traversal walks Observation -> Patient
+        # -> PatientOrganization -> Organization -> PractitionerOrganization -> Practitioner.
+        # Keeping the patient's and the practitioner's organization lookups in one filter()
+        # call matches them against the SAME organization (Django reuses the join for lookups
+        # sharing the "subject_patient__organizations" prefix); an optional organization_id
+        # narrows that shared organization. The result is then optionally narrowed: by study
+        # (the patient must be enrolled in the study AND the observation's code must be one of
+        # that study's requested scopes, both matched against the SAME study), to a single
+        # patient, or to a single observation. The annotate() calls flatten columns from the
+        # joined CodeableConcept and Patient rows onto each observation as plain attributes for
+        # the serializer to read. distinct() collapses the duplicate observation rows produced
+        # by spanning these many-to-many relationships.
+        organization_filters = {"subject_patient__organizations__practitioners": practitioner}
+        if organization_id:
+            organization_filters["subject_patient__organizations__id"] = organization_id
+        qs = Observation.objects.filter(**organization_filters)
+
+        if study_id:
+            qs = qs.filter(
+                subject_patient__studypatient__study_id=study_id,
+                codeable_concept__studyscoperequest__study_id=study_id,
+            )
+        if patient_id:
+            qs = qs.filter(subject_patient_id=patient_id)
+        if observation_id:
+            qs = qs.filter(id=observation_id)
+
+        return (
+            qs.annotate(
+                coding_system=F("codeable_concept__coding_system"),
+                coding_code=F("codeable_concept__coding_code"),
+                coding_text=F("codeable_concept__text"),
+                patient_name_family=F("subject_patient__name_family"),
+                patient_name_given=F("subject_patient__name_given"),
+            )
+            .distinct()
+            .order_by("-last_updated")
+        )
 
     @staticmethod
     def practitioner_authorized(practitioner_user_id, observation_id):
-        if (
-            len(
-                Observation.for_practitioner_organization_study_patient(
-                    practitioner_user_id, None, None, None, observation_id
-                )
-            )
-            == 0
-        ):
-            return False
-        return True
+        return Observation.for_practitioner_organization_study_patient(
+            practitioner_user_id, None, None, None, observation_id
+        ).exists()
 
     @staticmethod
     def fhir_search(
@@ -133,107 +126,36 @@ class Observation(models.Model):
         coding_code=None,
         observation_id=None,
     ):
+        # Return the observations a practitioner may see via the FHIR API as a queryset of
+        # Observation instances; formatting into FHIR JSON is the serializer's job. An
+        # observation is visible only when its patient shares an organization with the
+        # practitioner. When a study is given, the patient must be enrolled in it AND the
+        # observation's code must be one of that study's requested scopes. Related rows used
+        # by the serializer's data-mapping traversal are selected/prefetched to avoid N+1.
         practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
-        practitioner_id = practitioner.id
 
-        # Explicitly cast to ints so no injection vulnerability
-        study_sql_where = ""
-        study_scope_join = ""
-        study_scope_where = ""
+        qs = Observation.objects.filter(subject_patient__organizations__practitioners=practitioner)
         if study_id:
-            study_sql_where = f"AND core_study.id={int(study_id)}"
-            study_scope_join = "JOIN core_studyscoperequest ON core_studyscoperequest.study_id=core_study.id"
-            study_scope_where = "AND core_observation.codeable_concept_id=core_studyscoperequest.scope_code_id"
-
-        patient_id_sql_where = ""
+            qs = qs.filter(
+                subject_patient__studypatient__study_id=study_id,
+                codeable_concept__studyscoperequest__study_id=study_id,
+            )
         if patient_id:
-            patient_id_sql_where = f"AND core_patient.id={int(patient_id)}"
-
-        patient_identifier_value_sql_where = ""
+            qs = qs.filter(subject_patient_id=patient_id)
         if patient_identifier_value:
-            patient_identifier_value_sql_where = "AND core_patient.identifier=%(patient_identifier_value)s"
-
-        observation_sql_where = ""
+            qs = qs.filter(subject_patient__identifiers__value=patient_identifier_value)
+        if coding_system:
+            qs = qs.filter(codeable_concept__coding_system=coding_system)
+        if coding_code:
+            qs = qs.filter(codeable_concept__coding_code=coding_code)
         if observation_id:
-            observation_sql_where = f"AND core_observation.id={int(observation_id)}"
+            qs = qs.filter(id=observation_id)
 
-        # TBD: Query optimization: https://stackoverflow.com/a/6037376
-        # pagination: https://github.com/mattbuck85/django-paginator-rawqueryset
-        q = """
-            SELECT  'Observation' as resource_type,
-                    'final' as status,
-                    core_observation.id as id,
-                    core_observation.id::varchar as id_string,
-                    -- ('{SITE_URL}/fhir/r5/Observation/' || core_observation.id) as full_url,
-
-                    json_build_object(
-                        'last_updated',
-                        core_observation.last_updated
-                    )::jsonb as meta,
-
-                                                                      -- double bracket for python .format ignore
-                    jsonb_agg(to_jsonb(core_observationidentifier) - '{{id, observation_id}}'::text[]) as identifier,
-
-                    json_build_object(
-                        'reference',
-                        'Patient/' || core_observation.subject_patient_id
-                    )::jsonb as subject,
-
-                    json_build_object(
-                        'coding',
-                        json_build_array(
-                            json_build_object(
-                                'system', core_codeableconcept.coding_system,
-                                'code', core_codeableconcept.coding_code
-                            )
-                        )
-                    )::jsonb as code,
-
-                    json_build_object(
-                        'content_type',
-                        'application/json',
-                        'data',
-                        encode(convert_to(core_observation.value_attachment_data::text, 'UTF-8'), 'base64')
-                    )::jsonb as value_attachment
-
-            FROM core_observation
-            LEFT JOIN core_observationidentifier ON core_observationidentifier.observation_id=core_observation.id
-            JOIN core_codeableconcept ON core_codeableconcept.id=core_observation.codeable_concept_id
-            JOIN core_patient ON core_patient.id=core_observation.subject_patient_id
-            JOIN core_patientorganization ON core_patientorganization.patient_id=core_patient.id
-            JOIN core_organization ON core_organization.id=core_patientorganization.organization_id
-            JOIN core_practitionerorganization ON core_practitionerorganization.organization_id=core_organization.id
-            LEFT JOIN core_studypatient ON core_studypatient.patient_id=core_patient.id
-            LEFT JOIN core_study ON core_study.id=core_studypatient.study_id
-            {study_scope_join}
-            WHERE core_practitionerorganization.practitioner_id = %(practitioner_id)s
-            AND core_codeableconcept.coding_system LIKE %(coding_system)s AND core_codeableconcept.coding_code LIKE %(coding_code)s
-
-            {study_sql_where}
-            {study_scope_where}
-            {patient_id_sql_where}
-            {patient_identifier_value_sql_where}
-            {observation_sql_where}
-            GROUP BY core_observation.id, core_codeableconcept.coding_system, core_codeableconcept.coding_code
-            ORDER BY core_observation.last_updated DESC
-            """.format(
-            SITE_URL=get_setting("site.url", settings.SITE_URL),
-            study_sql_where=study_sql_where,
-            study_scope_join=study_scope_join,
-            study_scope_where=study_scope_where,
-            patient_id_sql_where=patient_id_sql_where,
-            patient_identifier_value_sql_where=patient_identifier_value_sql_where,
-            observation_sql_where=observation_sql_where,
-        )
-
-        return Observation.objects.raw(
-            q,
-            {
-                "practitioner_id": practitioner_id,
-                "coding_system": coding_system if coding_system else "%",
-                "coding_code": coding_code if coding_code else "%",
-                "patient_identifier_value": patient_identifier_value,
-            },
+        return (
+            qs.select_related("subject_patient", "codeable_concept")
+            .prefetch_related("identifiers")
+            .distinct()
+            .order_by("-last_updated")
         )
 
     # Get the binary data eg https://www.rapidtables.com/convert/number/string-to-binary.html (delimiter=none)
@@ -394,14 +316,14 @@ class Observation(models.Model):
 
 
 class ObservationIdentifier(models.Model):
-    observation = models.ForeignKey(Observation, on_delete=models.CASCADE)
-    system = models.CharField(null=True, blank=False)
-    value = models.CharField(null=True, blank=False)
+    observation = models.ForeignKey(Observation, on_delete=models.CASCADE, related_name="identifiers")
+    system = models.CharField(null=True, blank=True)
+    value = models.CharField(null=True, blank=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["system", "value"],
-                name="core_observation_identifier_unique_observation_system_value",
+                name="core_observationidentifier_unique_system_value",
             )
         ]

@@ -9,6 +9,7 @@ from functools import partial
 from operator import itemgetter
 
 from django.utils import timezone
+from fhir.resources.bundle import Bundle
 
 from core.admin_pagination import CustomPageNumberPagination
 from core.fhir_pagination import FHIRBundlePagination
@@ -74,7 +75,6 @@ def add_patients(n, organization=None):
         _add_to_bulk(user)
         patient = Patient(
             jhe_user=user,
-            identifier=f"external-{i}",
             name_family=f"Last {i}",
             name_given="First",
             birth_date="2020-01-01",
@@ -140,6 +140,12 @@ def get_link(bundle: dict, rel: str) -> str | None:
         if link["relation"] == rel:
             return link["url"]
     return None
+
+
+def assert_valid_fhir_bundle(bundle: dict) -> None:
+    """Validate a FHIR search Bundle envelope (and its nested resources) against
+    fhir.resources. Raises pydantic.ValidationError if the wire shape is not valid FHIR."""
+    Bundle.parse_obj(bundle)
 
 
 def fetch_paginated(client, path, params=None, *, return_pages=False):

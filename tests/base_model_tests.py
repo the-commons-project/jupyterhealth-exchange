@@ -106,14 +106,14 @@ class PatientTest(TestCase):
 class CodeableConceptTest(TestCase):
     def setUp(self):
         self.code = CodeableConcept.objects.create(
-            coding_system="http://loinc.org",
-            coding_code="8480-6",
-            text="Systolic Blood Pressure",
+            coding_system="https://w3id.org/openmhealth",
+            coding_code="omh:blood-pressure:4.0",
+            text="Blood pressure",
         )
 
     def test_codeable_concept_creation(self):
-        self.assertEqual(self.code.coding_system, "http://loinc.org")
-        self.assertEqual(self.code.coding_code, "8480-6")
+        self.assertEqual(self.code.coding_system, "https://w3id.org/openmhealth")
+        self.assertEqual(self.code.coding_code, "omh:blood-pressure:4.0")
         self.assertEqual(self.code.text, "Systolic Blood Pressure")
 
 
@@ -187,9 +187,9 @@ class StudyPatientScopeConsentTest(TestCase):
         )
         self.study_patient = StudyPatient.objects.create(study=self.study, patient=self.patient)
         self.code = CodeableConcept.objects.create(
-            coding_system="http://loinc.org",
-            coding_code="8480-6",
-            text="Systolic Blood Pressure",
+            coding_system="https://w3id.org/openmhealth",
+            coding_code="omh:blood-pressure:4.0",
+            text="Blood pressure",
         )
         self.consent = StudyPatientScopeConsent.objects.create(
             study_patient=self.study_patient,
@@ -216,9 +216,9 @@ class StudyScopeRequestTest(TestCase):
             organization=self.organization,
         )
         self.code = CodeableConcept.objects.create(
-            coding_system="http://loinc.org",
-            coding_code="8480-6",
-            text="Systolic Blood Pressure",
+            coding_system="https://w3id.org/openmhealth",
+            coding_code="omh:blood-pressure:4.0",
+            text="Blood pressure",
         )
         self.scope_request = StudyScopeRequest.objects.create(
             study=self.study, scope_actions="rs", scope_code=self.code
@@ -243,9 +243,9 @@ class DataSourceSupportedScopeTest(TestCase):
     def setUp(self):
         self.data_source = DataSource.objects.create(name="Smart Watch", type="personal_device")
         self.code = CodeableConcept.objects.create(
-            coding_system="http://loinc.org",
-            coding_code="8480-6",
-            text="Systolic Blood Pressure",
+            coding_system="https://w3id.org/openmhealth",
+            coding_code="omh:blood-pressure:4.0",
+            text="Blood pressure",
         )
         self.supported_scope = DataSourceSupportedScope.objects.create(
             data_source=self.data_source, scope_code=self.code
@@ -290,9 +290,9 @@ class ObservationTest(TestCase):
             telecom_phone="555-123-4567",
         )
         self.code = CodeableConcept.objects.create(
-            coding_system="http://loinc.org",
-            coding_code="8480-6",
-            text="Systolic Blood Pressure",
+            coding_system="https://w3id.org/openmhealth",
+            coding_code="omh:blood-pressure:4.0",
+            text="Blood pressure",
         )
         self.data_source = DataSource.objects.create(name="Blood Pressure Monitor", type="personal_device")
         self.observation = Observation.objects.create(
@@ -329,9 +329,9 @@ class ObservationIdentifierTest(TestCase):
             telecom_phone="555-123-4567",
         )
         self.code = CodeableConcept.objects.create(
-            coding_system="http://loinc.org",
-            coding_code="8480-6",
-            text="Systolic Blood Pressure",
+            coding_system="https://w3id.org/openmhealth",
+            coding_code="omh:blood-pressure:4.0",
+            text="Blood pressure",
         )
         self.data_source = DataSource.objects.create(name="Blood Pressure Monitor", type="personal_device")
         self.observation = Observation.objects.create(

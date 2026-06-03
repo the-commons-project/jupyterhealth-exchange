@@ -51,4 +51,9 @@ class PractitionerOrganization(models.Model):
     role = models.CharField(max_length=10, choices=list(ROLE_CHOICES.items()), default=ROLE_MEMBER)
 
     class Meta:
-        unique_together = ("practitioner", "organization")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["practitioner", "organization"],
+                name="core_practitionerorganization_unique_practitioner_id_organization_id",
+            )
+        ]
