@@ -114,6 +114,27 @@ async def test_get_patient_observations_date_filter_client_side(auth, fake_clien
 
 
 @pytest.mark.asyncio
+async def test_get_patient_observations_date_filter_paginates_past_page_1(auth, fake_client):
+    # In-process pagination of the date-filtered set must be correct beyond page 1.
+    fake_client.fhir_get.return_value = {
+        "total": 3,
+        "entry": [
+            _entry("o1", "omh:blood-glucose:4.0", "Blood glucose", "2026-04-05T00:00:00Z", 90),
+            _entry("o2", "omh:blood-glucose:4.0", "Blood glucose", "2026-04-10T00:00:00Z", 95),
+            _entry("o3", "omh:blood-glucose:4.0", "Blood glucose", "2026-04-20T00:00:00Z", 99),
+        ],
+    }
+    result = await get_patient_observations(
+        patient_id="40006", start="2026-04-01", end="2026-04-30", limit=2, page=2, base_url="http://jhe"
+    )
+    assert result["total"] == 3
+    assert result["page"] == 2
+    assert result["returned"] == 1
+    assert result["has_more"] is False
+    assert [o["observation_id"] for o in result["observations"]] == ["o3"]
+
+
+@pytest.mark.asyncio
 async def test_summarize_respects_date_window(auth, fake_client):
     fake_client.fhir_get.return_value = {
         "total": 3,
