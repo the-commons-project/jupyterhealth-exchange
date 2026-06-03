@@ -478,11 +478,16 @@ class Command(BaseCommand):
             self.stdout.write("Skipping JHE MCP Server seed (MCP_OAUTH_CLIENT_ID/SECRET not set).")
             return
         redirect_uri = os.environ.get("MCP_OAUTH_REDIRECT_URI", "https://jhe-mcp.fly.dev/oauth/callback")
+        # django-oauth-toolkit hashes the plaintext on save (hash_client_secret
+        # defaults to True); the broker authenticates by sending the matching
+        # plaintext from its own env. Set it explicitly to mirror
+        # seed_oauth_application and make the behavior obvious.
         get_application_model().objects.update_or_create(
             name="JHE MCP Server",
             defaults={
                 "client_id": client_id,
                 "client_secret": client_secret,
+                "hash_client_secret": True,
                 "client_type": "confidential",
                 "authorization_grant_type": "authorization-code",
                 "redirect_uris": redirect_uri,
