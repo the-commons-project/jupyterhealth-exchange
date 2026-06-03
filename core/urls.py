@@ -30,8 +30,8 @@ urlpatterns = [
     # Home
     path("", common.home, name="home"),
     # OW Portal
-    path("ow/", common.ow_client, name="ow_client"),
-    path("ow/complete", common.ow_client_complete, name="ow_client_complete"),
+    path("clients/ow/", common.ow_client, name="ow_client"),
+    path("clients/ow/complete", common.ow_client_complete, name="ow_client_complete"),
     # Django auth and accounts
     path("accounts/login/", common.LoginView.as_view(), name="login"),
     path("accounts/signup/", common.signup, name="signup"),
@@ -61,9 +61,9 @@ urlpatterns = [
     # oauth token exchange
     path("o/token-exchange", common.token_exchange, name="token-exchange"),
     # OW Client pages
-    path("ow/launch", common.ow_launch, name="ow-launch"),
-    path("ow/complete", common.ow_complete, name="ow-complete"),
-    path("ow/manage", common.ow_manage, name="ow-manage"),
+    path("clients/ow/launch", common.ow_launch, name="ow-launch"),
+    path("clients/ow/complete", common.ow_complete, name="ow-complete"),
+    path("clients/ow/manage", common.ow_manage, name="ow-manage"),
     # OW API proxy endpoints
     path("api/v1/ow/users", ow.create_ow_user, name="ow-create-user"),
     path("api/v1/ow/oauth/oura/authorize", ow.get_oura_auth_url, name="ow-oura-authorize"),
@@ -71,11 +71,11 @@ urlpatterns = [
     path("api/v1/ow/sync", ow.sync_ow_data, name="ow-sync"),
     # Client UI
     path(
-        "portal/client_settings.js",
-        TemplateView.as_view(template_name="client/client_settings.js", content_type="text/javascript"),
+        "common/server-settings.js",
+        TemplateView.as_view(template_name="common/server_settings.js", content_type="text/javascript"),
     ),
-    # path('portal/', common.portal, name='portal'),
-    re_path(r"^portal/(?P<path>([^/]+/)*)$", common.portal, name="portal"),
+    # path('clients/jhe-admin/', common.portal, name='portal'),
+    re_path(r"^clients/jhe-admin/(?P<path>([^/]+/)*)$", common.portal, name="portal"),
     # Admin API
     path("api/v1/", include(api_router.urls)),
     # FHIR API

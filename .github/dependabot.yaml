@@ -31,7 +31,7 @@ updates:
       default-days: 7
 
   - package-ecosystem: npm
-    directory: /core/static/js/test/
+    directory: /core/static/common/js/test/
     groups:
       # one big pull request for minor/patch bumps in js
       minor-patch:

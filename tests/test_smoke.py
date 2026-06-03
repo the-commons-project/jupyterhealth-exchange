@@ -123,17 +123,17 @@ class TestP1Version:
     """Verify the deployed version matches expectations."""
 
     def test_client_settings_js_contains_version(self, http):
-        """``GET /portal/client_settings.js`` → 200, includes ``JHE_VERSION``."""
-        resp = _get(http, "/portal/client_settings.js", allow_redirects=True)
+        """``GET /common/server-settings.js`` → 200, includes ``JHE_VERSION``."""
+        resp = _get(http, "/common/server-settings.js", allow_redirects=True)
         assert resp.status_code == 200, f"client_settings.js: expected 200, got {resp.status_code}"
         assert "JHE_VERSION" in resp.text, "client_settings.js should contain JHE_VERSION"
 
     def test_health_version_matches_client_settings(self, http):
-        """The version reported by ``/health`` must match ``/portal/client_settings.js``."""
+        """The version reported by ``/health`` must match ``/common/server-settings.js``."""
         health_resp = _get(http, "/health")
         health_version = health_resp.json()["version"]
 
-        js_resp = _get(http, "/portal/client_settings.js", allow_redirects=True)
+        js_resp = _get(http, "/common/server-settings.js", allow_redirects=True)
         # Extract version from JS like: JHE_VERSION: "v0.0.9"
         match = re.search(r'JHE_VERSION["\s:]+["\']?(v[\d.]+)', js_resp.text)
         assert match, f"Could not extract JHE_VERSION from client_settings.js:\n{js_resp.text[:300]}"

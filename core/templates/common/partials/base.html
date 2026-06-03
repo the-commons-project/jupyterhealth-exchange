@@ -4,14 +4,13 @@
 <html class="h-100">
   <head>
     <title>{{ SITE_TITLE }} - {% block title %}{% endblock %}</title>
-    <script src="/portal/client_settings.js"></script> <!-- dynamically rendered by Django view, not static file --->
-    <script src="{% static 'js/oidc.js' %}"></script>
-    <script src="{% static 'js/common.js' %}"></script>
-    <script src="{% static 'js/client.js' %}"></script>
-    <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}" />
+    <script src="/common/server-settings.js"></script> <!-- dynamically rendered by Django view, not static file --->
+    <script src="{% static 'common/js/oidc.js' %}"></script>
+    <script src="{% static 'common/js/common.js' %}"></script>
+    <link rel="stylesheet" href="{% static 'common/css/bootstrap.min.css' %}" />
     <link
       rel="stylesheet"
-      href="{% static 'css/bootstrap-icons.min.css' %}"
+      href="{% static 'common/css/bootstrap-icons.min.css' %}"
     />
     <link
       rel="shortcut icon"
@@ -52,12 +51,12 @@
     <!-- Load order for OIDC is finicky -->
     <script
       onload="window.initOidc();"
-      src="{% static 'js/oidc-client-ts.min.js' %}"
+      src="{% static 'common/js/oidc-client-ts.min.js' %}"
     ></script>
-    <script src="{% static 'js/handlebars.min.js' %}"></script>
+    <script src="{% static 'common/js/handlebars.min.js' %}"></script>
     <!-- For Bootstrap support, see: https://getbootstrap.com/docs/4.0/getting-started/introduction/#js-->
-    <script src="{% static 'js/popper.min.js' %}"></script>
-    <script src="{% static 'js/bootstrap.min.js' %}"></script>
+    <script src="{% static 'common/js/popper.min.js' %}"></script>
+    <script src="{% static 'common/js/bootstrap.min.js' %}"></script>
     {% block body_footer %}{% endblock %}
   </body>
   {% block html_footer %}{% endblock %}

@@ -282,7 +282,7 @@ SAML2_AUTH = {
     "TOKEN_REQUIRED": not DEBUG,
     "SIGN_REQUEST": not DEBUG,
     # Landing page after login
-    "DEFAULT_NEXT_URL": "/portal/organizations?",
+    "DEFAULT_NEXT_URL": "/clients/jhe-admin/organizations?",
     "ALLOWED_REDIRECT_HOSTS": ALLOWED_HOSTS,
     "DEBUG": DEBUG,
     "LOGGING": {

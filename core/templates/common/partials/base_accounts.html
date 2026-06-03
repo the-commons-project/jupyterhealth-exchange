@@ -1,4 +1,4 @@
-{% extends "partials/base.html" %}
+{% extends "common/partials/base.html" %}
 
 {% load static %}
 
@@ -79,7 +79,6 @@
     text-align: left;
     padding: 4px;
   }
-
 </style>
 {% endblock %}
 
@@ -89,7 +88,7 @@
 
   <main class="form-signin bg-white p-5 rounded text-center">
     <img
-        src="{% static 'images/jupyterhealth-logo.jpg' %}"
+        src="{% static 'common/images/jupyterhealth-logo.jpg' %}"
         width="160"
         class="mb-4"
         alt="Common Health Logo"

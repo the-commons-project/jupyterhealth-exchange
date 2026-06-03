@@ -19,7 +19,7 @@
 // Global Constants
 // ────────────────────────────────────────────────────
 
-const ROUTE_PREFIX = "/portal/";
+const ROUTE_PREFIX = "/clients/jhe-admin/";
 const DEFAULT_ROUTE = "organizations";
 const API_PATH = "/api/v1";
 
