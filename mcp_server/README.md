@@ -230,6 +230,7 @@ The broker is intentionally **stateless** (no database), which shapes a few deli
 
 ### Operational follow-ups (not yet implemented)
 
-- **Rate-limit `/register`, `/authorize`, `/token`** at the edge (e.g. Fly/proxy) — the stateless design can't bound request volume in-process.
-- **Pin the Docker build to `uv.lock`** for fully reproducible images (the current `Dockerfile` installs from `pyproject.toml` version ranges).
+- **Rate-limit `/register`, `/authorize`, `/token`** — deferred to the production cutover; the current deployment is dev-only. This must be enforced at a real **edge** (e.g. Cloudflare/WAF rate rules) or via a **distributed, shared-state** limiter, not in-process: with `min_machines_running = 0` and potentially multiple machines, in-app counters reset on cold-start and don't bound request volume across instances, so an in-process limiter can't provide the guarantee. (Fly `concurrency` limits cap *concurrent* requests per machine, not request *rate* — a blunt stopgap at best.)
 - **Per-client revocation** would require introducing a small persistent client store (trades away statelessness).
+
+> **Reproducible images are already in place** (this was previously listed here as a follow-up): the `Dockerfile` installs exactly from the committed `uv.lock` via `uv sync --frozen` — no `pyproject.toml` range resolution at build time — on a digest-pinned base image with a pinned `uv` binary, multi-stage, non-root, with the package manager stripped from the runtime layer.
