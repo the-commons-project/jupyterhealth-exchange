@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any
 
 from jhe_mcp.fhir.client import JheClient, JheClientError
@@ -54,20 +55,40 @@ def build_observation_params(
     return params
 
 
+def _require_iso_date(value: str | None, label: str) -> None:
+    """Validate a date-window bound is ISO ``YYYY-MM-DD``, or raise a clear error.
+
+    Called once at the filtering choke point so a malformed tool argument fails
+    with an actionable message rather than a raw ValueError surfacing mid-filter.
+    """
+    if value is None:
+        return
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"{label} must be an ISO date (YYYY-MM-DD); got {value!r}") from None
+
+
 def in_date_range(effective_at: str | None, start: str | None, end: str | None) -> bool:
     """Inclusive date-window check on an observation's effective timestamp.
 
-    Compares the date portion (``YYYY-MM-DD``) of an ISO-8601 ``effective_at``
-    against ``start``/``end`` (also ``YYYY-MM-DD``). Undated observations
-    (``effective_at is None``) are treated as out of range when a window is
-    given, since they cannot be placed in time.
+    Parses the date portion of an ISO-8601 ``effective_at`` and compares it to
+    ``start``/``end`` (``YYYY-MM-DD``). Observations whose effective timestamp is
+    absent (``None``) or not parseable as an ISO date are treated as out of range
+    when a window is given: they cannot be confidently placed in time, so the
+    previous ``effective_at[:10]`` string slice — which would mis-filter a
+    non-ISO timestamp silently — is replaced with an explicit parse + skip.
     """
     if effective_at is None:
         return False
-    day = effective_at[:10]
-    if start and day < start:
+    try:
+        day = date.fromisoformat(effective_at[:10])
+    except ValueError:
+        logger.warning("Skipping observation with non-ISO effective_at during date filtering")
         return False
-    if end and day > end:
+    if start and day < date.fromisoformat(start):
+        return False
+    if end and day > date.fromisoformat(end):
         return False
     return True
 
@@ -128,6 +149,8 @@ async def collect_observations(
     fetch the full (patient/study/code-scoped) set and filter in process on each
     record's ``effective_at``.
     """
+    _require_iso_date(start, "start")
+    _require_iso_date(end, "end")
     entries = await iter_all_observations(client, params)
     observations = [Observation.from_fhir_entry(e) for e in entries]
     if start or end:

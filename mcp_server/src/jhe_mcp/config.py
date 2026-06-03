@@ -21,6 +21,11 @@ class Settings:
     mcp_resource_url: str
     broker_key: str | None
     allowed_redirects: tuple[str, ...]
+    # When True, reject a token whose audience can't be confirmed via JHE
+    # introspection (fail closed). When False (dev default), fall back to
+    # userinfo-only validation if introspection is unavailable. See
+    # JheTokenVerifier and README "Security considerations".
+    require_audience: bool = False
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -37,6 +42,7 @@ class Settings:
         broker_key = os.environ.get("MCP_BROKER_KEY")
         if broker_key is not None and len(broker_key) < 32:
             raise RuntimeError("MCP_BROKER_KEY must be at least 32 characters")
+        require_audience = os.environ.get("MCP_REQUIRE_AUDIENCE", "false").strip().lower() in ("1", "true", "yes")
         return cls(
             jhe_base_url=base,
             jhe_client_id=client_id,
@@ -48,4 +54,5 @@ class Settings:
             mcp_resource_url=mcp_resource_url,
             broker_key=broker_key,
             allowed_redirects=allowed_redirects,
+            require_audience=require_audience,
         )

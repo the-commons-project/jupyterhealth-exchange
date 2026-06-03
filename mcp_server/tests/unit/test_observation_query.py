@@ -30,6 +30,22 @@ def test_in_date_range_inclusive_and_undated():
     assert in_date_range("2026-04-15T08:00:00Z", None, None) is True  # no window
 
 
+def test_in_date_range_non_iso_excluded():
+    # A non-ISO effective_at can't be placed in time, so it is excluded rather
+    # than mis-filtered by a naive string slice/compare. Mirrors the undated
+    # (effective_at=None) contract: unplaceable timestamps are out of range.
+    assert in_date_range("04/15/2026", "2026-04-01", "2026-04-30") is False
+    assert in_date_range("not-a-date", "2026-04-01", None) is False
+    assert in_date_range("04/15/2026", None, None) is False
+
+
+def test_require_iso_date_rejects_bad_window():
+    oq._require_iso_date("2026-04-01", "start")  # valid: no raise
+    oq._require_iso_date(None, "start")  # absent: no raise
+    with pytest.raises(ValueError, match="start must be an ISO date"):
+        oq._require_iso_date("last week", "start")
+
+
 def test_build_params_study_scope():
     params = build_observation_params(study_id="30006")
     assert params["patient._has:_group:member:_id"] == "30006"
