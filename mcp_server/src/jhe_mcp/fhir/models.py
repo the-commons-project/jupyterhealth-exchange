@@ -118,6 +118,11 @@ def extract_value_unit(omh_body: dict[str, Any] | None) -> tuple[Any, str | None
     ``(value, unit)`` found in a nested mapping, then falls back to a top-level
     ``value``/``unit``. Returns ``(None, None)`` when no scalar leaf exists
     (e.g. sleep episodes), so the caller can fetch the full record instead.
+
+    Note: multi-component bodies (e.g. blood pressure, which has both
+    ``systolic_blood_pressure`` and ``diastolic_blood_pressure``) only surface
+    the *first* component in the slim view — use ``verbosity="full"`` to get all
+    components.
     """
     if not omh_body:
         return None, None

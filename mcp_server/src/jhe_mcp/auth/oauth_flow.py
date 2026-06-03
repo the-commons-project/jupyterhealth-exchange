@@ -26,6 +26,20 @@ class AuthenticationRequired(Exception):
         super().__init__(url)
 
 
+class TokenExchangeError(Exception):
+    """JHE's token endpoint returned a non-2xx response.
+
+    Carries the OAuth ``error``/``error_description`` so a failure is
+    diagnosable (e.g. ``invalid_grant`` = re-login, vs a transport blip) instead
+    of collapsing into a bare status code.
+    """
+
+    def __init__(self, status: int, detail: str) -> None:
+        self.status = status
+        self.detail = detail
+        super().__init__(f"token endpoint {status}: {detail}")
+
+
 @dataclass(frozen=True)
 class PkcePair:
     code_verifier: str
@@ -72,7 +86,13 @@ async def _post_token_endpoint(
         data["client_secret"] = client_secret
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(token_endpoint, data=data)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            try:
+                body = resp.json()
+                detail = body.get("error_description") or body.get("error") or ""
+            except ValueError:
+                detail = resp.text[:200]
+            raise TokenExchangeError(resp.status_code, detail)
         return resp.json()
 
 

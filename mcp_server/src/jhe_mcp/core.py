@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.parse
 from collections.abc import Awaitable, Callable
 
@@ -14,6 +15,8 @@ from jhe_mcp.config import Settings
 from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, short_name
 from jhe_mcp.tools import observation_counts, observation_views
 from jhe_mcp.tools import study as study_tools
+
+logger = logging.getLogger(__name__)
 
 AUTH_REQUIRED_MSG = (
     "Authentication required. Open this URL in your browser to log in:\n\n"
@@ -109,8 +112,8 @@ def build_server(
             reader.__doc__ = description
             reader.__name__ = f"omh_schema_{sname.replace('-', '_')}"
             mcp.resource(uri)(reader)
-        except (KeyError, FileNotFoundError):
-            pass
+        except (KeyError, FileNotFoundError) as exc:
+            logger.warning("Skipping OMH schema resource %s: %s", schema_id, exc)
 
     @mcp.tool()
     async def get_omh_schema(name: str) -> dict | str:

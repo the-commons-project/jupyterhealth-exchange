@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from jhe_mcp.auth import broker_state, pkce
-from jhe_mcp.config import Settings
+from jhe_mcp.config import JHE_SCOPES, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ def build_broker_router(settings: Settings) -> APIRouter:
         return {
             "resource": base,
             "authorization_servers": [base],
-            "scopes_supported": ["openid", "email"],
+            "scopes_supported": list(JHE_SCOPES),
             "bearer_methods_supported": ["header"],
         }
 

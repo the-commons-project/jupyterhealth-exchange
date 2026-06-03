@@ -3,6 +3,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+# The OAuth/OIDC scopes JHE defines and the broker advertises/issues. JHE only
+# supports these two; RBAC is enforced by JHE, not by scope. Single source of
+# truth so the broker metadata and the issued AccessToken can't drift.
+JHE_SCOPES: tuple[str, ...] = ("openid", "email")
+
 
 @dataclass(frozen=True)
 class Settings:
