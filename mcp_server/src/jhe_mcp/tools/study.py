@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from jhe_mcp.fhir.client import JheClient
+from jhe_mcp.fhir.client import JheClient, JheClientError
 from jhe_mcp.fhir.models import Demographics, StudyMeta, StudyPatient
 
 
@@ -11,7 +11,9 @@ async def get_study_count(*, base_url: str) -> int:
     """Total number of studies the caller can see."""
     async with JheClient(base_url) as client:
         data = await client.admin_get("studies", params={"page_size": 1})
-        return int(data.get("count", 0))
+        if not isinstance(data, dict) or "count" not in data:
+            raise JheClientError(0, f"Expected a paginated studies response with 'count', got: {str(data)[:200]}")
+        return int(data["count"])
 
 
 async def list_studies(*, base_url: str) -> list[StudyMeta]:

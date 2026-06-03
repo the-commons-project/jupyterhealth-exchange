@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from jhe_mcp.auth.context import AuthContext, set_current_auth
+from jhe_mcp.fhir.client import JheClientError
 from jhe_mcp.tools.study import (
     get_patient_demographics,
     get_study_count,
@@ -39,6 +40,14 @@ async def test_get_study_count(auth, fake_client):
     result = await get_study_count(base_url="http://jhe")
     assert result == 7
     fake_client.admin_get.assert_awaited_once_with("studies", params={"page_size": 1})
+
+
+@pytest.mark.asyncio
+async def test_get_study_count_rejects_non_paginated_response(auth, fake_client):
+    # A 200 with an unexpected shape must raise, not be reported as 0 studies.
+    fake_client.admin_get.return_value = {"detail": "boom"}
+    with pytest.raises(JheClientError):
+        await get_study_count(base_url="http://jhe")
 
 
 @pytest.mark.asyncio
