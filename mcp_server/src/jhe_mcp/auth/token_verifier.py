@@ -71,7 +71,11 @@ class JheTokenVerifier(TokenVerifier):
         # Layer 2: best-effort audience check via introspection.
         client_id = await self._introspect_client_id(token)
         if client_id is None:
-            # Introspection unavailable; fall back to userinfo-only.
+            # Introspection unavailable. Fail closed when MCP_REQUIRE_AUDIENCE is
+            # set (production), else fall back to userinfo-only (dev default).
+            if self._settings.require_audience:
+                logger.warning("Audience required but introspection unavailable; rejecting token")
+                return None
             client_id = self._settings.jhe_client_id
         elif client_id != self._settings.jhe_client_id:
             # Token was issued to a different client -> wrong audience. Reject.

@@ -1,21 +1,33 @@
+import re
+from pathlib import Path
+
 import pytest
 from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, lookup_code, short_name
 
-# JHE's authoritative supported OMH codes, from
-# core/management/commands/seed.py::seed_codeable_concepts(). omh-shim must
-# vendor a schema for each; if JHE adds a code, this set should grow and the
-# drift test below fails until omh-shim catches up.
-JHE_SEEDED_SHORT_NAMES = frozenset(
-    {
-        "blood-glucose",
-        "blood-pressure",
-        "body-temperature",
-        "heart-rate",
-        "oxygen-saturation",
-        "respiratory-rate",
-        "rr-interval",
-    }
-)
+# JHE's seed command, relative to this test: tests/unit -> tests -> mcp_server
+# -> <repo root>. Present in any monorepo checkout (incl. CI, which checks out
+# the full repo); absent only if the package is copied out standalone.
+_SEED_PY = Path(__file__).resolve().parents[3] / "core" / "management" / "commands" / "seed.py"
+
+
+def _jhe_seeded_short_names() -> set[str]:
+    """Derive JHE's authoritative supported OMH codes straight from seed.py.
+
+    Parses the ``seed_codeable_concepts`` block of JHE's seed command rather than
+    hardcoding the set, so when JHE adds a CodeableConcept the new code is picked
+    up automatically and the coverage assertion fails until omh-shim vendors a
+    schema for it. A hardcoded list could not detect that drift (it would pass
+    while silently missing the new code).
+    """
+    if not _SEED_PY.exists():
+        pytest.skip(f"seed.py not found at {_SEED_PY} (drift check needs the monorepo checkout)")
+    text = _SEED_PY.read_text()
+    match = re.search(r"def seed_codeable_concepts\b.*?(?=\n    def |\Z)", text, re.DOTALL)
+    block = match.group(0) if match else ""
+    codes = re.findall(r"omh:[a-z0-9-]+:[0-9.]+", block)
+    if not codes:
+        pytest.fail("Parsed no OMH codes from seed_codeable_concepts; the parser is likely stale")
+    return {short_name(c) for c in codes}
 
 
 def test_all_schema_ids_from_shim():
@@ -28,7 +40,8 @@ def test_all_schema_ids_from_shim():
 
 def test_covers_jhe_seeded_codes():
     """omh-shim must serve every OMH code JHE seeds (guards version drift)."""
-    missing = JHE_SEEDED_SHORT_NAMES - set(all_short_names())
+    seeded = _jhe_seeded_short_names()
+    missing = seeded - set(all_short_names())
     assert not missing, f"omh-shim is missing JHE-seeded OMH code(s): {sorted(missing)}"
 
 
