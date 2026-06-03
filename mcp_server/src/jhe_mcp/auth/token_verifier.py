@@ -23,7 +23,7 @@ import httpx
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
 from jhe_mcp.auth.userinfo import TokenValidationError, UserinfoValidator
-from jhe_mcp.config import Settings
+from jhe_mcp.config import JHE_SCOPES, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +58,14 @@ class JheTokenVerifier(TokenVerifier):
         # 401 reject, not surface as a 500.
         try:
             subject = await self._validator.verify(token)
-        except (TokenValidationError, httpx.HTTPError):
-            logger.warning("Userinfo validation failed; rejecting token")
+        except TokenValidationError:
+            logger.warning("Userinfo rejected the token; rejecting request")
+            return None
+        except httpx.HTTPError as exc:
+            # Fail closed, but this is an infra problem (JHE unreachable/timeout),
+            # not a bad token — log at error with the cause so "auth server down"
+            # is distinguishable from "unauthorized" in the logs.
+            logger.error("Userinfo transport error (%s); rejecting token", type(exc).__name__)
             return None
 
         # Layer 2: best-effort audience check via introspection.
@@ -75,7 +81,7 @@ class JheTokenVerifier(TokenVerifier):
         return JheAccessToken(
             token=token,
             client_id=client_id,
-            scopes=["openid", "email"],
+            scopes=list(JHE_SCOPES),
             subject=subject,
         )
 

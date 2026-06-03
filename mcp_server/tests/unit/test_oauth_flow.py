@@ -7,6 +7,7 @@ import respx
 from httpx import Response
 from jhe_mcp.auth.oauth_flow import (
     PkcePair,
+    TokenExchangeError,
     build_authorize_url,
     exchange_code_for_tokens,
     generate_pkce_pair,
@@ -76,3 +77,24 @@ async def test_exchange_code_for_tokens_posts_form():
         assert "code=code-123" in body
         assert "code_verifier=v" in body
         assert "client_id=abc" in body
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_surfaces_oauth_error_detail():
+    # A non-2xx from the token endpoint must surface the OAuth error reason,
+    # not collapse into a bare status code.
+    with respx.mock(assert_all_called=True) as router:
+        router.post("http://jhe/o/token/").mock(
+            return_value=Response(400, json={"error": "invalid_grant", "error_description": "code expired"})
+        )
+        with pytest.raises(TokenExchangeError) as exc:
+            await exchange_code_for_tokens(
+                token_endpoint="http://jhe/o/token/",
+                client_id="abc",
+                client_secret=None,
+                code="bad",
+                redirect_uri="http://localhost:8765/callback",
+                code_verifier="v",
+            )
+        assert exc.value.status == 400
+        assert "code expired" in exc.value.detail
