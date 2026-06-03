@@ -116,6 +116,62 @@ so the broker can authenticate against the seeded record.
 
 ---
 
+## Deploying
+
+The MCP server is an **optional, standalone service** — it is *not* part of a
+JupyterHealth Exchange deployment. JHE and the MCP server are deployed
+**independently**; deploying JHE never deploys the MCP server. The MCP server
+connects to JHE over the network as an OAuth client (via `JHE_BASE_URL`), so one
+JHE instance can have zero, one, or several MCP servers pointed at it.
+
+### JHE *without* the MCP server (default)
+
+Deploy JupyterHealth Exchange as usual. No MCP-related steps are needed — JHE is
+fully functional on its own; the only thing absent is LLM/MCP access. Nothing in
+this section applies.
+
+### JHE *with* the MCP server
+
+The server ships as a standard **container** (the `Dockerfile` in this
+`mcp_server/` directory) and runs on any container platform — a plain Docker
+host, Kubernetes, Cloud Run, ECS, Fly.io, etc. To stand it up against a running
+JHE instance:
+
+1. **Register the OAuth client** in that JHE — see [Registering the OAuth Client in JHE](#registering-the-oauth-client-in-jhe).
+2. **Provide the required environment variables / secrets** via your platform's
+   mechanism — `JHE_BASE_URL`, `JHE_CLIENT_ID`, `JHE_CLIENT_SECRET`,
+   `MCP_BROKER_KEY`, `MCP_RESOURCE_URL` (full list in
+   [Configuration](#configuration)). `JHE_BASE_URL` is what aims the server at a
+   particular JHE; `MCP_RESOURCE_URL` must be the server's own public URL.
+3. **Build and run the container**, exposing its HTTP port (`8401`) behind TLS.
+   The image builds reproducibly from the committed `uv.lock`:
+   ```bash
+   docker build -t jhe-mcp .
+   docker run -p 8401:8401 --env-file .env jhe-mcp   # or your platform's run/secret mechanism
+   ```
+4. **Verify** it's healthy:
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' https://<your-host>/health   # expect 200
+   ```
+
+No CD pipeline is shipped — deploy with whatever your platform uses. Runtime
+config lives in your platform's secret store, not in this repo. To run against a
+different JHE, change `JHE_BASE_URL` (and the matching client credentials) and
+redeploy.
+
+#### Reference deployment (Fly.io)
+
+Our hosted instance runs on [Fly.io](https://fly.io) (app `jhe-mcp`), using the
+`fly.toml` in this directory. Set secrets as in [Setting Fly Secrets](#setting-fly-secrets), then:
+
+```bash
+fly deploy -a jhe-mcp    # build from uv.lock + deploy
+fly logs   -a jhe-mcp    # tail logs
+fly status -a jhe-mcp    # machine / image status
+```
+
+---
+
 ## Connecting an LLM Client
 
 The server speaks the modern MCP **Streamable HTTP transport** at `/mcp` and implements **OAuth 2.0 Dynamic Client Registration (DCR, RFC 7591)** plus discovery metadata (RFC 9728 / RFC 8414). That means clients **connect directly to the URL and register themselves** — no bridge, no manually-issued client ID. On first connect the user is sent to **JHE's own login page**; after they sign in, the client caches and refreshes the JHE-issued token automatically.
