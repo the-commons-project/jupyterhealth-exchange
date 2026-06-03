@@ -192,15 +192,31 @@ Set the required environment variables (see [Configuration](#configuration)) bef
 
 ## Tools
 
-The MCP server exposes the following tools to LLM clients:
+The MCP server exposes the following tools to LLM clients. Every tool runs as the
+authenticated user and only returns data that user is authorized to see.
 
-- **`get_omh_schema`** — Returns the full OMH JSON schema for a data type by short name (e.g. `heart-rate`, `blood-glucose`).
+Studies:
+
 - **`get_study_count`** — Returns the total number of studies the authenticated user can access.
 - **`list_studies`** — Lists all studies visible to the authenticated user, with key metadata.
 - **`get_study_metadata`** — Retrieves detailed metadata for a specific study by ID.
 - **`list_study_patients`** — Lists patients enrolled in a specific study, returning ID, name, and email for each.
+
+Patients:
+
 - **`get_patient_demographics`** — Returns demographic information for a specific patient by patient ID.
-- **`get_patient_observations`** — Fetches health observations (e.g. vitals, device data) for a patient, optionally filtered by OMH data type and date range.
+- **`get_patient_date_range`** — Returns the earliest and latest observation dates and total count for a patient (first/last-data answers without paging).
+
+Observations:
+
+- **`count_patient_observations`** — Returns the exact observation count for a patient, optionally filtered by OMH data type and date range, without returning records.
+- **`count_study_observations`** — Returns the observation count across a whole study in one call; with `by_patient=True` returns a `{patient_id: count}` map.
+- **`summarize_patient_observations`** — Returns a compact per-data-type digest for a patient (`{type: {count, earliest, latest}}`) — the "show me everything" overview.
+- **`get_patient_observations`** — Fetches one page of a patient's observations (with total/pagination), optionally filtered by OMH data type and date range; defaults to compact records, with `verbosity="full"` for the raw OMH body.
+
+OMH schemas:
+
+- **`get_omh_schema`** — Returns the full OMH JSON schema for a data type by short name (e.g. `heart-rate`, `blood-glucose`). Schemas are also browsable as resources at `omh://schema/<name>`.
 
 ---
 
