@@ -46,7 +46,7 @@ jobs:
 
     - name: Run smoke tests
       run: |
-        pytest tests/test_smoke.py \
+        pytest test/backend/test_smoke.py \
           --smoke-url=https://jhe.fly.dev \
           -m smoke \
           -v \

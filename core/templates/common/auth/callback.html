@@ -1,4 +1,4 @@
-{% extends "partials/base_home.html" %} {% block title %}Auth Redirecting...{% endblock %}
+{% extends "common/partials/base_home.html" %} {% block title %}Auth Redirecting...{% endblock %}
 {% block body_content %}
 <div class="mt-5 w-100 text-center">
   <h5 class="mb-3">Client logging in... </h5>
@@ -12,8 +12,8 @@
   userManager
     .signinCallback()
     .then(user => {
-      console.log("callback - user logged in, redirecting to /portal/", user);
-      window.location.href = "/portal/";
+      console.log("callback - user logged in, redirecting to /clients/jhe-admin/", user);
+      window.location.href = "/clients/jhe-admin/";
     })
     .catch((error) => {
       console.error(error);

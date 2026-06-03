@@ -62,7 +62,7 @@ jobs:
 
       - name: Run Django tests
         run: |
-          pipenv run pytest -vx tests/
+          pipenv run pytest -vx test/backend/
 
       - name: install coverage.py
         # needed for codecov

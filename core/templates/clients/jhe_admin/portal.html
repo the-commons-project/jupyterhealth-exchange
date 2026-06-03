@@ -1,0 +1,29 @@
+{% extends "common/partials/base.html" %}
+{% load static %}
+
+{% block title %}Portal{% endblock %}
+
+{% block head %}
+  <link href="{% static 'clients/jhe-admin/css/client-jhe-admin.css' %}" rel="stylesheet">
+  <script src="{% static 'clients/jhe-admin/js/client-jhe-admin.js' %}"></script>
+{% endblock %}
+
+{% block body_tag %}class="d-flex flex-column overflow-hidden vh-100"{% endblock %}
+
+{% block html_footer %}
+<!-- Rollup client templates -->
+{% include "clients/jhe_admin/components/common.html" %}
+{% include "clients/jhe_admin/components/body.html" %}
+{% include "clients/jhe_admin/components/debug.html" %}
+{% include "clients/jhe_admin/components/jhe_settings.html" %}
+{% include "clients/jhe_admin/components/practitioners.html" %}
+{% include "clients/jhe_admin/components/organizations.html" %}
+{% include "clients/jhe_admin/components/patients.html" %}
+{% include "clients/jhe_admin/components/studies.html" %}
+{% include "clients/jhe_admin/components/observations.html" %}
+{% include "clients/jhe_admin/components/data_sources.html" %}
+{% include "clients/jhe_admin/components/clients.html" %}
+<script>
+  app()
+</script>
+{% endblock %}

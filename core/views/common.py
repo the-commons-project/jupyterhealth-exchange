@@ -60,11 +60,11 @@ def home(request):
 
 
 def ow_client(request):
-    return render(request, "ow_client/launch.html")
+    return render(request, "clients/ow/launch.html")
 
 
 def ow_client_complete(request):
-    return render(request, "ow_client/complete.html")
+    return render(request, "clients/ow/complete.html")
 
 
 class LoginView(BaseLoginView):
@@ -78,19 +78,19 @@ def logout(request):
 
 
 def profile(request):
-    return redirect("/portal/")
+    return redirect("/clients/jhe-admin/")
 
 
 def client_auth_callback(request):
-    return render(request, "client/client_auth/callback.html")
+    return render(request, "common/auth/callback.html")
 
 
 def client_auth_callback_popup(request):
-    return render(request, "client/client_auth/callback_popup.html")
+    return render(request, "common/auth/callback_popup.html")
 
 
 def client_auth_login(request):
-    return render(request, "client/client_auth/login.html")
+    return render(request, "common/auth/login.html")
 
 
 def signup(request):
@@ -114,7 +114,7 @@ def signup(request):
             if next:
                 return redirect(next)
             else:
-                return redirect("/portal/")
+                return redirect("/clients/jhe-admin/")
     else:
         # Get user_type from URL parameter, default to 'practitioner' if not specified
         user_type = request.GET.get("user_type", "practitioner")
@@ -158,19 +158,19 @@ def verify_email_complete(request):
 
 
 def portal(request, path):
-    return render(request, "client/portal.html", {"foo": "bar"})
+    return render(request, "clients/jhe_admin/portal.html", {"foo": "bar"})
 
 
 def ow_launch(request):
-    return render(request, "ow_client/launch.html")
+    return render(request, "clients/ow/launch.html")
 
 
 def ow_complete(request):
-    return render(request, "ow_client/complete.html")
+    return render(request, "clients/ow/complete.html")
 
 
 def ow_manage(request):
-    return render(request, "ow_client/manage.html")
+    return render(request, "clients/ow/manage.html")
 
 
 @csrf_exempt

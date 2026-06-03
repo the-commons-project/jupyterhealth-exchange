@@ -1,4 +1,4 @@
-{% extends "partials/base_ow_client.html" %} {% block title %}Launch{% endblock %}
+{% extends "clients/ow/base.html" %} {% block title %}Launch{% endblock %}
 
 {% block body_content %}
 
@@ -13,7 +13,7 @@
 
 {% block body_footer %}
 <!-- put any constants etc directly into this file this is just a POC -->
-<!-- put functions in core/static/js/ow-client.js and core/static/js/common.js as needed and keep formatting consistent -->
+<!-- put functions in core/static/clients/ow/js/client-ow.js and core/static/common/js/common.js as needed and keep formatting consistent -->
 <script>
     var out = document.getElementById("out");
     var consentForm = document.getElementById("consent_form");
@@ -108,7 +108,7 @@
         out.textContent += "\nOW user ID: " + owUser.ow_user_id;
 
         // 6-7. Get Oura auth URL via JHE proxy
-        var owCompleteUri = window.location.origin + "/ow/complete";
+        var owCompleteUri = window.location.origin + "/clients/ow/complete";
         out.textContent += "\n\nGetting Oura auth URL...";
         var ouraAuth = await getOuraAuthUrl(accessToken, owCompleteUri);
         if (!ouraAuth || !ouraAuth.authorizationUrl) {
