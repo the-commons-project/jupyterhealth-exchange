@@ -43,7 +43,7 @@ jobs:
 
     - name: Run smoke tests
       run: |
-        pytest tests/test_smoke.py \
+        pytest test/backend/test_smoke.py \
           --smoke-url=${INPUTS_SMOKE_URL} \
           -m smoke \
           -v \
