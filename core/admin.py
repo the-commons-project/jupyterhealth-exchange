@@ -3,6 +3,7 @@ from django.contrib import admin
 from core.models import (
     CodeableConcept,
     DataSource,
+    JheClient,
     JheSetting,
     JheUser,
     Observation,
@@ -93,8 +94,14 @@ class ObservationAdmin(admin.ModelAdmin):
         return None
 
 
+@admin.register(JheClient)
+class JheClientAdmin(admin.ModelAdmin):
+    list_display = ("application", "invitation_url")
+    search_fields = ("application__name",)
+
+
 @admin.register(JheSetting)
 class JheSettingAdmin(admin.ModelAdmin):
-    list_display = ("key", "setting_id", "value_type", "last_updated")
+    list_display = ("key", "value_type", "last_updated")
     search_fields = ("key",)
     list_filter = ("value_type",)

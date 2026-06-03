@@ -11,11 +11,9 @@ class JheSetting(models.Model):
         "json": "json",
     }
 
-    key = models.CharField(null=False, blank=False)
+    key = models.CharField(null=False, blank=False, unique=True)
 
-    setting_id = models.IntegerField(null=True, blank=True)
-
-    value_type = models.CharField(max_length=10, choices=list(JHE_SETTING_VALUE_TYPES.items()))
+    value_type = models.TextField(choices=list(JHE_SETTING_VALUE_TYPES.items()))
 
     value_string = models.TextField(null=True, blank=True)
     value_int = models.IntegerField(null=True, blank=True)
@@ -24,14 +22,6 @@ class JheSetting(models.Model):
     value_json = models.JSONField(null=True, blank=True)
 
     last_updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["key", "setting_id"],
-                name="core_jhesetting_unique_key_setting_id",
-            )
-        ]
 
     def get_value(self):
         return {

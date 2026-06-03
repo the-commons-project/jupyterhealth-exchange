@@ -25,7 +25,7 @@ OW_API_KEY = "test-key"
 
 
 def _set_jhe_setting(key, value, value_type="bool"):
-    setting, _ = JheSetting.objects.update_or_create(key=key, setting_id=None, defaults={"value_type": value_type})
+    setting, _ = JheSetting.objects.update_or_create(key=key, defaults={"value_type": value_type})
     setting.set_value(value_type, value)
     setting.save()
     from django.core.cache import cache

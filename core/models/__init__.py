@@ -1,5 +1,6 @@
 from .codeable_concept import CodeableConcept
 from .data_source import ClientDataSource, DataSource, DataSourceSupportedScope
+from .jhe_client import JheClient
 from .jhe_setting import JheSetting
 from .jhe_user import JheUser, JheUserManager
 from .observation import Observation, ObservationIdentifier
@@ -14,6 +15,7 @@ __all__ = [
     "CodeableConcept",
     "DataSource",
     "DataSourceSupportedScope",
+    "JheClient",
     "JheSetting",
     "JheUser",
     "JheUserManager",

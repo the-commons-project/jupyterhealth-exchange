@@ -60,7 +60,7 @@ class JheUser(AbstractUser):
         "patient": "Patient",
         "practitioner": "Practitioner",
     }
-    user_type = models.CharField(max_length=12, choices=list(USER_TYPES.items()), null=True, blank=True)
+    user_type = models.TextField(choices=list(USER_TYPES.items()), null=True, blank=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []

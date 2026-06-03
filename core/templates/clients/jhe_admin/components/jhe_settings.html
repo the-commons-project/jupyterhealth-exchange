@@ -1,11 +1,11 @@
 {% verbatim %}
-<script id="t-jheSettings" type="text/template">
+<script id="t-jhe-settings" type="text/template">
   <div>
     <div class="mt-2">
       {{#if @root.canManageJheSettings }}
         <button type="button"
           class="btn btn-sm btn-success"
-          onclick="nav('jheSettings',{
+          onclick="nav('jhe-settings',{
               create: true
           })">
             Add System Setting...
@@ -19,7 +19,6 @@
         <th scope="col"></th>
         <th scope="col">ID</th>
         <th scope="col">Key</th>
-        <th scope="col">Setting ID</th>
         <th scope="col">Value Type</th>
         <th scope="col">Value</th>
       </tr>
@@ -29,21 +28,21 @@
         <tr>
           <td>
             {{> crudButton iconRead=true recordId=id
-              onclick="nav('jheSettings',{
+              onclick="nav('jhe-settings',{
                 id: this.dataset.recordid,
                 read: true
               })"
             }}
             {{#if @root.canManageJheSettings }}
                 {{> crudButton iconUpdate=true recordId=id
-                  onclick="nav('jheSettings',{
+                  onclick="nav('jhe-settings',{
                     id: this.dataset.recordid,
                     update: true
                   })"
                 }}
 
                 {{> crudButton iconDelete=true recordId=id
-                  onclick="nav('jheSettings',{
+                  onclick="nav('jhe-settings',{
                     id: this.dataset.recordid,
                     delete: true
                   })"
@@ -52,7 +51,6 @@
           </td>
           <td>{{id}}</td>
           <td>{{key}}</td>
-          <td>{{settingId}}</td>
           <td>{{valueType}}</td>
           <td>{{resolvedValue}}</td>
         </tr>
@@ -64,7 +62,7 @@
   <!-- MODAL -->
   <div
     class="modal fade"
-    id="jheSettings-crudModal"
+    id="jhe-settings-crudModal"
     data-bs-backdrop="static"
     data-bs-keyboard="false"
     tabindex="-1"
@@ -118,17 +116,6 @@
                     class="form-control"
                     id="jheSettingKey"
                     value="{{jheSettingRecord.key}}"
-                  />
-                </div>
-                <div class="mb-3">
-                  <label for="jheSettingKey" class="form-label"
-                    >Setting ID</label
-                  >
-                  <input
-                    type="text"
-                    class="form-control"
-                    id="jheSettingSettingId"
-                    value="{{jheSettingRecord.settingId}}"
                   />
                 </div>
                 <div class="mb-3">

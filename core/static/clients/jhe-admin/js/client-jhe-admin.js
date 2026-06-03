@@ -24,7 +24,7 @@ const DEFAULT_ROUTE = "organizations";
 const API_PATH = "/api/v1";
 
 const ROUTES = {
-  jheSettings: {
+  "jhe-settings": {
     label: "System Settings",
     iconClass: "bi-gear",
     action: "renderJheSettings",
@@ -61,7 +61,7 @@ const ROUTES = {
     iconClass: "bi-box",
     action: "renderClients",
   },
-  dataSources: {
+  "data-sources": {
     label: "Data Sources",
     iconClass: "bi-boxes",
     action: "renderDataSources",
@@ -1721,7 +1721,7 @@ async function removeDataSourceFromClient(dataSourceId, clientId) {
 
 async function renderDataSources(queryParams) {
   const content = Handlebars.compile(
-    document.getElementById("t-dataSources").innerHTML
+    document.getElementById("t-data-sources").innerHTML
   );
 
   const dataSourcesResponse = await apiRequest("GET", "data_sources");
@@ -1831,7 +1831,7 @@ async function removeScopeFromDataSource(scopeCodeId, dataSourceId) {
 
 async function renderJheSettings(queryParams) {
   const content = Handlebars.compile(
-    document.getElementById("t-jheSettings").innerHTML
+    document.getElementById("t-jhe-settings").innerHTML
   );
 
   const jheSettingsResponse = await apiRequest("GET", "jhe_settings");
@@ -1866,7 +1866,6 @@ async function renderJheSettings(queryParams) {
 async function createJheSetting() {
   const jheSettingRecord = {
     key: document.getElementById("jheSettingKey").value || null,
-    settingId: document.getElementById("jheSettingSettingId").value || null,
     valueType: document.getElementById("jheSettingValueType").value,
     value: document.getElementById("jheSettingValue").value || null,
   };
@@ -1877,7 +1876,6 @@ async function createJheSetting() {
 async function updateJheSetting(id) {
   const jheSettingRecord = {
     key: document.getElementById("jheSettingKey").value || null,
-    settingId: document.getElementById("jheSettingSettingId").value || null,
     valueType: document.getElementById("jheSettingValueType").value,
     value: document.getElementById("jheSettingValue").value || null,
   };

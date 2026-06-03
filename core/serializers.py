@@ -15,6 +15,7 @@ from core.models import (
     CodeableConcept,
     DataSource,
     DataSourceSupportedScope,
+    JheClient,
     JheSetting,
     JheUser,
     Observation,
@@ -268,24 +269,10 @@ class ClientSerializer(serializers.ModelSerializer):
             "clientId": instance.client_id,
         }
 
-        invitation_url_setting = JheSetting.objects.filter(setting_id=instance.id, key="client.invitation_url").first()
-        data["invitationUrl"] = invitation_url_setting.get_value() if invitation_url_setting else None
+        jhe_client = getattr(instance, "jhe_client", None)
+        data["invitationUrl"] = jhe_client.invitation_url if jhe_client else None
 
         return data
-
-    def _upsert_setting(self, app_id: int, key: str, value):
-        # treat "" as delete
-        if value is None or value == "":
-            JheSetting.objects.filter(setting_id=app_id, key=key).delete()
-            return
-
-        obj, _ = JheSetting.objects.update_or_create(
-            setting_id=app_id,
-            key=key,
-            defaults={"value_type": "string"},
-        )
-        obj.set_value("string", value)
-        obj.save()
 
     def create(self, validated_data):
         print("validated_data keys:", sorted(validated_data.keys()))
@@ -296,7 +283,9 @@ class ClientSerializer(serializers.ModelSerializer):
         app = super().create(validated_data)
 
         if invitation_url is not None:
-            self._upsert_setting(app.id, "client.invitation_url", invitation_url)
+            # post_save signal created the JheClient; update invitation_url
+            app.jhe_client.invitation_url = invitation_url
+            app.jhe_client.save()
 
         return app
 
@@ -308,7 +297,9 @@ class ClientSerializer(serializers.ModelSerializer):
         app = super().update(instance, validated_data)
 
         if invitation_url is not None:
-            self._upsert_setting(app.id, "client.invitation_url", invitation_url)
+            jhe_client, _ = JheClient.objects.get_or_create(application=app)
+            jhe_client.invitation_url = invitation_url
+            jhe_client.save()
 
         return app
 
@@ -432,7 +423,6 @@ class JheSettingSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "key",
-            "setting_id",
             "value_type",
             "value",  # input
             "resolved_value",  # output
@@ -485,7 +475,7 @@ class FHIRObservationSerializer(serializers.Serializer):
 
     def to_representation(self, observation):
         mapping = get_resource_mapping("Observation")
-        as_dict = build_fhir_resource(observation, "Observation", mapping, aux_data=observation.aux_data)
+        as_dict = build_fhir_resource(observation, "Observation", mapping, aux_data=observation.aux_fhir_data)
         # valueAttachment.data must be Base64-encoded binary per FHIR; the mapping yields
         # the raw JSON object, so encode it here (mirrors fhir_create's decode path).
         attachment = as_dict.get("valueAttachment")
@@ -508,13 +498,13 @@ class FHIRPatientSerializer(serializers.Serializer):
     """Renders a Patient model instance into a FHIR R5 Patient resource.
 
     The shape is driven by the data_mapping in jhe/fhir_config.json: Django model
-    fields are combined with the patient's aux_data (Django-mapped fields take
+    fields are combined with the patient's aux_fhir_data (Django-mapped fields take
     precedence), then validated against the fhir.resources Patient model.
     """
 
     def to_representation(self, patient):
         mapping = get_resource_mapping("Patient")
-        as_dict = build_fhir_resource(patient, "Patient", mapping, aux_data=patient.aux_data)
+        as_dict = build_fhir_resource(patient, "Patient", mapping, aux_data=patient.aux_fhir_data)
         # validate
         try:
             FHIRPatient.parse_obj(humps.camelize(as_dict))

@@ -1,11 +1,11 @@
 {% verbatim %}
-<script id="t-dataSources" type="text/template">
+<script id="t-data-sources" type="text/template">
   <div>
     <div class="mt-2">
       {{#if @root.canManageDataSources }}
         <button type="button"
               class="btn btn-sm btn-success"
-              onclick="nav('dataSources',{
+              onclick="nav('data-sources',{
                   create: true
               })">
           Add Data Source...
@@ -27,21 +27,21 @@
         <tr>
           <td>
             {{> crudButton iconRead=true recordId=id
-              onclick="nav('dataSources',{
+              onclick="nav('data-sources',{
                 id: this.dataset.recordid,
                 read: true
               })"
             }}
             {{#if @root.canManageDataSources }}
                 {{> crudButton iconUpdate=true recordId=id
-                  onclick="nav('dataSources',{
+                  onclick="nav('data-sources',{
                     id: this.dataset.recordid,
                     update: true
                   })"
                 }}
 
                 {{> crudButton iconDelete=true recordId=id
-                  onclick="nav('dataSources',{
+                  onclick="nav('data-sources',{
                     id: this.dataset.recordid,
                     delete: true
                   })"
@@ -66,7 +66,7 @@
   <!-- MODAL -->
   <div
     class="modal fade"
-    id="dataSources-crudModal"
+    id="data-sources-crudModal"
     data-bs-backdrop="static"
     data-bs-keyboard="false"
     tabindex="-1"

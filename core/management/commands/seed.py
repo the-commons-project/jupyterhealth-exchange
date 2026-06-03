@@ -83,7 +83,6 @@ class Command(BaseCommand):
         for key, value_type, value in jhe_settings:
             setting, _ = JheSetting.objects.update_or_create(
                 key=key,
-                setting_id=None,
                 defaults={"value_type": value_type},
             )
             setting.set_value(value_type, str(value) if value_type == "int" else value)
@@ -196,14 +195,9 @@ class Command(BaseCommand):
                 },
             )
             if created:
-                for key, value in [
-                    ("client.invitation_url", client["invitation_url"]),
-                ]:
-                    setting, _ = JheSetting.objects.update_or_create(
-                        setting_id=app.id, key=key, defaults={"value_type": "string"}
-                    )
-                    setting.set_value("string", value)
-                    setting.save()
+                # post_save signal created the JheClient; set invitation_url
+                app.jhe_client.invitation_url = client["invitation_url"]
+                app.jhe_client.save()
 
             for ds_name in client["data_sources"]:
                 ds = DataSource.objects.get(name=ds_name)
