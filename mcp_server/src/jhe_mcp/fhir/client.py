@@ -132,7 +132,7 @@ class JheClient:
             if resp.status_code == 404 and treat_404_as_none:
                 log_access(subject=subject, method="GET", path=path, status=resp.status_code)
                 return None
-            if 500 <= resp.status_code < 600 and not is_retry:
+            if (resp.status_code == 429 or 500 <= resp.status_code < 600) and not is_retry:
                 await asyncio.sleep(0.5)
                 continue
             log_access(subject=subject, method="GET", path=path, status=resp.status_code)

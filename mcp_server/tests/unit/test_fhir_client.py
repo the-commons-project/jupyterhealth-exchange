@@ -66,6 +66,18 @@ async def test_500_retried_once_then_raises(auth):
 
 
 @pytest.mark.asyncio
+async def test_429_retried_then_succeeds(auth):
+    with respx.mock(assert_all_called=True) as router:
+        route = router.get("http://jhe/fhir/r5/Observation").mock(
+            side_effect=[Response(429), Response(200, json={"resourceType": "Bundle", "total": 0, "entry": []})]
+        )
+        async with JheClient("http://jhe") as client:
+            data = await client.fhir_get("Observation")
+            assert data["total"] == 0
+            assert route.call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_audit_log_emitted_on_success(auth, caplog):
     # FIX B: every JHE data access emits a structured audit line carrying
     # WHO (subject), WHAT (method + path), and RESULT (status).
