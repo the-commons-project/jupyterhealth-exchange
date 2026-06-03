@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from jhe_mcp.fhir import observation_query as oq
+from jhe_mcp.fhir.client import JheClientError
 from jhe_mcp.fhir.observation_query import (
     build_observation_params,
     count_observations,
@@ -79,3 +81,47 @@ async def test_iter_all_follows_pages():
     entries = await iter_all_observations(client, {"patient": "7"})
     assert len(entries) == 1500
     assert client.fhir_get.await_count == 2
+
+
+# --- #1: a non-Bundle 200 must raise, not be silently reported as 0/empty ---
+
+
+@pytest.mark.asyncio
+async def test_count_observations_rejects_non_bundle_body():
+    client = AsyncMock()
+    client.fhir_get.return_value = {"detail": "boom"}  # 200 but not a search Bundle
+    with pytest.raises(JheClientError):
+        await count_observations(client, {"patient": "7"})
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_rejects_non_bundle_body():
+    client = AsyncMock()
+    client.fhir_get.return_value = {"detail": "boom"}
+    with pytest.raises(JheClientError):
+        await fetch_observation_page(client, {"patient": "7"}, page=1, page_size=50)
+
+
+# --- has_more boundary (previously untested) ---
+
+
+@pytest.mark.asyncio
+async def test_has_more_false_when_page_exactly_consumes_total():
+    client = AsyncMock()
+    client.fhir_get.return_value = {"total": 100, "entry": [{} for _ in range(50)]}
+    total, _, has_more = await fetch_observation_page(client, {"patient": "7"}, page=2, page_size=50)
+    assert total == 100
+    assert has_more is False
+
+
+# --- #4: iter_all_observations is bounded so a misbehaving server can't OOM us ---
+
+
+@pytest.mark.asyncio
+async def test_iter_all_observations_caps_at_max_pages():
+    client = AsyncMock()
+    huge = oq.MAX_PAGE_SIZE * (oq.MAX_PAGES + 5)
+    client.fhir_get.return_value = {"total": huge, "entry": [{} for _ in range(oq.MAX_PAGE_SIZE)]}
+    out = await iter_all_observations(client, {"patient": "7"})
+    assert client.fhir_get.await_count == oq.MAX_PAGES
+    assert len(out) == oq.MAX_PAGE_SIZE * oq.MAX_PAGES
