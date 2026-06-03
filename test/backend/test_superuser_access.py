@@ -56,7 +56,7 @@ def anon_client():
 
 @pytest.fixture
 def sample_setting(db):
-    setting = JheSetting(key="test.setting", setting_id=1, value_type="string")
+    setting = JheSetting(key="test.setting", value_type="string")
     setting.set_value("string", "test_value")
     setting.save()
     return setting

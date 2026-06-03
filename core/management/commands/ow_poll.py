@@ -70,7 +70,6 @@ def _write_sync_lock(value: str) -> None:
     with transaction.atomic():
         setting, _ = JheSetting.objects.select_for_update().update_or_create(
             key=_SYNC_LOCK_KEY,
-            setting_id=None,
             defaults={"value_type": "string"},
         )
         setting.set_value("string", value)
@@ -114,7 +113,6 @@ class Command(BaseCommand):
         with transaction.atomic():
             setting, _ = JheSetting.objects.select_for_update().get_or_create(
                 key=_SYNC_LOCK_KEY,
-                setting_id=None,
                 defaults={"value_type": "string", "value_string": ""},
             )
             current = setting.get_value() or ""

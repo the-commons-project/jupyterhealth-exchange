@@ -14,7 +14,6 @@ from oauth2_provider.settings import oauth2_settings
 
 from core.jhe_settings.service import get_setting
 
-from .jhe_setting import JheSetting
 from .patient import Patient
 
 _TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -48,7 +47,7 @@ class PatientInvitation(models.Model):
         related_name="patient_invitations",
     )
     token_hash = models.CharField(max_length=43, unique=True)
-    status = models.CharField(max_length=16, choices=Status.choices)
+    status = models.TextField(choices=Status.choices)
     last_updated = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -77,17 +76,17 @@ class PatientInvitation(models.Model):
 
     @staticmethod
     def build_link(patient, client):
-        invitation_url_setting = JheSetting.objects.filter(setting_id=client.id, key="client.invitation_url").first()
+        jhe_client = getattr(client, "jhe_client", None)
 
-        if not invitation_url_setting:
-            raise ValueError("Missing JheSetting: client.invitation_url")
+        if not jhe_client or not jhe_client.invitation_url:
+            raise ValueError("Missing invitation_url on JheClient")
 
         invitation = PatientInvitation.issue(patient, client)
 
         site_url = get_setting("site.url", settings.SITE_URL)
         host = urlparse(site_url).netloc
         code = quote(f"{host}_{invitation.token}", safe="_")
-        link = invitation_url_setting.get_value().replace("CODE", code)
+        link = jhe_client.invitation_url.replace("CODE", code)
 
         return invitation, link
 

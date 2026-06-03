@@ -28,8 +28,8 @@ class Observation(models.Model):
     data_source = models.ForeignKey("DataSource", on_delete=models.SET_NULL, null=True)
     value_attachment_data = models.JSONField()
     last_updated = models.DateTimeField(auto_now=True)
-    ow_key = models.CharField(max_length=512, null=True, blank=True, db_index=True)
-    aux_data = models.JSONField(null=True)
+    ow_key = models.TextField(null=True, blank=True, db_index=True)
+    aux_fhir_data = models.JSONField(null=True)
 
     # https://build.fhir.org/valueset-observation-status.html
     OBSERVATION_STATUSES = {

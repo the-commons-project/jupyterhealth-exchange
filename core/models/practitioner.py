@@ -48,7 +48,7 @@ class PractitionerOrganization(models.Model):
     practitioner = models.ForeignKey(Practitioner, on_delete=models.CASCADE, related_name="organization_links")
     organization = models.ForeignKey("Organization", on_delete=models.CASCADE, related_name="practitioner_links")
 
-    role = models.CharField(max_length=10, choices=list(ROLE_CHOICES.items()), default=ROLE_MEMBER)
+    role = models.TextField(choices=list(ROLE_CHOICES.items()), default=ROLE_MEMBER)
 
     class Meta:
         constraints = [

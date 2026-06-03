@@ -23,7 +23,7 @@ class Patient(models.Model):
     name_given = models.CharField(null=True)
     birth_date = models.DateField(null=True)
     telecom_phone = models.CharField(null=True)
-    aux_data = models.JSONField(null=True)
+    aux_fhir_data = models.JSONField(null=True)
     last_updated = models.DateTimeField(auto_now=True)
     organizations = models.ManyToManyField("Organization", through="PatientOrganization", related_name="patients")
 
