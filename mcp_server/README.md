@@ -94,6 +94,26 @@ fly secrets set -a jhe-mcp \
   MCP_RESOURCE_URL=https://jhe-mcp.fly.dev
 ```
 
+### Reproducible JHE-side seeding
+
+Manual registration (above) is a one-time setup. To make the broker's JHE OAuth
+application **reproducible** — so a fresh `python manage.py seed` recreates it
+(as a confidential client with `skip_authorization=True`, i.e. no consent
+prompt) instead of needing the admin UI — set the **same** credentials on the
+**JHE deployment** too:
+
+```bash
+fly secrets set -a jhe \
+  MCP_OAUTH_CLIENT_ID=<client_id> \
+  MCP_OAUTH_CLIENT_SECRET=<client_secret>
+  # optional: MCP_OAUTH_REDIRECT_URI=https://jhe-mcp.fly.dev/oauth/callback (this is the default)
+```
+
+`seed.py::seed_mcp_broker_application` reads these and creates/updates the
+`JHE MCP Server` application; when they're unset (local/CI seeds) it's skipped.
+They must match the `JHE_CLIENT_ID` / `JHE_CLIENT_SECRET` set on `jhe-mcp` above,
+so the broker can authenticate against the seeded record.
+
 ---
 
 ## Connecting an LLM Client
