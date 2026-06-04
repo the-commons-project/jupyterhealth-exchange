@@ -257,7 +257,7 @@ class Command(BaseCommand):
                         subject_patient=patient,
                         codeable_concept=hr_code,
                         data_source=data_source,
-                        value_attachment_data=omh_record,
+                        omh_data=omh_record,
                         status="final",
                     )
                     ObservationIdentifier.objects.create(
@@ -342,7 +342,7 @@ class Command(BaseCommand):
                             subject_patient=patient,
                             codeable_concept=hr_code,
                             data_source=data_source,
-                            value_attachment_data=omh_record,
+                            omh_data=omh_record,
                             status="final",
                         )
                         ObservationIdentifier.objects.create(

@@ -1,5 +1,6 @@
 from .codeable_concept import CodeableConcept
 from .data_source import ClientDataSource, DataSource, DataSourceSupportedScope
+from .fhir_aux_resource import FhirAuxResource
 from .jhe_client import JheClient
 from .jhe_setting import JheSetting
 from .jhe_user import JheUser, JheUserManager
@@ -15,6 +16,7 @@ __all__ = [
     "CodeableConcept",
     "DataSource",
     "DataSourceSupportedScope",
+    "FhirAuxResource",
     "JheClient",
     "JheSetting",
     "JheUser",

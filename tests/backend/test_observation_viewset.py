@@ -22,7 +22,7 @@ from .utils import (
 def get_observations(api_client, patient, hr_study):
     def _get_observations(**params):
         r = api_client.get(
-            "/fhir/r5/Observation",
+            "/FHIR/R5/Observation",
             {
                 "patient": patient.id,
                 "patient._has:Group:member:_id": hr_study.id,
@@ -57,7 +57,7 @@ def test_observation_pagination(hr_study, patient, api_client, get_observations)
 
     with CaptureQueriesContext(connection) as ctx:
         pages = fetch_paginated(
-            api_client, "/fhir/r5/Observation", {"patient": patient.id, "_count": per_page}, return_pages=True
+            api_client, "/FHIR/R5/Observation", {"patient": patient.id, "_count": per_page}, return_pages=True
         )
     # try to make sure our offset/limit were applied
 
@@ -81,7 +81,7 @@ def test_observation_limit(hr_study, patient, api_client, get_observations):
     n = 10_100
     per_page = 1_000
     add_observations(patient=patient, code=Code.HeartRate, n=n)
-    all_results = fetch_paginated(api_client, "/fhir/r5/Observation", {"patient": patient.id, "_count": per_page})
+    all_results = fetch_paginated(api_client, "/FHIR/R5/Observation", {"patient": patient.id, "_count": per_page})
     assert len(all_results) == n
     all_results = fetch_paginated(api_client, "/api/v1/observations", {"patient_id": patient.id, "pageSize": per_page})
     assert len(all_results) == n
@@ -119,7 +119,7 @@ def test_observation_upload_bundle(api_client, device, hr_study, patient, get_ob
         "type": "batch",
         "entry": entries,
     }
-    r = api_client.post("/fhir/r5/", data=request_payload)
+    r = api_client.post("/FHIR/R5/", data=request_payload)
     for entry in r.json()["entry"]:
         if "outcome" in entry["response"]:
             for issue in entry["response"]["outcome"]["issue"]:
@@ -138,6 +138,35 @@ def test_observation_upload_bundle(api_client, device, hr_study, patient, get_ob
     value_attachment_in = json.loads(base64.b64decode(resource_in["valueAttachment"]["data"]).decode())
     value_attachment_out = json.loads(base64.b64decode(resource_out["valueAttachment"]["data"]).decode())
     assert value_attachment_out["body"] == value_attachment_in["body"]
+
+
+def test_observation_upload_bundle_without_trailing_slash(api_client, device, hr_study, patient, get_observations):
+    """The batch base accepts POST with or without the trailing slash (POST /FHIR/R5)."""
+    record = generate_observation_value_attachment_data(Code.HeartRate.value)
+    request_payload = {
+        "resourceType": "Bundle",
+        "type": "batch",
+        "entry": [
+            {
+                "resource": {
+                    "resourceType": "Observation",
+                    "status": "final",
+                    "code": {"coding": [{"system": Code.OpenMHealth.value, "code": Code.HeartRate.value}]},
+                    "subject": {"reference": f"Patient/{patient.id}"},
+                    "device": {"reference": f"Device/{device.id}"},
+                    "valueAttachment": {
+                        "contentType": "application/json",
+                        "data": base64.b64encode(json.dumps(record).encode()).decode(),
+                    },
+                },
+                "request": {"method": "POST", "url": "Observation"},
+            }
+        ],
+    }
+    r = api_client.post("/FHIR/R5", data=request_payload)
+    assert r.status_code == 200, r.text
+    assert r.json()["type"] == "batch-response"
+    assert len(get_observations()["entry"]) == 1
 
 
 def test_observation_upload(api_client, device, hr_study, patient, get_observations):
@@ -162,7 +191,7 @@ def test_observation_upload(api_client, device, hr_study, patient, get_observati
             # "data": record,
         },
     }
-    r = api_client.post("/fhir/r5/Observation", data=resource)
+    r = api_client.post("/FHIR/R5/Observation", data=resource)
     if r.status_code != 201:
         print(r)
     assert r.status_code == 201
@@ -188,7 +217,7 @@ def test_get_observation_by_study(api_client, patient, hr_study):
     add_observations(patient=patient2, code=Code.HeartRate, n=5)
 
     r = api_client.get(
-        "/fhir/r5/Observation",
+        "/FHIR/R5/Observation",
         {
             "patient._has:Group:member:_id": hr_study.id,
         },
@@ -210,7 +239,7 @@ def test_get_observation_one_patient_two_studies(api_client, patient, hr_study):
     add_observations(patient=patient, code=Code.BloodPressure, n=5)
 
     r = api_client.get(
-        "/fhir/r5/Observation",
+        "/FHIR/R5/Observation",
         {
             "patient._has:Group:member:_id": hr_study.id,
         },
@@ -236,7 +265,7 @@ def test_get_observation_access(api_client, patient, hr_study):
     add_observations(patient=patient2, code=Code.BloodPressure, n=5)
 
     r = api_client.get(
-        "/fhir/r5/Observation",
+        "/FHIR/R5/Observation",
         {
             "patient._has:Group:member:_id": hr_study.id,
         },

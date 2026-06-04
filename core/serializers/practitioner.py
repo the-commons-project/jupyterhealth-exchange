@@ -23,7 +23,6 @@ class PractitionerSerializer(serializers.ModelSerializer):
             "jhe_user_id",
             "name_family",
             "name_given",
-            "telecom_phone",
             "telecom_email",
             "organizations",
         ]

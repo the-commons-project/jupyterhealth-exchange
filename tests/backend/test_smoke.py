@@ -176,9 +176,9 @@ class TestP2AuthEnforcement:
     @pytest.mark.parametrize(
         "path, description",
         [
-            ("/fhir/r5/", "FHIR base"),
-            ("/fhir/r5/Observation", "FHIR Observation"),
-            ("/fhir/r5/Patient", "FHIR Patient"),
+            ("/FHIR/R5/", "FHIR base"),
+            ("/FHIR/R5/Observation", "FHIR Observation"),
+            ("/FHIR/R5/Patient", "FHIR Patient"),
         ],
         ids=lambda v: v if isinstance(v, str) and v.startswith("/") else "",
     )

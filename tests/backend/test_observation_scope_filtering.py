@@ -221,7 +221,7 @@ class TestFhirSearchStudyFilters:
 
 
 class TestFhirApiObservationByStudyScope:
-    """Integration tests hitting the /fhir/r5/Observation endpoint"""
+    """Integration tests hitting the /FHIR/R5/Observation endpoint"""
 
     @pytest.fixture
     def api_client(self, practitioner):
@@ -246,7 +246,7 @@ class TestFhirApiObservationByStudyScope:
 
         # Query by HR study
         r = api_client.get(
-            "/fhir/r5/Observation",
+            "/FHIR/R5/Observation",
             {"patient._has:Group:member:_id": hr_study.id},
         )
         assert r.status_code == 200, f"{r.status_code}: {r.text}"
@@ -254,7 +254,7 @@ class TestFhirApiObservationByStudyScope:
 
         # Query by BP study
         r = api_client.get(
-            "/fhir/r5/Observation",
+            "/FHIR/R5/Observation",
             {"patient._has:Group:member:_id": bp_study.id},
         )
         assert r.status_code == 200, f"{r.status_code}: {r.text}"
@@ -268,7 +268,7 @@ class TestFhirApiObservationByStudyScope:
         add_observations(patient=patient_a, code=Code.BloodPressure, n=3)
 
         r = api_client.get(
-            "/fhir/r5/Observation",
+            "/FHIR/R5/Observation",
             {"patient": patient_a.id},
         )
         assert r.status_code == 200, f"{r.status_code}: {r.text}"
@@ -283,7 +283,7 @@ class TestFhirApiObservationByStudyScope:
         add_observations(patient=patient_a, code=Code.BloodGlucose, n=4)
 
         r = api_client.get(
-            "/fhir/r5/Observation",
+            "/FHIR/R5/Observation",
             {"patient._has:Group:member:_id": bp_hr.id},
         )
         assert r.status_code == 200, f"{r.status_code}: {r.text}"

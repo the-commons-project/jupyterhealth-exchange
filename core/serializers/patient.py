@@ -1,10 +1,7 @@
-import humps
-from django.core.exceptions import BadRequest
-from fhir.resources.patient import Patient as FHIRPatient
 from rest_framework import serializers
 
 from core.fhir.config import get_resource_mapping
-from core.fhir.mapping import build_fhir_resource
+from core.fhir.engine import build_fhir_resource
 from core.models import JheUser, Patient, PatientIdentifier
 
 from .organization import OrganizationSerializer
@@ -93,20 +90,15 @@ class JheUserPatientProfileSerializer(serializers.ModelSerializer):
 class FHIRPatientSerializer(serializers.Serializer):
     """Renders a Patient model instance into a FHIR R5 Patient resource.
 
-    The shape is driven by the data_mapping in jhe/fhir_config.json: Django model
-    fields are combined with the patient's aux_fhir_data (Django-mapped fields take
-    precedence), then validated against the fhir.resources Patient model.
+    The shape is driven by the mapping in core/fhir/fhir_config.json: Django model fields
+    are combined with the patient's aux_fhir_data (Django-mapped fields take precedence).
+    Output is not validated against fhir.resources -- validation happens on the way in
+    (Patient.fhir_create), not on the way out.
     """
 
     def to_representation(self, patient):
         mapping = get_resource_mapping("Patient")
-        as_dict = build_fhir_resource(patient, "Patient", mapping, aux_data=patient.aux_fhir_data)
-        # validate
-        try:
-            FHIRPatient.parse_obj(humps.camelize(as_dict))
-        except Exception as e:
-            raise BadRequest(e)
-        return as_dict
+        return build_fhir_resource(patient, "Patient", mapping, aux_data=patient.aux_fhir_data)
 
 
 class FHIRBundledPatientSerializer(serializers.Serializer):

@@ -125,7 +125,7 @@ def test_fhir_list_patients(api_client, organization, hr_study):
     per_page = 10
     existing = Patient.objects.all().count()
     add_patients(n - existing, organization)
-    patients = fetch_paginated(api_client, "/fhir/r5/Patient", {"_count": per_page})
+    patients = fetch_paginated(api_client, "/FHIR/R5/Patient", {"_count": per_page})
     assert len(patients) == n
 
 
@@ -138,7 +138,7 @@ def test_fhir_list_patients_by_study(api_client, organization, hr_study):
         add_patient_to_study(patient, hr_study)
     patients = fetch_paginated(
         api_client,
-        "/fhir/r5/Patient",
+        "/FHIR/R5/Patient",
         {"_count": per_page, "_has:Group:member:_id": hr_study.id},
     )
     assert len(patients) == n
@@ -153,7 +153,7 @@ def test_patient_pagination(api_client, organization):
 
     params = {"_has:Group:member:_id": study.id, "_count": per_page}
     with CaptureQueriesContext(connection) as ctx:
-        r = api_client.get("/fhir/r5/Patient", params)
+        r = api_client.get("/FHIR/R5/Patient", params)
     assert r.status_code == 200, r.text
     page = r.json()
     assert page["resourceType"] == "Bundle"
@@ -168,7 +168,7 @@ def test_patient_pagination(api_client, organization):
     # the search Bundle envelope (and its nested Patient resources) is valid FHIR
     assert_valid_fhir_bundle(page)
 
-    pages = fetch_paginated(api_client, "/fhir/r5/Patient", params, return_pages=True)
+    pages = fetch_paginated(api_client, "/FHIR/R5/Patient", params, return_pages=True)
     assert len(pages) == 3
     assert len(pages[0]["entry"]) == per_page
     assert len(pages[-1]["entry"]) == n % per_page

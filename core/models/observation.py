@@ -24,9 +24,11 @@ logger = logging.getLogger(__name__)
 # Observation per record: https://stackoverflow.com/a/61484800 (author worked at ONC)
 class Observation(models.Model):
     subject_patient = models.ForeignKey("Patient", on_delete=models.CASCADE)
-    codeable_concept = models.ForeignKey("CodeableConcept", on_delete=models.PROTECT)
+    # codeable_concept and omh_data are null for non-OMH observations, whose clinical payload
+    # is stored opaquely in aux_fhir_data instead of mapped onto these columns.
+    codeable_concept = models.ForeignKey("CodeableConcept", on_delete=models.PROTECT, null=True)
     data_source = models.ForeignKey("DataSource", on_delete=models.SET_NULL, null=True)
-    value_attachment_data = models.JSONField()
+    omh_data = models.JSONField(null=True)
     last_updated = models.DateTimeField(auto_now=True)
     ow_key = models.TextField(null=True, blank=True, db_index=True)
     aux_fhir_data = models.JSONField(null=True)
@@ -54,9 +56,10 @@ class Observation(models.Model):
 
     @property
     def codeable_concepts(self):
-        # Each Observation has exactly one CodeableConcept; expose it as a one-element
-        # iterable so the data-mapping engine fans it out into the code.coding array.
-        return [self.codeable_concept]
+        # An OMH Observation has exactly one CodeableConcept; expose it as a one-element
+        # iterable so the data-mapping engine fans it out into the code.coding array. A
+        # non-OMH Observation has none (its code lives in aux_fhir_data), so yield nothing.
+        return [self.codeable_concept] if self.codeable_concept else []
 
     @staticmethod
     def for_practitioner_organization_study_patient(
@@ -162,17 +165,30 @@ class Observation(models.Model):
     # base64 it eg https://cryptii.com/pipes/binary-to-base64
     @staticmethod
     def fhir_create(data, user):
-        # Validate Structure
-        fhir_observation = None
-        try:
-            import humps
+        # An incoming Observation is handled one of two ways, decided by the config-declared
+        # __criteria for Observation (e.g. an OMH code system):
+        #   * OMH (criteria matches): the value attachment is decoded into the omh_data column,
+        #     the code must be a known, consented scope, and a Device is required -- the
+        #     historical behaviour.
+        #   * non-OMH (criteria fails): the config mapping is bypassed. codeable_concept and
+        #     omh_data stay null, no scope-consent applies, the Device is optional, and the
+        #     whole resource is stored verbatim in aux_fhir_data.
+        import humps
 
-            fhir_observation = FHIRObservation.parse_obj(humps.camelize(data))
+        from core.fhir.config import get_resource_mapping
+        from core.fhir.engine import get_mapping_criteria, matches_criteria, split_resource
+
+        camelized = humps.camelize(data)
+        try:
+            fhir_observation = FHIRObservation.parse_obj(camelized)
         except Exception as e:
             raise (BadRequest(e))  # TBD: move to view
 
-        # Check Patient
-        subject_patient = None
+        mapping = get_resource_mapping("Observation")
+        criteria = get_mapping_criteria(mapping)
+        is_omh = criteria is None or matches_criteria(camelized, criteria)
+
+        # Subject -- always required; it is the structural link, set even on the aux path.
         if (
             not fhir_observation.subject
             or not fhir_observation.subject.reference
@@ -195,72 +211,44 @@ class Observation(models.Model):
             user_patient = user.get_patient()
         if user_patient is None:
             raise PermissionDenied("Current user is not a Patient.")
-
-        if user_patient and (subject_patient.id != user_patient.id):
+        if subject_patient.id != user_patient.id:
             raise PermissionDenied("The Subject Patient does not match the current user.")
 
-        # Check Identifiers
-        if fhir_observation.identifier:
-            for identifier in fhir_observation.identifier:
-                existing_ids = ObservationIdentifier.objects.filter(system=identifier.system, value=identifier.value)
-                if len(existing_ids) > 0:
+        # Device: required for OMH, optional otherwise (resolved if a reference is present).
+        data_source = Observation._resolve_device(fhir_observation, required=is_omh)
+
+        if is_omh:
+            # Reject duplicate identifiers up front so we don't create an orphan observation
+            # before the ObservationIdentifier unique constraint trips.
+            for identifier in fhir_observation.identifier or []:
+                if ObservationIdentifier.objects.filter(system=identifier.system, value=identifier.value).exists():
                     raise IntegrityError(
                         f"Identifier already exists: system={identifier.system} value={identifier.value}"
                     )
-
-        # Check Device
-        data_source = None
-        if (
-            not fhir_observation.device
-            or not fhir_observation.device.reference
-            or not fhir_observation.device.reference.startswith("Device/")
-        ):
-            raise (
-                BadRequest("Device is required and must be a reference to a Data Source ID and start with 'Device/'")
-            )  # TBD: move to view
-        device_id = fhir_observation.device.reference.split("/")[1]
-        try:
-            data_source = DataSource.objects.get((Q(type="personal_device") | Q(type="device")), id=device_id)
-        except DataSource.DoesNotExist:
-            raise (BadRequest(f"Device Data Source id={device_id} can not be found."))  # TBD: move to view
-
-        # Check Scope
-        if len(fhir_observation.code.coding) == 0 or len(fhir_observation.code.coding) > 1:
-            raise BadRequest("Exactly one Code must be provided.")  # TBD: move to view
-
-        codeable_concepts = CodeableConcept.objects.filter(
-            coding_system=fhir_observation.code.coding[0].system,
-            coding_code=fhir_observation.code.coding[0].code,
-        )
-
-        if len(codeable_concepts) == 0:
-            raise BadRequest(
-                f"Code not found: system={fhir_observation.code.coding[0].system} code={fhir_observation.code.coding[0].code}"  # TBD: move to view
-            )
-
-        if codeable_concepts[0].id not in [scope.id for scope in user_patient.consolidated_consented_scopes()]:
-            raise PermissionDenied(
-                f"Observation data with coding_system={codeable_concepts[0].coding_system} coding_code={codeable_concepts[0].coding_code} has not been consented"
-                " for any studies by this Patient."
-            )
-
-        try:
-            value_attachment_data_binary = base64.b64decode(fhir_observation.valueAttachment.data)
-            value_attachment_data_json = value_attachment_data_binary.decode("ascii")
-            value_attachment_data = json.loads(value_attachment_data_json)
-        except Exception:
-            raise BadRequest("valueAttachment.data must be Base 64 Encoded Binary JSON.")  # TBD: move to view
+            codeable_concept, omh_data = Observation._omh_payload(fhir_observation, user_patient)
+            # Fields the config does not map onto columns are preserved in aux_fhir_data.
+            _, aux_fhir_data = split_resource(camelized, "Observation", mapping)
+        else:
+            # Non-OMH: bypass the mapping. The clinical payload (code, value, status, ...) is
+            # stored opaquely in aux_fhir_data, minus the server-managed structural fields.
+            codeable_concept = None
+            omh_data = None
+            aux_fhir_data = {
+                key: value for key, value in camelized.items() if key not in ("resourceType", "id", "subject", "meta")
+            }
 
         observation = Observation.objects.create(
             subject_patient=subject_patient,
             data_source=data_source,
-            codeable_concept=codeable_concepts[0],
+            codeable_concept=codeable_concept,
             status=fhir_observation.status,
-            value_attachment_data=value_attachment_data,
-            last_updated=models.DateTimeField(auto_now=True),
+            omh_data=omh_data,
+            aux_fhir_data=aux_fhir_data or None,
         )
 
-        if fhir_observation.identifier:
+        # Only OMH observations fan their identifiers out to rows; for the aux path the
+        # identifiers travel inside aux_fhir_data.
+        if is_omh and fhir_observation.identifier:
             for identifier in fhir_observation.identifier:
                 ObservationIdentifier.objects.create(
                     observation=observation,
@@ -269,6 +257,45 @@ class Observation(models.Model):
                 )
 
         return observation
+
+    @staticmethod
+    def _resolve_device(fhir_observation, required):
+        reference = fhir_observation.device.reference if fhir_observation.device else None
+        if not reference or not reference.startswith("Device/"):
+            if required:
+                raise BadRequest(
+                    "Device is required and must be a reference to a Data Source ID and start with 'Device/'"
+                )
+            return None
+        device_id = reference.split("/")[1]
+        try:
+            return DataSource.objects.get((Q(type="personal_device") | Q(type="device")), id=device_id)
+        except DataSource.DoesNotExist:
+            raise (BadRequest(f"Device Data Source id={device_id} can not be found."))
+
+    @staticmethod
+    def _omh_payload(fhir_observation, user_patient):
+        """Resolve the (consented) CodeableConcept and decode the OMH value attachment."""
+        if len(fhir_observation.code.coding) != 1:
+            raise BadRequest("Exactly one Code must be provided.")  # TBD: move to view
+        coding = fhir_observation.code.coding[0]
+
+        codeable_concept = CodeableConcept.objects.filter(coding_system=coding.system, coding_code=coding.code).first()
+        if codeable_concept is None:
+            raise BadRequest(f"Code not found: system={coding.system} code={coding.code}")  # TBD: move to view
+
+        if codeable_concept.id not in [scope.id for scope in user_patient.consolidated_consented_scopes()]:
+            raise PermissionDenied(
+                f"Observation data with coding_system={codeable_concept.coding_system}"
+                f" coding_code={codeable_concept.coding_code} has not been consented for any studies by this Patient."
+            )
+
+        try:
+            omh_data = json.loads(base64.b64decode(fhir_observation.valueAttachment.data).decode("ascii"))
+        except Exception:
+            raise BadRequest("valueAttachment.data must be Base 64 Encoded Binary JSON.")  # TBD: move to view
+
+        return codeable_concept, omh_data
 
     @staticmethod
     def validate_outer_schema(instance_data):
@@ -294,11 +321,15 @@ class Observation(models.Model):
         self.code = None
 
     def clean(self):
+        # Only OMH observations carry omh_data validated against the OMH schemas; a non-OMH
+        # observation has no omh_data/codeable_concept (its payload is opaque in aux_fhir_data).
+        if self.omh_data is None or self.codeable_concept is None:
+            return
         try:
-            value_attachment_data = self.value_attachment_data
+            omh_data = self.omh_data
 
             header_schema = json.loads((settings.DATA_DIR_PATH.schemas_metadata / "header-1.0.json").read_text())
-            validate_with_registry(instance=value_attachment_data.get("header"), schema=header_schema)
+            validate_with_registry(instance=omh_data.get("header"), schema=header_schema)
 
             body_schema = json.loads(
                 (
@@ -306,7 +337,7 @@ class Observation(models.Model):
                     / f"schema-{self.codeable_concept.coding_code.replace(':', '_').replace('.', '-')}.json"
                 ).read_text()
             )
-            validate_with_registry(instance=value_attachment_data.get("body"), schema=body_schema)
+            validate_with_registry(instance=omh_data.get("body"), schema=body_schema)
         except Exception as error:
             raise error
 

@@ -217,12 +217,12 @@ class Command:
             ],
         }
 
-        fhir_observation_response = self.session.post(url=self.BASE_URL + "/fhir/r5/", json=request_payload).json()
+        fhir_observation_response = self.session.post(url=self.BASE_URL + "/FHIR/R5/", json=request_payload).json()
 
         print(fhir_observation_response)
 
         fetch_fhir_observation_response = self.session.get(
-            url=self.BASE_URL + "/fhir/r5/Observation",
+            url=self.BASE_URL + "/FHIR/R5/Observation",
             params={"patient._has:Group:member:_id": study_id, "patient": patient_creation_response.get("id")},
         ).json()
 

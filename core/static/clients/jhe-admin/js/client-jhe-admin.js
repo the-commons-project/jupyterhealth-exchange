@@ -792,7 +792,6 @@ async function updatePractitioner(id) {
     nameFamily: document.getElementById("practitionerFamilyName").value || null,
     nameGiven: document.getElementById("practitionerGivenName").value || null,
     birthDate: document.getElementById("practitionerBirthDate").value || null,
-    telecomPhone: document.getElementById("practitionerTelecomPhone").value || null,
   };
   let response = await apiRequest(
     "PATCH",
@@ -1549,8 +1548,8 @@ async function renderObservations(queryParams) {
 
   observationsPaginated.results = observationsPaginated.results.map(
     (observation) => {
-      observation.valueAttachmentData = JSON.stringify(
-        observation.valueAttachmentData,
+      observation.omhData = JSON.stringify(
+        observation.omhData,
         null,
         2,
       );

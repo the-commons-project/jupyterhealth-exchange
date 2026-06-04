@@ -305,7 +305,7 @@ def sync_ow_data(request):
                             subject_patient=patient,
                             codeable_concept=hr_code,
                             data_source=oura_ds,
-                            value_attachment_data=omh_record,
+                            omh_data=omh_record,
                             ow_key=key,
                             status="final",
                         )

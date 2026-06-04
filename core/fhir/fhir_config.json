@@ -1,0 +1,179 @@
+{
+  "fhir_version": "R5",
+  "mapped_resources": [
+    {
+      "resourceType": "Device",
+      "id": "DataSource.id",
+      "meta": {
+        "lastUpdated": "DataSource.last_updated",
+        "__interaction": [
+          "read",
+          "search"
+        ]
+      },
+      "name": "DataSource.name"
+    },
+    {
+      "resourceType": "Group",
+      "id": "Study.id",
+      "membership": "'enumerated'",
+      "meta": {
+        "lastUpdated": "Study.last_updated",
+        "__interaction": [
+          "read",
+          "search"
+        ]
+      },
+      "name": "Study.name"
+    },
+    {
+      "resourceType": "Observation",
+      "meta": {
+        "lastUpdated": "Observation.last_updated",
+        "__criteria": "code=https://w3id.org/openmhealth|"
+      },
+      "id": "Observation.id",
+      "identifier": "Observation.identifiers",
+      "status": "'final'",
+      "code": {
+        "coding": "Observation.codeable_concepts"
+      },
+      "subject": {
+        "reference": "'Patient/' + Observation.subject_patient"
+      },
+      "valueAttachment": {
+        "contentType": "'application/json'",
+        "data": "Observation.omh_data"
+      }
+    },
+    {
+      "resourceType": "Organization",
+      "id": "Organization.id",
+      "meta": {
+        "lastUpdated": "Organization.last_updated",
+        "__interaction": [
+          "read",
+          "search"
+        ]
+      },
+      "name": "Organization.name"
+    },
+    {
+      "resourceType": "Patient",
+      "id": "Patient.id",
+      "identifier": "Patient.identifiers",
+      "meta": {
+        "lastUpdated": "Patient.last_updated",
+        "__interaction": [
+          "read",
+          "search"
+        ]
+      },
+      "name": [
+        {
+          "family": "Patient.name_family",
+          "given": [
+            "Patient.name_given"
+          ]
+        }
+      ],
+      "birthDate": "Patient.birth_date",
+      "telecom": [
+        {
+          "system": "'phone'",
+          "value": "Patient.telecom_phone",
+          "use": "'mobile'"
+        },
+        {
+          "system": "'email'",
+          "value": "Patient.jhe_user.email",
+          "use": "'home'"
+        }
+      ]
+    },
+    {
+      "resourceType": "Practitioner",
+      "id": "Practitioner.id",
+      "meta": {
+        "lastUpdated": "Practitioner.last_updated",
+        "__interaction": [
+          "read",
+          "search"
+        ]
+      },
+      "name": [
+        {
+          "family": "Practitioner.name_family",
+          "given": [
+            "Practitioner.name_given"
+          ]
+        }
+      ]
+    }
+  ],
+  "aux_resources": [
+    {
+      "resourceType": "AllergyIntolerance"
+    },
+    {
+      "resourceType": "CarePlan"
+    },
+    {
+      "resourceType": "CareTeam"
+    },
+    {
+      "resourceType": "Condition"
+    },
+    {
+      "resourceType": "Coverage"
+    },
+    {
+      "resourceType": "DiagnosticReport"
+    },
+    {
+      "resourceType": "DocumentReference"
+    },
+    {
+      "resourceType": "Encounter"
+    },
+    {
+      "resourceType": "FamilyMemberHistory"
+    },
+    {
+      "resourceType": "Goal"
+    },
+    {
+      "resourceType": "Immunization"
+    },
+    {
+      "resourceType": "Location"
+    },
+    {
+      "resourceType": "Medication"
+    },
+    {
+      "resourceType": "MedicationDispense"
+    },
+    {
+      "resourceType": "MedicationRequest"
+    },
+    {
+      "resourceType": "Procedure"
+    },
+    {
+      "resourceType": "Provenance"
+    },
+    {
+      "resourceType": "QuestionnaireResponse"
+    },
+    {
+      "resourceType": "RelatedPerson"
+    },
+    {
+      "resourceType": "ServiceRequest"
+    },
+    {
+      "resourceType": "Specimen"
+    }
+  ]
+}
