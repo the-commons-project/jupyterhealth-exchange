@@ -7,8 +7,8 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from core.admin_pagination import CustomPageNumberPagination
 from core.models import Patient, Study, StudyClient, StudyDataSource, StudyPatient, StudyScopeRequest
+from core.pagination import CustomPageNumberPagination
 from core.permissions import IfUserCan
 from core.serializers import (
     PatientSerializer,

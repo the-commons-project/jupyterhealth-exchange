@@ -18,7 +18,6 @@ from django.core.cache import cache
 from django.test import RequestFactory, TestCase
 from oauth2_provider.models import get_application_model
 
-from core.jhe_settings.service import get_setting
 from core.models import (
     JheSetting,
     JheUser,
@@ -28,13 +27,14 @@ from core.models import (
     Practitioner,
     PractitionerOrganization,
 )
+from core.services.jhe_settings import get_setting
 
 Application = get_application_model()
 
 # Patch targets:
 # GET_SETTING_SVC — patches the function in the service module (for service/form tests)
 # GET_SETTING_MODELS — patches the top-level import in models.py (for model method tests)
-GET_SETTING_SVC = "core.jhe_settings.service.get_setting"
+GET_SETTING_SVC = "core.services.jhe_settings.get_setting"
 GET_SETTING_USER = "core.models.jhe_user.get_setting"
 GET_SETTING_OBSERVATION = "core.models.observation.get_setting"
 GET_SETTING_PATIENT = "core.models.patient.get_setting"
@@ -44,7 +44,7 @@ GET_SETTING_PATIENT = "core.models.patient.get_setting"
 # Unit tests — get_setting service
 # =====================================================================
 class GetSettingServiceTests(TestCase):
-    """Unit tests for core.jhe_settings.service.get_setting"""
+    """Unit tests for core.services.jhe_settings.get_setting"""
 
     def setUp(self):
         cache.clear()

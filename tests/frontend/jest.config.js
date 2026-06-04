@@ -8,7 +8,7 @@ module.exports = {
   },
   setupFilesAfterEnv: ["./jest.setup.js"],
   transformIgnorePatterns: ["/node_modules/(?!(@testing-library)/)"],
-  testMatch: ["**/tests/**/*.js"],
+  testMatch: ["<rootDir>/tests/**/*.js"],
   moduleFileExtensions: ["js", "json", "jsx"],
   testEnvironmentOptions: {
     customExportConditions: ["node", "node-addons"],

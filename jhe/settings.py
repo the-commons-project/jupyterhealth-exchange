@@ -267,7 +267,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 SAML2_AUTH = {
     "TRIGGER": {
-        "GET_METADATA_AUTO_CONF_URLS": "core.jhe_settings.service.get_saml_metadata_urls",
+        "GET_METADATA_AUTO_CONF_URLS": "core.services.jhe_settings.get_saml_metadata_urls",
     },
     "ASSERTION_URL": SITE_URL,
     "ENTITY_ID": f"{SITE_URL}/sso/acs/",

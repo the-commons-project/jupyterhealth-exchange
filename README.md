@@ -2,7 +2,7 @@
 JupyterHealth Exchange is a Django web application that facilitates sharing patient-consented health data with authorized users via a Web UI and REST, MCP, and FHIR APIs.
 
 <p align="center">
-	<img src="doc/jupyterhealth-exchange.png" width="400">
+	<img src="docs/jupyterhealth-exchange.png" width="400">
 </p>
 Features include:
 
@@ -18,7 +18,7 @@ Features include:
 
 ## Documentation
 
-- https://jupyterhealth.org/software-documentation/
+- https://jupyterhealth.github.io/software-documentation/
 
 
 ## What It Does
@@ -28,7 +28,7 @@ Features include:
 Researchers create studies and recruit patients, who consent and submit observations via client apps, and the data is then stored in JupyterHealth Exchange and queried by researchers using Jupyter Notebooks or other systems.
 
 <p align="center">
-	<img src="doc/jupyterhealth-exchange-user_flow.jpg" height="400">
+	<img src="docs/jupyterhealth-exchange-user_flow.jpg" height="400">
 </p>
 
 **Typical Data Flow**
@@ -36,7 +36,7 @@ Researchers create studies and recruit patients, who consent and submit observat
 Users manage the system via the Web UI, and data producers receive invitation credentials by email, manage consents through the Admin API, and upload data to JupyterHealth Exchange using the FHIR API. Data consumers such as Jupyter Notebooks or other systems then query and read the data through REST and MCP APIs.
 
 <p align="center">
-	<img src="doc/jupyterhealth-exchange-data_flow.jpg" height="400">
+	<img src="docs/jupyterhealth-exchange-data_flow.jpg" height="400">
 </p>
 
 
@@ -50,7 +50,7 @@ Users manage the system via the Web UI, and data producers receive invitation cr
 
 1. Create a new Postgres DB (currently only Postgres is supported)
 
-1. Copy `dot_env_example.txt` to `.env` and update the `DB_*` parameters to match (2) above.
+1. Copy `.env.example` to `.env` and update the `DB_*` parameters to match (2) above.
 
    -  Optionally you can add a Django `SECRET_KEY` by running the command below or you can leave this for now to use a randomly generated value at runtime (this will not work with more than one worker)
       `$ openssl rand -base64 32`
@@ -78,7 +78,7 @@ Users manage the system via the Web UI, and data producers receive invitation cr
       - Return to the `.env` file and update the `OIDC_RSA_PRIVATE_KEY`
       - Keep the `oidc.key` somewhere safe
 
-1. Browse to http://localhost:8000/ and log in with the credentials `manager_mary@example.com` / `Jhe1234!` or `manager_mark@example.com` / `Jhe1234!` and you should be directed to the `/clients/jhe-admin/organizations` path with some example Organizations in the dropdown. See [Seed Data](doc/seed-data.md) to understand how these example Users and Organizations are structured.
+1. Browse to http://localhost:8000/ and log in with the credentials `manager_mary@example.com` / `Jhe1234!` or `manager_mark@example.com` / `Jhe1234!` and you should be directed to the `/clients/jhe-admin/organizations` path with some example Organizations in the dropdown. See [Seed Data](docs/seed-data.md) to understand how these example Users and Organizations are structured.
 
 1. New users can be signed up from the base URL (eg http://localhost:8000/) with the default invitation code "**jhe**". This invitation code and other settings can be changed from the same URL by logging in as the Admin user (`admin@example.com` / `Jhe1234!`) and opening the System Settings menu.
 
@@ -148,8 +148,4 @@ Entities are based on the [HL7 FHIR model](https://build.fhir.org/), a widely us
 
 ## Contributing
 
-See [doc](https://jupyterhealth.org/software-documentation/) for test requirements, coding standards, and PR checklist.
-
-## MCP Server
-
-- **MCP Server:** see [`mcp_server/README.md`](mcp_server/README.md) for the MCP server and its OAuth client registration.
+See [doc](https://jupyterhealth.github.io/software-documentation/) for test requirements, coding standards, and PR checklist.

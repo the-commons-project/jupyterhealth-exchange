@@ -37,8 +37,8 @@ from oauth2_provider.models import get_access_token_model
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauthlib.common import Request
 
-from core.jhe_settings.service import get_setting
 from core.models import JheUser
+from core.services.jhe_settings import get_setting
 from core.utils import get_or_create_user
 
 from ..forms import UserRegistrationForm

@@ -12,7 +12,7 @@ from django.utils import timezone
 from oauth2_provider.models import get_grant_model
 from oauth2_provider.settings import oauth2_settings
 
-from core.jhe_settings.service import get_setting
+from core.services.jhe_settings import get_setting
 
 from .patient import Patient
 

@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth import get_user_model
 
-from core.jhe_settings.service import get_setting
+from core.services.jhe_settings import get_setting
 
 User = get_user_model()
 
