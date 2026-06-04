@@ -14,7 +14,7 @@ from django.utils.http import urlsafe_base64_encode
 from django.utils.translation import gettext_lazy as _
 from oauth2_provider.models import AccessToken, Grant, IDToken, RefreshToken, get_application_model
 
-from core.jhe_settings.service import get_setting
+from core.services.jhe_settings import get_setting
 from core.tokens import account_activation_token
 
 from .organization import Organization

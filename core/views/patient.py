@@ -11,8 +11,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from core.admin_pagination import CustomPageNumberPagination
-from core.fhir_pagination import FHIRBundlePagination
+from core.fhir.pagination import FHIRBundlePagination
 from core.models import (
     CodeableConcept,
     JheUser,
@@ -28,6 +27,7 @@ from core.models import (
     StudyPatient,
     StudyPatientScopeConsent,
 )
+from core.pagination import CustomPageNumberPagination
 from core.permissions import IfUserCan
 from core.serializers import (
     ClientSerializer,

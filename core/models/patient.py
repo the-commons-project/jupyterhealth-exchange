@@ -5,7 +5,7 @@ from django.db import models
 from django.db.utils import IntegrityError
 from django.shortcuts import get_object_or_404
 
-from core.jhe_settings.service import get_setting
+from core.services.jhe_settings import get_setting
 
 from .codeable_concept import CodeableConcept
 from .practitioner import Practitioner

@@ -18,7 +18,7 @@ from typing import NamedTuple
 
 import boto3
 
-from core.jhe_settings.service import get_setting
+from core.services.jhe_settings import get_setting
 
 
 class S3ObjectInfo(NamedTuple):

@@ -28,4 +28,3 @@ def get_saml_metadata_urls(user_id=None):
     url = get_setting("auth.sso.idp_metadata_url")
     if url:
         return [{"url": url}]
-    return []

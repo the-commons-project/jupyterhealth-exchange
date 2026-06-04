@@ -9,13 +9,13 @@ import pytest
 from django.core.management import call_command
 from django.utils import timezone
 
-from core.jhe_settings.service import get_setting
 from core.models import (
     CodeableConcept,
     JheSetting,
     Observation,
     ObservationIdentifier,
 )
+from core.services.jhe_settings import get_setting
 from core.utils import generate_observation_value_attachment_data
 
 HR_CODE = "omh:heart-rate:2.0"

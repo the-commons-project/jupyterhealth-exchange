@@ -39,7 +39,6 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from omh_shim import convert
 
-from core.jhe_settings.service import get_setting
 from core.models import (
     CodeableConcept,
     DataSource,
@@ -48,7 +47,8 @@ from core.models import (
     Observation,
     ObservationIdentifier,
 )
-from core.services.ow_ingest.raw_payload_reader import list_new_objects, read_object
+from core.services.jhe_settings import get_setting
+from core.services.ow_ingest import list_new_objects, read_object
 
 logger = logging.getLogger(__name__)
 

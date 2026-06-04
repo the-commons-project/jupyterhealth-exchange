@@ -2,7 +2,7 @@ from django.db.models.query import RawQuerySet
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
-from .admin_pagination import PaginatedRawQuerySet
+from core.pagination import PaginatedRawQuerySet
 
 
 class FHIRBundlePagination(PageNumberPagination):

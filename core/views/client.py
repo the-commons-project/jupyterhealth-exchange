@@ -5,10 +5,10 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from core.jhe_settings.service import get_setting
 from core.models import ClientDataSource, DataSource
 from core.permissions import IfUserCan
 from core.serializers import ClientDataSourceSerializer, ClientSerializer, DataSourceSerializer
+from core.services.jhe_settings import get_setting
 from jhe import settings
 
 Application = get_application_model()
