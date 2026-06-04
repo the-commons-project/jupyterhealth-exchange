@@ -654,7 +654,7 @@ class ObservationFhirSearchTests(TestCase):
             codeable_concept=self.bp_code,
             data_source=self.ds,
             status="final",
-            value_attachment_data=generate_observation_value_attachment_data(self.bp_code.coding_code),
+            omh_data=generate_observation_value_attachment_data(self.bp_code.coding_code),
         )
 
     def test_fhir_search_is_lazy(self):
@@ -686,7 +686,7 @@ class ObservationFhirSearchTests(TestCase):
             codeable_concept=self.bp_code,
             data_source=self.ds,
             status="final",
-            value_attachment_data=generate_observation_value_attachment_data(self.bp_code.coding_code),
+            omh_data=generate_observation_value_attachment_data(self.bp_code.coding_code),
         )
         results = list(Observation.fhir_search(self.practitioner_user.id, observation_id=self.observation.id))
         result_ids = [o.id for o in results]
@@ -749,7 +749,7 @@ class FHIRObservationSerializerTests(TestCase):
             codeable_concept=self.code,
             data_source=self.ds,
             status="final",
-            value_attachment_data=self.value_data,
+            omh_data=self.value_data,
         )
 
     def _render(self):
@@ -1062,7 +1062,7 @@ class ObservationMethodTests(TestCase):
             codeable_concept=self.code,
             data_source=self.ds,
             status="final",
-            value_attachment_data=generate_observation_value_attachment_data(self.code.coding_code),
+            omh_data=generate_observation_value_attachment_data(self.code.coding_code),
         )
         cache.set("jhe_setting:site.url", settings.SITE_URL)
 
@@ -1099,7 +1099,7 @@ class ObservationMethodTests(TestCase):
             codeable_concept=self.code,
             data_source=self.ds,
             status="final",
-            value_attachment_data=generate_observation_value_attachment_data(self.code.coding_code),
+            omh_data=generate_observation_value_attachment_data(self.code.coding_code),
         )
 
         results = list(
@@ -1135,7 +1135,7 @@ class ObservationMethodTests(TestCase):
             codeable_concept=self.code,
             data_source=self.ds,
             status="final",
-            value_attachment_data=generate_observation_value_attachment_data(self.code.coding_code),
+            omh_data=generate_observation_value_attachment_data(self.code.coding_code),
         )
 
         results = list(

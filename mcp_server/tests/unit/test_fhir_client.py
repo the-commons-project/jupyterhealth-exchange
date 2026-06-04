@@ -28,7 +28,7 @@ async def test_admin_get_includes_bearer(auth):
 @pytest.mark.asyncio
 async def test_fhir_get_with_params(auth):
     with respx.mock(assert_all_called=True) as router:
-        route = router.get("http://jhe/fhir/r5/Observation").mock(
+        route = router.get("http://jhe/FHIR/R5/Observation").mock(
             return_value=Response(200, json={"resourceType": "Bundle", "entry": []})
         )
         async with JheClient("http://jhe") as client:
@@ -68,7 +68,7 @@ async def test_500_retried_once_then_raises(auth):
 @pytest.mark.asyncio
 async def test_429_retried_then_succeeds(auth):
     with respx.mock(assert_all_called=True) as router:
-        route = router.get("http://jhe/fhir/r5/Observation").mock(
+        route = router.get("http://jhe/FHIR/R5/Observation").mock(
             side_effect=[Response(429), Response(200, json={"resourceType": "Bundle", "total": 0, "entry": []})]
         )
         async with JheClient("http://jhe") as client:

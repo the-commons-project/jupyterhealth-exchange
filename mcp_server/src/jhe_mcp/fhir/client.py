@@ -114,7 +114,7 @@ class JheClient:
         params: dict[str, Any] | None = None,
         treat_404_as_none: bool = False,
     ) -> Any:
-        return await self._get(f"/fhir/r5/{resource_path.lstrip('/')}", params, treat_404_as_none)
+        return await self._get(f"/FHIR/R5/{resource_path.lstrip('/')}", params, treat_404_as_none)
 
     async def _get(
         self,

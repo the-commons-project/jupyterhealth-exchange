@@ -1,3 +1,5 @@
+from .aux_resource import FHIRAuxResourceSerializer as FHIRAuxResourceSerializer
+from .aux_resource import FHIRBundledAuxResourceSerializer as FHIRBundledAuxResourceSerializer
 from .data_source import CodeableConceptSerializer as CodeableConceptSerializer
 from .data_source import DataSourceSerializer as DataSourceSerializer
 from .data_source import DataSourceSupportedScopeSerializer as DataSourceSupportedScopeSerializer

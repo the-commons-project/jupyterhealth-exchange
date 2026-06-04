@@ -13,6 +13,7 @@ class DataSource(models.Model):
         blank=False,
         default="personal_device",
     )
+    last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name or f"DataSource {self.pk}"

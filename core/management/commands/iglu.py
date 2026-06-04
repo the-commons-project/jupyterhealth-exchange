@@ -352,7 +352,7 @@ class Command(BaseCommand):
                         codeable_concept=bg_scope_code,
                         data_source=data_source,
                         status="final",
-                        value_attachment_data=payload,
+                        omh_data=payload,
                     )
                     created += 1
 

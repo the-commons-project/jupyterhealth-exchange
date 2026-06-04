@@ -31,6 +31,7 @@ class Organization(models.Model):
     name = models.CharField()
     type = models.CharField(choices=list(ORGANIZATION_TYPES.items()), null=False, blank=False)
     part_of = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True)
+    last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name or f"Organization {self.pk}"

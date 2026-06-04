@@ -13,6 +13,7 @@ class Study(models.Model):
     organization = models.ForeignKey("Organization", on_delete=models.CASCADE)
     patients = models.ManyToManyField("Patient", through="StudyPatient")
     icon_url = models.TextField(null=True, blank=True)
+    last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name or f"Study {self.pk}"

@@ -2,15 +2,17 @@ from .jhe_user import JheUserViewSet  # noqa
 
 from .organization import OrganizationViewSet  # noqa
 
-from .patient import PatientViewSet, FHIRPatientViewSet  # noqa
+from .patient import PatientViewSet  # noqa
 
 from .practitioner import PractitionerViewSet  # noqa
 
 from .study import StudyViewSet  # noqa
 
-from .observation import ObservationViewSet, FHIRObservationViewSet  # noqa
+from .observation import ObservationViewSet  # noqa
 
 from .fhir_base import FHIRBase  # noqa
+
+from .fhir import FHIRResourceView  # noqa
 
 from .data_source import DataSourceViewSet  # noqa
 

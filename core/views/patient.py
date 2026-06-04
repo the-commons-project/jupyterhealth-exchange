@@ -11,7 +11,6 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from core.fhir.pagination import FHIRBundlePagination
 from core.models import (
     CodeableConcept,
     JheUser,
@@ -32,7 +31,6 @@ from core.permissions import IfUserCan
 from core.serializers import (
     ClientSerializer,
     CodeableConceptSerializer,
-    FHIRBundledPatientSerializer,
     PatientInvitationSerializer,
     PatientSerializer,
     StudyConsentsSerializer,
@@ -393,42 +391,3 @@ class PatientViewSet(ModelViewSet):
                     logger.warning("OW revoke returned %s: %s", resp.status_code, resp.text)
             except http_requests.RequestException as e:
                 logger.warning("Failed to revoke OW connection: %s", e)
-
-
-class FHIRPatientViewSet(ModelViewSet):
-    serializer_class = FHIRBundledPatientSerializer
-    pagination_class = FHIRBundlePagination
-
-    def get_queryset(self):
-        patient_identifier_system_and_value = self.request.GET.get("identifier", None)
-
-        # GET /Patient?_has:Group:member:_id=<group-id>
-        study_id = self.request.GET.get("_has:_group:member:_id", None)
-
-        if not (study_id or patient_identifier_system_and_value):
-            raise ValidationError(
-                "Request parameter _has:Group:member:_id=<study_id> or"
-                " patient.identifier=<system>|<value> must be provided."
-            )
-
-        patient_identifier_system = None
-        patient_identifier_value = None
-        if patient_identifier_system_and_value:
-            patient_identifier_split = patient_identifier_system_and_value.split("|")  # TBD 400 for formatting error
-            patient_identifier_system = patient_identifier_split[0]
-            patient_identifier_value = patient_identifier_split[1]
-
-        if study_id and (not Study.practitioner_authorized(self.request.user.id, study_id)):
-            raise PermissionDenied("Current User does not have authorization to access this Study.")
-
-        if patient_identifier_system_and_value and (
-            not Patient.practitioner_authorized(self.request.user.id, None, None, patient_identifier_value)
-        ):
-            raise PermissionDenied("Current User does not have authorization to access this Patient.")
-
-        return Patient.fhir_search(
-            self.request.user.id,
-            study_id,
-            patient_identifier_system,
-            patient_identifier_value,
-        )

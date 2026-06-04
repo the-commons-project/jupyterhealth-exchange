@@ -127,7 +127,7 @@ REST_FRAMEWORK = {
             "code_verifier",
             "token_endpoint",
         ),
-        "ignore_fields": ("value_attachment_data",),
+        "ignore_fields": ("omh_data",),
     },
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

@@ -1591,7 +1591,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/JheUser'
           description: ''
-  /fhir/r5/:
+  /FHIR/R5/:
     post:
       operationId: fhir_r5_create
       tags:
@@ -1615,7 +1615,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FHIRBundle'
           description: ''
-  /fhir/r5/Observation:
+  /FHIR/R5/Observation:
     get:
       operationId: fhir_r5_Observation_list
       parameters:
@@ -1663,7 +1663,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FHIRObservation'
           description: ''
-  /fhir/r5/Observation/{id}:
+  /FHIR/R5/Observation/{id}:
     get:
       operationId: fhir_r5_Observation_retrieve
       parameters:
@@ -1751,7 +1751,7 @@ paths:
       responses:
         '204':
           description: No response body
-  /fhir/r5/Patient:
+  /FHIR/R5/Patient:
     get:
       operationId: fhir_r5_Patient_list
       parameters:
@@ -1798,7 +1798,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FHIRBundledPatient'
           description: ''
-  /fhir/r5/Patient/{id}:
+  /FHIR/R5/Patient/{id}:
     get:
       operationId: fhir_r5_Patient_retrieve
       parameters:

@@ -47,7 +47,6 @@
         <th scope="col">E-mail</th>
         <th scope="col">Family Name</th>
         <th scope="col">Given Name</th>
-        <th scope="col">Cell</th>
       </tr>
     </thead>
     <tbody>
@@ -94,7 +93,6 @@
           <td>{{telecomEmail}}</td>
           <td>{{nameFamily}}</td>
           <td>{{nameGiven}}</td>
-          <td>{{telecomPhone}}</td>
         </tr>
       {{/practitioners}}
     </tbody>
@@ -196,17 +194,6 @@
                     class="form-control"
                     id="practitionerGivenName"
                     value="{{practitionerRecord.nameGiven}}"
-                  />
-                </div>
-                <div class="mb-3">
-                  <label for="practitionerTelecomPhone" class="form-label"
-                    >Phone</label
-                  >
-                  <input
-                    type="text"
-                    class="form-control"
-                    id="practitionerTelecomPhone"
-                    value="{{practitionerRecord.telecomPhone}}"
                   />
                 </div>
               </fieldset>

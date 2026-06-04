@@ -312,7 +312,7 @@ class Command(BaseCommand):
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
-                value_attachment_data=generate_observation_value_attachment_data(consent.scope_code.coding_code),
+                omh_data=generate_observation_value_attachment_data(consent.scope_code.coding_code),
             )
 
         for practitioner in [manager_mary, member_megan, viewer_victor]:
@@ -436,7 +436,7 @@ class Command(BaseCommand):
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
-                value_attachment_data=generate_observation_value_attachment_data(consent.scope_code.coding_code),
+                omh_data=generate_observation_value_attachment_data(consent.scope_code.coding_code),
             )
 
         manager_mark.save_setting("current_organization_id", neptunian_pulse_lab.id)
@@ -510,7 +510,6 @@ class Command(BaseCommand):
         if user_type == "practitioner":
             practitioner = user.practitioner_profile
             practitioner.birth_date = fake.date_of_birth(minimum_age=25, maximum_age=45)
-            practitioner.telecom_phone = self.us_phone_number()
             practitioner.save()
             return practitioner
         elif user_type == "patient":

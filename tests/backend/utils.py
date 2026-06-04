@@ -128,7 +128,7 @@ def add_observations(patient: Patient, code: Code | str, n: int) -> None:
             Observation(
                 subject_patient=patient,
                 codeable_concept=scope_code,
-                value_attachment_data=attachment,
+                omh_data=attachment,
             )
         )
     Observation.objects.bulk_create(observations, batch_size=100)
@@ -150,7 +150,7 @@ def assert_valid_fhir_bundle(bundle: dict) -> None:
 
 def fetch_paginated(client, path, params=None, *, return_pages=False):
     params = params or {}
-    if "/fhir/" in path:
+    if "/fhir/" in path.lower():
         fhir = True
         Pagination = FHIRBundlePagination
         result_key = "entry"

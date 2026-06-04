@@ -2,8 +2,29 @@ from django.urls import include, path, re_path
 from django.views.generic import TemplateView
 from rest_framework.routers import DefaultRouter
 
+from core.fhir.config import FHIR_VERSION
+
 from . import views
 from .views import common, ow
+from .views.fhir import FHIRResourceView
+
+
+def fhir_urls(prefix, suffix):
+    """Routes (batch / collection / instance) for a FHIR base path `prefix`.
+
+    `prefix` ends in a slash (e.g. "FHIR/R5/"). The bundle-batch base is registered both
+    with and without the trailing slash so POST /FHIR/R5 and POST /FHIR/R5/ both work
+    (APPEND_SLASH only 301-redirects, which drops the POST body). `suffix` keeps the URL
+    names unique across the canonical and legacy mounts.
+    """
+    batch = views.FHIRBase.as_view({"post": "create"})
+    return [
+        path(prefix, batch, name=f"fhir-batch{suffix}"),
+        path(prefix.rstrip("/"), batch, name=f"fhir-batch-no-slash{suffix}"),
+        path(f"{prefix}<str:resource>", FHIRResourceView.as_view(), name=f"fhir-resource{suffix}"),
+        path(f"{prefix}<str:resource>/<str:id>", FHIRResourceView.as_view(), name=f"fhir-resource-instance{suffix}"),
+    ]
+
 
 # https://www.django-rest-framework.org/api-guide/routers/#defaultrouter
 api_router = DefaultRouter(trailing_slash=False)
@@ -18,10 +39,6 @@ api_router.register(r"data_sources", views.DataSourceViewSet, basename="DataSour
 api_router.register(r"clients", views.ClientViewSet, basename="Client")
 api_router.register(r"invitation", views.PatientInvitationViewSet, basename="PatientInvitation")
 
-fhir_router = DefaultRouter(trailing_slash=False)
-fhir_router.register(r"Observation", views.FHIRObservationViewSet, basename="FHIRObservation")
-fhir_router.register(r"Patient", views.FHIRPatientViewSet, basename="FHIRPatient")
-fhir_router.register(r"", views.FHIRBase, basename="FHIRBase")
 
 # snake_case instead of kebab-case because Djano @action decoratrors don't support hyphens
 urlpatterns = [
@@ -76,8 +93,12 @@ urlpatterns = [
     ),
     # path('clients/jhe-admin/', common.portal, name='portal'),
     re_path(r"^clients/jhe-admin/(?P<path>([^/]+/)*)$", common.portal, name="portal"),
-    # Admin API
+    # JHE Admin Client API
     path("api/v1/", include(api_router.urls)),
-    # FHIR API
-    path("fhir/r5/", include(fhir_router.urls)),
+    # FHIR API. One unified resource endpoint; the resource type in the URL is resolved
+    # against core/fhir/fhir_config.json (mapped vs auxiliary). The bundle batch lives at
+    # the base. The canonical base is FHIR/<version>/ (version from the config); the
+    # lowercase fhir/r5/ path is kept as a backward-compatible alias.
+    *fhir_urls(f"FHIR/{FHIR_VERSION}/", suffix=""),
+    *fhir_urls("fhir/r5/", suffix="-legacy"),
 ]
