@@ -19,11 +19,12 @@ class FhirAuxResource(models.Model):
     serializer); ``fhir_resource_id`` retains the resource's original/source id.
     """
 
-    # The choices are frozen at import time from the config (read once at startup).
+    # Not passed to the field — keeps choices out of migration state so adding/removing
+    # resource types in fhir_config.json never requires a migration.
     RESOURCE_TYPE_CHOICES = [(name, name) for name in sorted(aux_resource_types())]
 
     patient = models.ForeignKey("Patient", on_delete=models.CASCADE, null=True, blank=True)
-    resource_type = models.CharField(choices=RESOURCE_TYPE_CHOICES)
+    resource_type = models.CharField()
     patient_fhir_id = models.CharField(null=True, blank=True)
     fhir_resource_id = models.CharField()
     fhir_data = models.JSONField(null=True)
