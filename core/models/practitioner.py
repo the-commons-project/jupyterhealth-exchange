@@ -28,6 +28,21 @@ class Practitioner(models.Model):
     def get_setting(self, key):
         return self.settings.get(key)
 
+    @staticmethod
+    def fhir_search(jhe_user_id, practitioner_id=None, is_patient=False):
+        # Return the Practitioners a user may see via the FHIR API as a queryset of Practitioner
+        # instances; the serializer renders them. Visibility is by shared organization: a
+        # practitioner sees practitioners in any organization they belong to; a patient sees
+        # practitioners in the organizations they are a member of. distinct() collapses the
+        # duplicate rows produced by spanning the organization many-to-many relationship.
+        if is_patient:
+            qs = Practitioner.objects.filter(organizations__patients__jhe_user_id=jhe_user_id)
+        else:
+            qs = Practitioner.objects.filter(organizations__practitioners__jhe_user_id=jhe_user_id)
+        if practitioner_id:
+            qs = qs.filter(id=practitioner_id)
+        return qs.distinct().order_by("name_family", "name_given")
+
     def __str__(self):
         name = f"{self.name_given or ''} {self.name_family or ''}".strip()
         return name or f"Practitioner {self.pk}"

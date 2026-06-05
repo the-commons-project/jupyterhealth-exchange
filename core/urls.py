@@ -37,6 +37,7 @@ api_router.register(r"studies", views.StudyViewSet, basename="Study")
 api_router.register(r"observations", views.ObservationViewSet, basename="Observation")
 api_router.register(r"data_sources", views.DataSourceViewSet, basename="DataSource")
 api_router.register(r"clients", views.ClientViewSet, basename="Client")
+api_router.register(r"fhir_sources", views.FhirSourceViewSet, basename="FhirSource")
 api_router.register(r"invitation", views.PatientInvitationViewSet, basename="PatientInvitation")
 
 

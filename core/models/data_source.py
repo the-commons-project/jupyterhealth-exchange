@@ -5,7 +5,15 @@ from .codeable_concept import CodeableConcept
 
 
 class DataSource(models.Model):
-    DATA_SOURCE_TYPES = {"medical_device": "Medical Device", "personal_device": "Personal Device"}
+    """
+    FHIR Device
+    """
+
+    DATA_SOURCE_TYPES = {
+        "medical_device": "Medical Device",
+        "personal_device": "Personal Device",
+        "patient_app": "Patient App",
+    }
     name = models.CharField(null=True, blank=True)
     type = models.CharField(
         choices=list(DATA_SOURCE_TYPES.items()),
@@ -42,6 +50,21 @@ class DataSource(models.Model):
             )
 
         return data_sources
+
+    @staticmethod
+    def fhir_search(jhe_user_id, device_id=None, is_patient=False):
+        # Return the Devices (DataSources) a user may see via the FHIR API as a queryset of
+        # DataSource instances; the serializer renders them. A practitioner sees devices linked
+        # (via StudyDataSource) to studies under an organization they belong to; a patient sees
+        # devices linked to studies they are enrolled in. distinct() collapses the duplicate
+        # rows produced by spanning these many-to-many relationships.
+        if is_patient:
+            qs = DataSource.objects.filter(studydatasource__study__studypatient__patient__jhe_user_id=jhe_user_id)
+        else:
+            qs = DataSource.objects.filter(studydatasource__study__organization__practitioners__jhe_user_id=jhe_user_id)
+        if device_id:
+            qs = qs.filter(id=device_id)
+        return qs.distinct().order_by("name")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

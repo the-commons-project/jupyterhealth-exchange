@@ -195,90 +195,21 @@ def render_resource(instance, source_model, mapping):
     return rendered
 
 
-def build_fhir_resource(instance, resource_type, mapping, aux_data=None):
+def build_fhir_resource(instance, resource_type, mapping):
     """Build a FHIR resource dict from a model instance.
 
     ``resource_type`` is the FHIR resourceType (e.g. ``"Device"``); it can differ from the
     Django model that backs it (``DataSource``). Path matching is driven off the *model*
     name (``instance._meta.object_name``), so ``"DataSource.name"`` resolves for a Device
-    exactly as ``"Patient.name_family"`` does for a Patient. ``aux_data`` (when the model
-    carries any) supplies the base; config-mapped Django fields are overlaid on top at the
-    field level (Django values win). ``resourceType`` is set and ``id`` is coerced to a
-    string per the FHIR spec. The result is not validated here -- callers validate against
-    the appropriate fhir.resources model.
+    exactly as ``"Patient.name_family"`` does for a Patient. ``resourceType`` is set and
+    ``id`` is coerced to a string per the FHIR spec. The result is not validated here --
+    callers validate against the appropriate fhir.resources model.
     """
-    rendered = render_resource(instance, instance._meta.object_name, mapping)
-    result = dict(aux_data or {})
-    result.update(rendered)  # field-level replace: Django-mapped fields take precedence
+    result = render_resource(instance, instance._meta.object_name, mapping)
     result["resourceType"] = resource_type
-    # The resource id is always the Django primary key, never anything from aux_data.
+    # The resource id is always the Django primary key.
     result["id"] = str(instance.pk)
     return result
-
-
-# ---------------------------------------------------------------------------
-# Reverse mapping: FHIR resource dict -> (model columns, leftover aux_fhir_data)
-# ---------------------------------------------------------------------------
-#
-# The forward engine renders a model instance into FHIR using the config. The
-# reverse direction, used on write, walks the same config alongside an incoming
-# FHIR resource and pulls values back out for the directly-mapped model columns;
-# everything the config does not claim at the top level is returned as the leftover
-# ``aux_fhir_data`` blob. This keeps writes config-driven in the same way reads are.
-
-
-def _reverse_walk(mapping_node, fhir_value, source_model, columns):
-    """Walk a mapping node alongside the matching FHIR value, collecting columns.
-
-    Only *directly assignable* columns are recovered: a leaf that is a single path of
-    exactly two segments (``Model.field``). Multi-hop paths (``Patient.jhe_user.email``),
-    concatenations and literals are not reversible and are skipped; multi-template lists
-    (e.g. telecom's phone/email pair) are ambiguous and skipped too. The primary key is
-    never assigned from the payload.
-    """
-    if fhir_value is None:
-        return
-    if isinstance(mapping_node, str):
-        token = mapping_node.strip()
-        if "+" in token or _is_literal_token(token):
-            return  # concatenation / literal: not reversible
-        parts = token.split(".")
-        if parts[0] != source_model or len(parts) != 2:
-            return  # wrong model, or a multi-hop path we cannot invert
-        field = parts[1]
-        if field == "id":
-            return  # the pk is server-assigned, never taken from the payload
-        columns[field] = fhir_value
-    elif isinstance(mapping_node, dict):
-        if not isinstance(fhir_value, dict):
-            return
-        for key, child in mapping_node.items():
-            if not _is_annotation(key) and key in fhir_value:
-                _reverse_walk(child, fhir_value[key], source_model, columns)
-    elif isinstance(mapping_node, list):
-        # A single-element template list maps element-wise onto the FHIR array's first
-        # entry; multi-element templates are ambiguous to invert and are left alone.
-        if len(mapping_node) == 1 and isinstance(fhir_value, list) and fhir_value:
-            _reverse_walk(mapping_node[0], fhir_value[0], source_model, columns)
-
-
-def split_resource(resource, source_model, mapping):
-    """Split an incoming FHIR resource dict into (columns, aux_fhir_data).
-
-    ``source_model`` is the Django model class name the mapping's paths are prefixed with
-    (for a writable resource this equals the resourceType). ``columns`` is a dict of
-    directly-mapped model field values recovered from the payload via the config.
-    ``aux_fhir_data`` is everything the config does not claim at the top level (minus
-    ``resourceType``/``id``) -- the inverse of the read path, where mapped top-level fields
-    overlay the aux blob. Sub-fields of a partially-mapped top-level structure are not
-    preserved, mirroring that wholesale field-level replace.
-    """
-    columns = {}
-    _reverse_walk(mapping, resource, source_model, columns)
-    aux_fhir_data = {
-        key: value for key, value in resource.items() if key not in mapping and key not in ("resourceType", "id")
-    }
-    return columns, aux_fhir_data
 
 
 # ---------------------------------------------------------------------------
@@ -292,8 +223,26 @@ def split_resource(resource, source_model, mapping):
 
 # The FHIR interactions an endpoint can expose, and how they map to the usual Django/DRF
 # actions: search->list, read->retrieve, create->create, update->update/partial_update,
-# delete->destroy.
+# delete->destroy. "*" in a config __interaction list is shorthand for all of them.
 ALL_INTERACTIONS = ("create", "read", "update", "search", "delete")
+INTERACTION_WILDCARD = "*"
+
+
+def expand_interactions(interactions):
+    """Expand a config ``__interaction`` list into a concrete set of interactions.
+
+    ``"*"`` is shorthand for every interaction. ``None`` (annotation absent) yields the
+    empty set -- callers decide what an absent allow-list means in their context.
+    """
+    if interactions is None:
+        return set()
+    expanded = set()
+    for interaction in interactions:
+        if interaction == INTERACTION_WILDCARD:
+            expanded.update(ALL_INTERACTIONS)
+        else:
+            expanded.add(interaction)
+    return expanded
 
 
 def _find_annotation(mapping, name):

@@ -586,41 +586,6 @@ class FHIRPatientSerializerTests(TestCase):
         self.assertNotIn("phone", systems)
         self.assertIn("email", systems)
 
-    def test_aux_fhir_data_is_merged(self):
-        self.patient.aux_fhir_data = {
-            "gender": "male",
-            "maritalStatus": {
-                "coding": [
-                    {
-                        "system": "http://terminology.hl7.org/CodeSystem/v3-MaritalStatus",
-                        "code": "M",
-                        "display": "Married",
-                    }
-                ],
-                "text": "Married",
-            },
-        }
-        self.patient.save()
-        as_dict = self._render()
-        self.assertEqual(as_dict["gender"], "male")
-        self.assertEqual(as_dict["maritalStatus"]["text"], "Married")
-        # Django-mapped fields are still present alongside aux_fhir_data
-        self.assertEqual(as_dict["name"], [{"family": "Smith", "given": ["Alice"]}])
-
-    def test_django_fields_take_precedence_over_aux_fhir_data(self):
-        # aux_fhir_data attempts to set name/birthDate; the config-mapped Django values win
-        self.patient.aux_fhir_data = {
-            "name": [{"family": "WRONG", "given": ["WRONG"]}],
-            "birthDate": "1900-01-01",
-            "gender": "female",
-        }
-        self.patient.save()
-        as_dict = self._render()
-        self.assertEqual(as_dict["name"], [{"family": "Smith", "given": ["Alice"]}])
-        self.assertEqual(str(as_dict["birthDate"]), "1985-05-05")
-        # a field only present in aux_fhir_data is retained
-        self.assertEqual(as_dict["gender"], "female")
-
 
 # -----------------------------------------------------
 # Observation.fhir_search (ORM query behaviour)
@@ -792,24 +757,6 @@ class FHIRObservationSerializerTests(TestCase):
     def test_identifier_absent_when_none(self):
         as_dict = self._render()
         self.assertNotIn("identifier", as_dict)
-
-    def test_aux_fhir_data_is_merged(self):
-        self.observation.aux_fhir_data = {"note": [{"text": "Patient was resting"}]}
-        self.observation.save()
-        as_dict = self._render()
-        self.assertEqual(as_dict["note"], [{"text": "Patient was resting"}])
-        # config-mapped fields are still present alongside aux_fhir_data
-        self.assertEqual(as_dict["status"], "final")
-        self.assertEqual(as_dict["subject"]["reference"], f"Patient/{self.patient.id}")
-
-    def test_aux_fhir_data_does_not_override_mapped_fields(self):
-        # aux_fhir_data tries to change status; the config literal ('final') wins
-        self.observation.aux_fhir_data = {"status": "amended", "note": [{"text": "x"}]}
-        self.observation.save()
-        as_dict = self._render()
-        self.assertEqual(as_dict["status"], "final")
-        # a field only present in aux_fhir_data is retained
-        self.assertEqual(as_dict["note"], [{"text": "x"}])
 
 
 # -----------------------------------------------------

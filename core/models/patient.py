@@ -23,7 +23,6 @@ class Patient(models.Model):
     name_given = models.CharField(null=True)
     birth_date = models.DateField(null=True)
     telecom_phone = models.CharField(null=True)
-    aux_fhir_data = models.JSONField(null=True)
     last_updated = models.DateTimeField(auto_now=True)
     organizations = models.ManyToManyField("Organization", through="PatientOrganization", related_name="patients")
 
@@ -146,66 +145,6 @@ class Patient(models.Model):
             qs = qs.filter(identifiers__value=patient_identifier_value)
 
         return qs.select_related("jhe_user").prefetch_related("identifiers").distinct().order_by("name_family")
-
-    @staticmethod
-    def fhir_create(data, user):
-        # Create a Patient from a FHIR resource. The config-mapped fields (name, birthDate)
-        # are reverse-mapped onto columns by the engine; everything the config does not claim
-        # is preserved in aux_fhir_data (the inverse of the read path). Telecom and identifiers
-        # are handled here because they cannot be inverted declaratively: the email drives the
-        # linked JheUser (mirroring the admin create path) and identifiers fan out to rows.
-        import humps
-        from django.core.exceptions import BadRequest, PermissionDenied
-        from django.utils.crypto import get_random_string
-        from fhir.resources.patient import Patient as FHIRPatient
-
-        from core.fhir.config import get_resource_mapping
-        from core.fhir.engine import split_resource
-
-        from .jhe_user import JheUser
-
-        if not user.is_practitioner():
-            raise PermissionDenied("Only practitioners may create Patients via FHIR.")
-
-        camelized = humps.camelize(data)
-        try:
-            FHIRPatient.parse_obj(camelized)
-        except Exception as e:
-            raise BadRequest(e)
-
-        columns, aux_fhir_data = split_resource(camelized, "Patient", get_resource_mapping("Patient"))
-
-        # Telecom is a multi-template list the engine cannot invert; pull phone/email out here.
-        email = None
-        for contact in camelized.get("telecom", []) or []:
-            if contact.get("value") and contact.get("system") == "email":
-                email = contact["value"]
-            elif contact.get("value") and contact.get("system") == "phone":
-                columns["telecom_phone"] = contact["value"]
-
-        jhe_user = None
-        if email:
-            jhe_user = JheUser.objects.filter(email=email).first()
-            if jhe_user is None:
-                jhe_user = JheUser(email=email)
-                jhe_user.set_password(get_random_string(length=16))
-                jhe_user.save()
-
-        editable = {f.name for f in Patient._meta.concrete_fields if f.editable and not f.primary_key}
-        field_values = {name: value for name, value in columns.items() if name in editable}
-
-        patient = Patient(jhe_user=jhe_user, aux_fhir_data=aux_fhir_data or None, **field_values)
-        if organization_id := user.practitioner_profile.get_setting("current_organization_id"):
-            patient._organization_id = organization_id
-        patient.save()
-
-        for identifier in camelized.get("identifier", []) or []:
-            system = identifier.get("system")
-            value = identifier.get("value")
-            if system and value:
-                PatientIdentifier.objects.create(patient=patient, system=system, value=value)
-
-        return patient
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)

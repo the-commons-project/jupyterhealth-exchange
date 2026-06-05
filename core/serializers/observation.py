@@ -49,11 +49,9 @@ class FHIRObservationSerializer(serializers.Serializer):
 
     def to_representation(self, observation):
         mapping = get_resource_mapping("Observation")
-        as_dict = build_fhir_resource(observation, "Observation", mapping, aux_data=observation.aux_fhir_data)
-        # valueAttachment.data must be Base64-encoded binary per FHIR. For an OMH observation
-        # the mapping yields the raw JSON object from omh_data, so encode it here (mirrors
-        # fhir_create's decode path). A non-OMH valueAttachment comes from aux_fhir_data with
-        # its data already a Base64 string, so only structured (dict/list) data is encoded.
+        as_dict = build_fhir_resource(observation, "Observation", mapping)
+        # valueAttachment.data must be Base64-encoded binary per FHIR. The mapping yields the
+        # raw JSON object from omh_data, so encode it here (mirrors fhir_create's decode path).
         attachment = as_dict.get("valueAttachment")
         if attachment and isinstance(attachment.get("data"), (dict, list)):
             attachment["data"] = base64.b64encode(json.dumps(attachment["data"]).encode("utf-8")).decode("ascii")

@@ -42,7 +42,10 @@ def test_observation_pagination(hr_study, patient, api_client, get_observations)
     add_observations(patient=patient, code=Code.HeartRate, n=n)
     with CaptureQueriesContext(connection) as ctx:
         page = get_observations(_count=per_page)
-    assert len(ctx.captured_queries) < 8
+    # A FHIR search is the union of the mapped Observation rows and any FhirAuxResource
+    # Observation rows, so a small constant of extra queries (the aux source's auth + count)
+    # is expected on top of the mapped query; still bounded (no per-row N+1).
+    assert len(ctx.captured_queries) < 12
     # The main observation query is paginated at the DB level (LIMIT, no OFFSET on page 1).
     # identifiers are prefetched in a separate bounded query, so locate the paginated
     # query rather than assuming it is the last one captured.

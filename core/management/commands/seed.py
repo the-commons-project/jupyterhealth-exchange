@@ -141,6 +141,7 @@ class Command(BaseCommand):
             ),
             ("https://w3id.org/openmhealth", "omh:rr-interval:1.0", "RR Interval"),
             ("https://w3id.org/openmhealth", "omh:body-weight:3.0", "Body weight"),
+            ("http://hl7.org/fhir/", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
         ]
         # bulk create thing
         for system, code, text in codes:
@@ -156,6 +157,7 @@ class Command(BaseCommand):
             ("Dexcom", "personal_device", ["omh:blood-glucose:4.0"]),
             ("iHealth", "personal_device", ["omh:body-temperature:4.0", "omh:heart-rate:2.0"]),
             ("Oura", "personal_device", ["omh:heart-rate:2.0"]),
+            ("Questionnaire", "patient_app", ["QuestionnaireResponse"]),
         ]
         for name, type, scope_codes in data_sources:
             ds, _ = DataSource.objects.update_or_create(name=name, type=type)
@@ -175,7 +177,7 @@ class Command(BaseCommand):
             {
                 "name": "CareX",
                 "invitation_url": "https://carex.ai/invitation/CODE",
-                "data_sources": ["CareX"],
+                "data_sources": ["CareX", "Questionnaire"],
             },
             {
                 "name": "CommonHealth",
@@ -258,9 +260,11 @@ class Command(BaseCommand):
         StudyScopeRequest.objects.create(study=lifespan_study_bp, scope_code=bp_code)
 
         carex_ds = DataSource.objects.get(name="CareX")
+        questionnaire_ds = DataSource.objects.get(name="Questionnaire")
         carex_client = get_application_model().objects.get(name="CareX")
         for study in [lifespan_study_bp_hr, lifespan_study_bp]:
             StudyDataSource.objects.create(study=study, data_source=carex_ds)
+            StudyDataSource.objects.create(study=study, data_source=questionnaire_ds)
             StudyClient.objects.create(study=study, client=carex_client)
 
         ll_patient_pete = self.create_user_with_profile("ll_patient_peter@example.com", user_type="patient")
