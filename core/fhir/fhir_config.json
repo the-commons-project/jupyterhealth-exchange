@@ -11,7 +11,15 @@
           "search"
         ]
       },
-      "name": "DataSource.name"
+      "name": "DataSource.name",
+      "type": {
+        "coding": [
+          {
+            "system": "'https://jupyterhealth.org/fhir/CodeSystem/model'",
+            "code": "'data-source'"
+          }
+        ]
+      }
     },
     {
       "resourceType": "Group",
@@ -24,13 +32,24 @@
           "search"
         ]
       },
-      "name": "Study.name"
+      "name": "Study.name",
+      "type": {
+        "coding": [
+          {
+            "system": "'https://jupyterhealth.org/fhir/CodeSystem/model'",
+            "code": "'study'"
+          }
+        ]
+      }
     },
     {
       "resourceType": "Observation",
       "meta": {
         "lastUpdated": "Observation.last_updated",
-        "__criteria": "code=https://w3id.org/openmhealth|"
+        "__criteria": "code=https://w3id.org/openmhealth|",
+        "__interaction": [
+          "*"
+        ]
       },
       "id": "Observation.id",
       "identifier": "Observation.identifiers",
@@ -56,7 +75,15 @@
           "search"
         ]
       },
-      "name": "Organization.name"
+      "name": "Organization.name",
+      "type": {
+        "coding": [
+          {
+            "system": "'https://jupyterhealth.org/fhir/CodeSystem/model'",
+            "code": "'organization'"
+          }
+        ]
+      }
     },
     {
       "resourceType": "Patient",
@@ -113,67 +140,172 @@
   ],
   "aux_resources": [
     {
-      "resourceType": "AllergyIntolerance"
+      "resourceType": "AllergyIntolerance",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "CarePlan"
+      "resourceType": "CarePlan",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "CareTeam"
+      "resourceType": "CareTeam",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Condition"
+      "resourceType": "Condition",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Coverage"
+      "resourceType": "Coverage",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "DiagnosticReport"
+      "resourceType": "Device",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "DocumentReference"
+      "resourceType": "DiagnosticReport",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Encounter"
+      "resourceType": "DocumentReference",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "FamilyMemberHistory"
+      "resourceType": "Encounter",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Goal"
+      "resourceType": "FamilyMemberHistory",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Immunization"
+      "resourceType": "Goal",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Location"
+      "resourceType": "Group",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Medication"
+      "resourceType": "Immunization",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "MedicationDispense"
+      "resourceType": "Location",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "MedicationRequest"
+      "resourceType": "Medication",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Procedure"
+      "resourceType": "MedicationDispense",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Provenance"
+      "resourceType": "MedicationRequest",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "QuestionnaireResponse"
+      "resourceType": "Observation",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "RelatedPerson"
+      "resourceType": "Organization",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "ServiceRequest"
+      "resourceType": "Patient",
+      "__interaction": [
+        "*"
+      ]
     },
     {
-      "resourceType": "Specimen"
+      "resourceType": "Practitioner",
+      "__interaction": [
+        "*"
+      ]
+    },
+    {
+      "resourceType": "PractitionerRole",
+      "__interaction": [
+        "*"
+      ]
+    },
+    {
+      "resourceType": "Procedure",
+      "__interaction": [
+        "*"
+      ]
+    },
+    {
+      "resourceType": "Provenance",
+      "__interaction": [
+        "*"
+      ]
+    },
+    {
+      "resourceType": "QuestionnaireResponse",
+      "__interaction": [
+        "*"
+      ]
+    },
+    {
+      "resourceType": "RelatedPerson",
+      "__interaction": [
+        "*"
+      ]
+    },
+    {
+      "resourceType": "ServiceRequest",
+      "__interaction": [
+        "*"
+      ]
+    },
+    {
+      "resourceType": "Specimen",
+      "__interaction": [
+        "*"
+      ]
     }
   ]
 }

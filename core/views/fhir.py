@@ -3,16 +3,18 @@
 A single view, ``FHIRResourceView``, serves every supported FHIR resource at
 ``FHIR/<version>/<resource>`` (and ``.../<resource>/<id>``), where ``<version>`` comes
 from core/fhir/fhir_config.json (e.g. ``FHIR/R5/Patient``); the lowercase ``fhir/r5/``
-path is kept as a backward-compatible alias. It consults the config to decide how a
-resource is backed:
+path is kept as a backward-compatible alias.
 
-  * **mapped** resources (Patient, Observation) are projected onto Django models via
-    the field mapping -- searches and reads run the existing ORM queries and the
-    config-driven serializers; writes split the payload into mapped columns plus a
-    leftover ``aux_fhir_data`` blob (see core.fhir.engine.split_resource), preserving
-    each resource's domain validation.
-  * **auxiliary** resources (e.g. Condition, QuestionnaireResponse) are opaque JSON
-    blobs stored in the generic FhirAuxResource model with full CRUD and no per-field logic.
+Routing is config-driven (see fhir_engine.md). A Django model backs only the JHE-system
+view of each resource; everything else lives in the generic ``FhirAuxResource`` store:
+
+  * **search** of a mapped type returns the UNION of the Django-mapped rows and the
+    FhirAuxResource rows of that type.
+  * **read / update / delete** are routed by id shape -- a UUID id targets FhirAuxResource,
+    an integer id targets the mapped Django model.
+  * **create** is routed by the resource's ``__interaction`` allow-list and, where present,
+    its ``__criteria``: only an OMH Observation writes to the Django model; every other
+    write lands in FhirAuxResource (linked to a FhirSource named by the X-JHE-FHIR-Source-ID header).
 
 The FHIR bundle batch endpoint (POST at the base, e.g. ``FHIR/R5/``) remains served by FHIRBase.
 """
@@ -31,63 +33,74 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.fhir.config import (
+    aux_interactions,
+    get_config_errors,
     get_resource_mapping,
     is_aux_resource,
     is_mapped_resource,
     is_supported_resource,
+    mapped_criteria,
+    mapped_interactions,
 )
-from core.fhir.engine import get_mapping_interactions
-from core.fhir.pagination import FHIRBundlePagination
-from core.models import FhirAuxResource, Observation, Patient, Study
-from core.serializers import FHIRAuxResourceSerializer, FHIRObservationSerializer, FHIRPatientSerializer
+from core.fhir.engine import build_fhir_resource, matches_criteria
+from core.fhir.fhir_validation import validate_fhir_resource
+from core.fhir.pagination import ConcatenatedResults, FHIRBundlePagination
+from core.models import (
+    DataSource,
+    FhirAuxResource,
+    FhirSource,
+    Observation,
+    Organization,
+    Patient,
+    Practitioner,
+    Study,
+)
+from core.serializers import FHIRAuxResourceSerializer, FHIRObservationSerializer
 from core.views.fhir_base import FHIRBase
 
 logger = logging.getLogger(__name__)
 
+FHIR_SOURCE_ID_HEADER = "X-JHE-FHIR-Source-ID"
+
 
 # ---------------------------------------------------------------------------
-# Resource handlers
+# Mapped resource handlers (read/search against a Django model)
 # ---------------------------------------------------------------------------
 
 
-class FHIRResourceHandler:
-    """Per-resource strategy. Subclasses implement the operations they support.
+class MappedResourceHandler:
+    """Renders a mapped resource's Django rows. Subclasses provide the scoped queryset.
 
-    ``search`` returns a queryset (the view paginates it and serializes each row via
-    ``serialize``); ``read``/``create``/``update`` return a single FHIR resource dict;
-    ``delete`` returns nothing. Unsupported operations raise ``MethodNotAllowed``.
+    ``search`` returns a queryset of model instances (the view paginates and serializes each);
+    ``read`` returns a single instance or raises ``NotFound``. Serialization is generic: the
+    engine renders the instance through the config mapping.
     """
 
-    def __init__(self, resource_type, request):
-        self.resource_type = resource_type
+    resource_type = None
+
+    def __init__(self, request):
         self.request = request
         self.user = request.user
+        self.is_patient = self.user.is_patient()
 
     def serialize(self, instance):
-        raise NotImplementedError
+        return build_fhir_resource(instance, self.resource_type, get_resource_mapping(self.resource_type))
 
     def search(self):
-        raise MethodNotAllowed("GET", detail=f"Search is not supported for {self.resource_type}.")
+        raise NotImplementedError
 
     def read(self, fhir_id):
-        raise MethodNotAllowed("GET", detail=f"Read is not supported for {self.resource_type}.")
-
-    def create(self, data):
-        raise MethodNotAllowed("POST", detail=f"Create is not supported for {self.resource_type}.")
-
-    def update(self, fhir_id, data, partial=False):
-        verb = "PATCH" if partial else "PUT"
-        raise MethodNotAllowed(verb, detail=f"Update is not supported for {self.resource_type}.")
-
-    def delete(self, fhir_id):
-        raise MethodNotAllowed("DELETE", detail=f"Delete is not supported for {self.resource_type}.")
+        instance = self.search().filter(pk=fhir_id).first()
+        if instance is None:
+            raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
+        return instance
 
 
-class ObservationHandler(FHIRResourceHandler):
-    """Observation: config-driven read/search; create preserves the full domain
-    validation in Observation.fhir_create (consent, device, base64, identifiers)."""
+class ObservationHandler(MappedResourceHandler):
+    resource_type = "Observation"
 
     def serialize(self, instance):
+        # valueAttachment.data needs Base64 encoding, which the config can't express.
         return FHIRObservationSerializer().to_representation(instance)
 
     def search(self):
@@ -137,16 +150,15 @@ class ObservationHandler(FHIRResourceHandler):
         observation = Observation.fhir_search(self.user.id, observation_id=fhir_id).first()
         if observation is None:
             raise NotFound(f"Observation/{fhir_id} not found.")
-        return self.serialize(observation)
+        return observation
 
     def create(self, data):
+        # Only the OMH path reaches here (the view routes non-OMH Observations to aux).
         observation = Observation.fhir_create(data, self.user)
         logger.debug("created observation: %s", observation)
 
-        # Patients have no Practitioner record, so fhir_search (which requires one) would
-        # 404. For the create response we only need the single observation just persisted;
-        # FHIRObservationSerializer expects the related rows the search prefetches, so build
-        # a minimal FHIR-compliant response for the patient path.
+        # Patients have no Practitioner record, so fhir_search (which requires one) would 404.
+        # Build a minimal FHIR-compliant response for the patient path.
         if self.user.is_patient():
             obs = Observation.objects.select_related("subject_patient", "codeable_concept").get(pk=observation.id)
             return {
@@ -164,17 +176,12 @@ class ObservationHandler(FHIRResourceHandler):
         return self.serialize(fhir_observation)
 
 
-class PatientHandler(FHIRResourceHandler):
-    """Patient: config-driven read/search; create reverse-maps the payload into model
-    columns (via the engine) plus an aux_fhir_data blob, and links the JheUser/identifiers."""
-
-    def serialize(self, instance):
-        return FHIRPatientSerializer().to_representation(instance)
+class PatientHandler(MappedResourceHandler):
+    resource_type = "Patient"
 
     def search(self):
         request = self.request
         patient_identifier_system_and_value = request.GET.get("identifier", None)
-
         # GET /Patient?_has:Group:member:_id=<group-id>
         study_id = request.GET.get("_has:_group:member:_id", None)
 
@@ -205,122 +212,196 @@ class PatientHandler(FHIRResourceHandler):
         patient = Patient.for_practitioner_organization_study(self.user.id, patient_id=fhir_id).first()
         if patient is None:
             raise NotFound(f"Patient/{fhir_id} not found.")
-        return self.serialize(patient)
-
-    def create(self, data):
-        patient = Patient.fhir_create(data, self.user)
-        return self.serialize(patient)
+        return patient
 
 
-class AuxResourceHandler(FHIRResourceHandler):
-    """Auxiliary resources: opaque JSON-blob CRUD with no per-field computation."""
+class GroupHandler(MappedResourceHandler):
+    resource_type = "Group"
 
-    def _scoped_queryset(self):
+    def search(self):
+        if self.is_patient:
+            return Study.objects.filter(studypatient__patient__jhe_user_id=self.user.id).distinct().order_by("name")
+        return Study.for_practitioner_organization(self.user.id)
+
+
+class OrganizationHandler(MappedResourceHandler):
+    resource_type = "Organization"
+
+    def search(self):
+        if self.is_patient:
+            return Organization.for_patient(self.user.id)
+        return Organization.for_practitioner(self.user.id)
+
+
+class DeviceHandler(MappedResourceHandler):
+    resource_type = "Device"
+
+    def search(self):
+        return DataSource.fhir_search(self.user.id, is_patient=self.is_patient)
+
+
+class PractitionerHandler(MappedResourceHandler):
+    resource_type = "Practitioner"
+
+    def search(self):
+        return Practitioner.fhir_search(self.user.id, is_patient=self.is_patient)
+
+
+_MAPPED_HANDLERS = {
+    "Observation": ObservationHandler,
+    "Patient": PatientHandler,
+    "Group": GroupHandler,
+    "Organization": OrganizationHandler,
+    "Device": DeviceHandler,
+    "Practitioner": PractitionerHandler,
+}
+
+
+# ---------------------------------------------------------------------------
+# Auxiliary resource handler (opaque JSON-blob CRUD in FhirAuxResource)
+# ---------------------------------------------------------------------------
+
+
+class AuxResourceHandler:
+    """Opaque JSON-blob CRUD.
+
+    A **write** (create/update/delete) requires the ``X-JHE-FHIR-Source-ID`` header, which
+    resolves the FhirSource (and its patient) the row is linked to. A **read** (search/read)
+    scopes to that source's patient when the header is present, and otherwise returns every
+    resource the user can access (a practitioner's org patients, or a patient user's own).
+    """
+
+    def __init__(self, resource_type, request):
+        self.resource_type = resource_type
+        self.request = request
+        self.user = request.user
+
+    # -- source / patient context --
+
+    def _write_context(self):
+        # Writes must name a source: (patient, fhir_source). Raises 400 if the header is
+        # missing, 403/400 if the source is unknown or the user may not use it.
+        return resolve_fhir_source_context(self.request, self.user)
+
+    def _read_queryset(self):
+        # A source header scopes a read to that source's patient; without it, the read spans
+        # everything the user can access.
+        if self.request.headers.get(FHIR_SOURCE_ID_HEADER):
+            patient, _ = resolve_fhir_source_context(self.request, self.user)
+            return FhirAuxResource.for_patient(patient, self.resource_type)
         if self.user.is_patient():
-            return FhirAuxResource.for_patient(self.user.get_patient(), self.resource_type)
+            own = self.user.get_patient()
+            if own is None:
+                return FhirAuxResource.objects.none()
+            return FhirAuxResource.for_patient(own, self.resource_type)
         return FhirAuxResource.fhir_search(self.user.id, self.resource_type)
-
-    def _get_instance(self, fhir_id):
-        try:
-            return self._scoped_queryset().get(pk=fhir_id)
-        except (FhirAuxResource.DoesNotExist, ValueError, TypeError):
-            raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
 
     def serialize(self, instance):
         return FHIRAuxResourceSerializer().to_representation(instance)
 
     def search(self):
-        return self._scoped_queryset()
+        return self._read_queryset()
 
     def read(self, fhir_id):
-        return self.serialize(self._get_instance(fhir_id))
+        try:
+            instance = self._read_queryset().get(pk=fhir_id)
+        except (FhirAuxResource.DoesNotExist, ValueError, TypeError):
+            raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
+        return self.serialize(instance)
 
     def create(self, data):
-        return self.serialize(self._persist(FhirAuxResource(resource_type=self.resource_type), data))
+        # The camel-case parser snake-cases incoming JSON; restore FHIR camelCase before
+        # validating and storing so fhir_data round-trips as valid FHIR.
+        data = _camelized(data)
+        validate_fhir_resource(self.resource_type, data)
+        patient, fhir_source = self._write_context()
+        return self.serialize(create_aux_resource(self.resource_type, data, patient, fhir_source))
 
     def update(self, fhir_id, data, partial=False):
-        instance = self._get_instance(fhir_id)
-        body = self._body(data)
+        patient, fhir_source = self._write_context()
+        instance = self._write_instance(fhir_id, patient)
+        body = _aux_body(_camelized(data))
         if partial:
             merged = dict(instance.fhir_data or {})
             merged.update(body)
             body = merged
-        return self.serialize(self._persist(instance, body))
+        validate_fhir_resource(self.resource_type, {**body, "resourceType": self.resource_type})
+        return self.serialize(_persist_aux(instance, self.resource_type, body, patient, fhir_source))
 
     def delete(self, fhir_id):
-        self._get_instance(fhir_id).delete()
+        patient, _ = self._write_context()
+        self._write_instance(fhir_id, patient).delete()
 
-    # -- persistence helpers --
-
-    @staticmethod
-    def _body(data):
-        # Store the FHIR body verbatim minus resourceType (it is derived from the column).
-        return {key: value for key, value in dict(data).items() if key != "resourceType"}
-
-    def _persist(self, instance, body):
-        body = self._body(body)
-        patient, patient_fhir_id = self._resolve_patient(body)
-        meta = body.get("meta")
-        instance.resource_type = self.resource_type
-        instance.patient = patient
-        instance.patient_fhir_id = patient_fhir_id
-        instance.fhir_resource_id = str(body.get("id") or instance.fhir_resource_id or uuid.uuid4())
-        instance.source = meta.get("source") if isinstance(meta, dict) else None
-        instance.fhir_data = body
-        instance.save()
-        return instance
-
-    def _resolve_patient(self, body):
-        reference = None
-        for key in ("subject", "patient"):
-            node = body.get(key)
-            if isinstance(node, dict) and isinstance(node.get("reference"), str):
-                reference = node["reference"]
-                break
-
-        if not reference or not reference.startswith("Patient/"):
-            # No patient linkage in the payload. A patient user still owns what they create.
-            if self.user.is_patient():
-                return self.user.get_patient(), None
-            return None, None
-
-        patient_fhir_id = reference.split("/", 1)[1]
+    def _write_instance(self, fhir_id, patient):
+        # A write targets a record under the named source's patient.
         try:
-            patient = Patient.objects.get(pk=patient_fhir_id)
-        except (Patient.DoesNotExist, ValueError, TypeError):
-            raise DRFValidationError(f"Referenced Patient/{patient_fhir_id} does not exist.")
-        self._authorize_patient(patient)
-        return patient, patient_fhir_id
-
-    def _authorize_patient(self, patient):
-        if self.user.is_practitioner():
-            if not Patient.practitioner_authorized(self.user.id, patient.id):
-                raise DRFPermissionDenied("Current user does not have access to the referenced Patient.")
-        else:
-            own = self.user.get_patient()
-            if not own or own.id != patient.id:
-                raise DRFPermissionDenied("The referenced Patient does not match the current user.")
+            return FhirAuxResource.for_patient(patient, self.resource_type).get(pk=fhir_id)
+        except (FhirAuxResource.DoesNotExist, ValueError, TypeError):
+            raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
 
 
-_MAPPED_HANDLERS = {"Observation": ObservationHandler, "Patient": PatientHandler}
+def resolve_fhir_source_context(request, user):
+    """Resolve ``(patient, fhir_source)`` from the ``X-JHE-FHIR-Source-ID`` header.
+
+    The patient is taken from the user's own access token (patient users) or from the source's
+    patient (non-patient users). Missing header -> 400; unknown source -> 400; a source the user
+    may not use -> 403.
+    """
+    source_id = request.headers.get(FHIR_SOURCE_ID_HEADER)
+    if not source_id:
+        raise DRFValidationError(f"Header '{FHIR_SOURCE_ID_HEADER}' is required to write this resource.")
+    try:
+        fhir_source = FhirSource.objects.select_related("patient").get(pk=source_id)
+    except (FhirSource.DoesNotExist, ValueError, TypeError):
+        raise DRFValidationError(f"FhirSource '{source_id}' does not exist.")
+
+    if user.is_patient():
+        # Patient users are scoped to themselves via the access token; the source must be theirs.
+        own = user.get_patient()
+        if own is None:
+            raise DRFPermissionDenied("Current user is not a Patient.")
+        if fhir_source.patient_id != own.id:
+            raise DRFPermissionDenied("The FhirSource does not belong to the current user.")
+        return own, fhir_source
+
+    # Non-patient (practitioner): derive the patient from the source, with org-sharing authz.
+    if not Patient.practitioner_authorized(user.id, fhir_source.patient_id):
+        raise DRFPermissionDenied("Current user does not have access to this FhirSource's patient.")
+    return fhir_source.patient, fhir_source
 
 
-class _NotImplementedResource(APIException):
-    status_code = http_status.HTTP_501_NOT_IMPLEMENTED
-    default_detail = "This FHIR resource type is configured but not yet served."
+def _aux_body(data):
+    # Store the FHIR body verbatim minus resourceType (it is derived from the column).
+    return {key: value for key, value in dict(data).items() if key != "resourceType"}
 
 
-def get_handler(resource_type, request):
-    if is_mapped_resource(resource_type):
-        handler_cls = _MAPPED_HANDLERS.get(resource_type)
-        if handler_cls is None:
-            # Declared in the config (so its interactions are known) but no handler is wired
-            # up yet -- a clean 501 beats a KeyError 500.
-            raise _NotImplementedResource(f"The {resource_type} resource type is configured but not yet served.")
-        return handler_cls(resource_type, request)
-    if is_aux_resource(resource_type):
-        return AuxResourceHandler(resource_type, request)
-    raise NotFound(f"Unsupported FHIR resource type: {resource_type}.")
+def _derive_patient_fhir_id(resource_type, body):
+    # Best-effort extraction of the resource's referenced Patient id (may be None).
+    if resource_type == "Patient":
+        return body.get("id")
+    for key in ("subject", "patient", "beneficiary"):
+        node = body.get(key)
+        reference = node.get("reference") if isinstance(node, dict) else None
+        if isinstance(reference, str) and reference.startswith("Patient/"):
+            return reference.split("/", 1)[1]
+    return None
+
+
+def _persist_aux(instance, resource_type, body, patient, fhir_source):
+    body = _aux_body(body)
+    instance.resource_type = resource_type
+    instance.patient = patient
+    instance.fhir_source = fhir_source
+    instance.patient_fhir_id = _derive_patient_fhir_id(resource_type, body)
+    instance.fhir_resource_id = body.get("id")
+    instance.fhir_data = body
+    instance.save()
+    return instance
+
+
+def create_aux_resource(resource_type, data, patient, fhir_source):
+    """Create a FhirAuxResource of ``resource_type`` linked to ``patient``/``fhir_source``."""
+    return _persist_aux(FhirAuxResource(), resource_type, _aux_body(data), patient, fhir_source)
 
 
 # ---------------------------------------------------------------------------
@@ -328,68 +409,148 @@ def get_handler(resource_type, request):
 # ---------------------------------------------------------------------------
 
 
-class FHIRResourceView(APIView):
-    """Dispatches an HTTP verb on ``FHIR/<version>/<resource>[/<id>]`` to the resource handler.
+class _ConfigError(APIException):
+    status_code = http_status.HTTP_500_INTERNAL_SERVER_ERROR
 
-    The HTTP request maps to a FHIR interaction (search/read/create/update/delete); if the
-    resource's ``__interaction`` allow-list in the config omits it, the request is refused
-    with 405 before any handler runs. A missing ``__interaction`` allows every interaction.
+
+class FHIRResourceView(APIView):
+    """Dispatches an HTTP verb on ``FHIR/<version>/<resource>[/<id>]`` to the right backing store.
+
+    Each request maps to a FHIR interaction (search/read/create/update/delete) and is routed to
+    the mapped Django model and/or the FhirAuxResource store per the config (see module docstring).
     """
 
-    def _handler(self, resource):
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        errors = get_config_errors()
+        if errors:
+            raise _ConfigError("Invalid FHIR configuration: " + "; ".join(errors))
+
+    def _check_supported(self, resource):
         if not is_supported_resource(resource):
             raise NotFound(f"Unsupported FHIR resource type: {resource}.")
-        return get_handler(resource, self.request)
 
-    def _enforce_interaction(self, resource, interaction):
-        # Refuse a disallowed interaction up front (405). resources not in the mapped config
-        # (auxiliary types, or unknown types) have no allow-list, so all interactions pass.
-        allowed = get_mapping_interactions(get_resource_mapping(resource))
-        if allowed is not None and interaction not in allowed:
-            raise MethodNotAllowed(
-                self.request.method, detail=f"The '{interaction}' interaction is not allowed for {resource}."
-            )
+    @staticmethod
+    def _is_aux_id(fhir_id):
+        # FhirAuxResource pks are UUIDs; mapped models use integer pks. Route by id shape.
+        try:
+            uuid.UUID(str(fhir_id))
+            return True
+        except (ValueError, AttributeError, TypeError):
+            return False
+
+    def _mapped_handler(self, resource):
+        handler_cls = _MAPPED_HANDLERS.get(resource)
+        if handler_cls is None:
+            raise NotFound(f"Unsupported FHIR resource type: {resource}.")
+        return handler_cls(self.request)
+
+    def _aux_handler(self, resource):
+        return AuxResourceHandler(resource, self.request)
+
+    def _refuse(self, resource, interaction):
+        raise MethodNotAllowed(
+            self.request.method, detail=f"The '{interaction}' interaction is not allowed for {resource}."
+        )
+
+    # -- HTTP verbs --
 
     def get(self, request, resource, id=None):
-        self._enforce_interaction(resource, "read" if id is not None else "search")
-        handler = self._handler(resource)
+        self._check_supported(resource)
         if id is None:
-            return self._search_bundle(handler)
-        return Response(handler.read(id))
+            return self._search_bundle(resource)
+        return Response(self._read(resource, id))
 
     def post(self, request, resource, id=None):
-        self._enforce_interaction(resource, "search" if id == "_search" else "create")
-        handler = self._handler(resource)
+        self._check_supported(resource)
         if id == "_search":  # FHIR search via POST
-            return self._search_bundle(handler)
+            return self._search_bundle(resource)
         if id is not None:
             raise MethodNotAllowed("POST")
-        return Response(handler.create(request.data), status=http_status.HTTP_201_CREATED)
+        return Response(self._create(resource, request.data), status=http_status.HTTP_201_CREATED)
 
     def put(self, request, resource, id=None):
+        self._check_supported(resource)
         if id is None:
             raise MethodNotAllowed("PUT", detail="An id is required to update a resource.")
-        self._enforce_interaction(resource, "update")
-        return Response(self._handler(resource).update(id, request.data, partial=False))
+        return Response(self._update(resource, id, request.data, partial=False))
 
     def patch(self, request, resource, id=None):
+        self._check_supported(resource)
         if id is None:
             raise MethodNotAllowed("PATCH", detail="An id is required to update a resource.")
-        self._enforce_interaction(resource, "update")
-        return Response(self._handler(resource).update(id, request.data, partial=True))
+        return Response(self._update(resource, id, request.data, partial=True))
 
     def delete(self, request, resource, id=None):
+        self._check_supported(resource)
         if id is None:
             raise MethodNotAllowed("DELETE", detail="An id is required to delete a resource.")
-        self._enforce_interaction(resource, "delete")
-        self._handler(resource).delete(id)
+        self._destroy(resource, id)
         return Response(status=http_status.HTTP_204_NO_CONTENT)
 
-    def _search_bundle(self, handler):
+    # -- routed operations --
+
+    def _read(self, resource, fhir_id):
+        if self._is_aux_id(fhir_id):
+            if "read" not in aux_interactions(resource):
+                self._refuse(resource, "read")
+            return self._aux_handler(resource).read(fhir_id)
+        if "read" not in mapped_interactions(resource):
+            self._refuse(resource, "read")
+        handler = self._mapped_handler(resource)
+        return handler.serialize(handler.read(fhir_id))
+
+    def _create(self, resource, data):
+        criteria = mapped_criteria(resource)
+        mapped = mapped_interactions(resource)
+        aux = aux_interactions(resource)
+        # OMH criteria routes a writable mapped resource between the model and aux.
+        if "create" in mapped and (criteria is None or matches_criteria(_camelized(data), criteria)):
+            return self._mapped_handler(resource).create(data)
+        if "create" in aux:
+            return self._aux_handler(resource).create(data)
+        self._refuse(resource, "create")
+
+    def _update(self, resource, fhir_id, data, partial):
+        if self._is_aux_id(fhir_id):
+            if "update" not in aux_interactions(resource):
+                self._refuse(resource, "update")
+            return self._aux_handler(resource).update(fhir_id, data, partial=partial)
+        if "update" not in mapped_interactions(resource):
+            self._refuse(resource, "update")
+        # No mapped resource currently implements model-side update.
+        raise MethodNotAllowed("PUT", detail=f"Update of a {resource} record is not supported.")
+
+    def _destroy(self, resource, fhir_id):
+        if self._is_aux_id(fhir_id):
+            if "delete" not in aux_interactions(resource):
+                self._refuse(resource, "delete")
+            return self._aux_handler(resource).delete(fhir_id)
+        if "delete" not in mapped_interactions(resource):
+            self._refuse(resource, "delete")
+        raise MethodNotAllowed("DELETE", detail=f"Delete of a {resource} record is not supported.")
+
+    # -- search: union of mapped rows + aux rows --
+
+    def _search_bundle(self, resource):
+        # Union of the mapped Django rows and the FhirAuxResource rows, mapped first. Each source
+        # is a (queryset, serialize_fn) pair so the paginator slices it at the DB level.
+        sources = []
+        if is_mapped_resource(resource) and "search" in mapped_interactions(resource):
+            handler = self._mapped_handler(resource)
+            sources.append((handler.search(), handler.serialize))
+        if is_aux_resource(resource) and "search" in aux_interactions(resource):
+            # Reads don't require the source header: the aux handler scopes to the source's
+            # patient when it is present, else to everything the user can access.
+            handler = self._aux_handler(resource)
+            sources.append((handler.search(), handler.serialize))
+
         paginator = FHIRBundlePagination()
-        page = paginator.paginate_queryset(handler.search(), self.request, view=self)
-        entries = [{"resource": handler.serialize(obj)} for obj in page]
+        page = paginator.paginate_queryset(ConcatenatedResults(sources), self.request, view=self)
+        entries = [{"resource": serialize(obj)} for serialize, obj in page]
         return paginator.get_paginated_response(entries)
+
+    # -- error rendering --
 
     def handle_exception(self, exc):
         """Render domain/model exceptions as FHIR OperationOutcome with the right status."""
@@ -404,8 +565,6 @@ class FHIRResourceView(APIView):
         if isinstance(exc, (DjangoBadRequest, DRFValidationError)):
             return self._outcome(http_status.HTTP_400_BAD_REQUEST, exc)
         if isinstance(exc, APIException):
-            # Any other DRF exception (e.g. the 501 not-implemented) already carries the
-            # correct status; render it as an OperationOutcome rather than DRF's default JSON.
             status_code = exc.status_code if isinstance(exc.status_code, int) else http_status.HTTP_400_BAD_REQUEST
             return self._outcome(status_code, exc)
         logger.exception("Unhandled error in FHIR resource view")
@@ -414,3 +573,9 @@ class FHIRResourceView(APIView):
     @staticmethod
     def _outcome(status_code, exc):
         return Response(FHIRBase.error_outcome(str(exc)), status=status_code)
+
+
+def _camelized(data):
+    import humps
+
+    return humps.camelize(data)

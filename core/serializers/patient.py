@@ -90,15 +90,13 @@ class JheUserPatientProfileSerializer(serializers.ModelSerializer):
 class FHIRPatientSerializer(serializers.Serializer):
     """Renders a Patient model instance into a FHIR R5 Patient resource.
 
-    The shape is driven by the mapping in core/fhir/fhir_config.json: Django model fields
-    are combined with the patient's aux_fhir_data (Django-mapped fields take precedence).
-    Output is not validated against fhir.resources -- validation happens on the way in
-    (Patient.fhir_create), not on the way out.
+    The shape is driven entirely by the mapping in core/fhir/fhir_config.json. Output is not
+    validated against fhir.resources -- the rendered fields come from validated columns.
     """
 
     def to_representation(self, patient):
         mapping = get_resource_mapping("Patient")
-        return build_fhir_resource(patient, "Patient", mapping, aux_data=patient.aux_fhir_data)
+        return build_fhir_resource(patient, "Patient", mapping)
 
 
 class FHIRBundledPatientSerializer(serializers.Serializer):

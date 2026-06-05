@@ -8,6 +8,10 @@ from .practitioner import Practitioner
 
 
 class Study(models.Model):
+    """
+    FHIR Group
+    """
+
     name = models.CharField()
     description = models.TextField()
     organization = models.ForeignKey("Organization", on_delete=models.CASCADE)

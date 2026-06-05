@@ -20,4 +20,6 @@ from .jhe_setting import JheSettingViewSet  # noqa
 
 from .client import ClientViewSet  # noqa
 
+from .fhir_source import FhirSourceViewSet  # noqa
+
 from .patient_invitation import PatientInvitationViewSet  # noqa

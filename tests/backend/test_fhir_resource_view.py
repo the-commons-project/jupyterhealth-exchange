@@ -1,54 +1,152 @@
-"""Tests for the unified FHIR resource endpoint (core/views/fhir.py): auxiliary-resource
-CRUD, mapped-resource read-by-id, and the aux_fhir_data split on mapped writes."""
+"""Tests for the unified FHIR resource endpoint (core/views/fhir.py).
+
+Covers the reworked routing: a Django model backs only the JHE-system view of a resource and
+everything else lands in FhirAuxResource (UUID id, linked to a FhirSource named by the
+X-JHE-FHIR-Source-ID header); search is a union of mapped + aux rows; writes for read/search-only
+mapped types fall through to aux; only OMH Observations write to the Django model.
+"""
 
 import base64
 import json
+import uuid
 
 import pytest
-from django.core.exceptions import PermissionDenied
 from rest_framework.test import APIClient
 
-from core.models import FhirAuxResource, JheUser, Observation, Patient
-from core.serializers import FHIRPatientSerializer
+from core.models import FhirAuxResource, FhirSource, Observation, Organization
 from core.utils import generate_observation_value_attachment_data
 
 from .utils import Code, add_observations
 
+_CLINICAL_STATUS = {
+    "coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]
+}
+
 
 def _condition(patient_id, **extra):
-    return {"resourceType": "Condition", "subject": {"reference": f"Patient/{patient_id}"}, **extra}
+    # Condition.subject and Condition.clinicalStatus are required by FHIR R5.
+    return {
+        "resourceType": "Condition",
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "clinicalStatus": _CLINICAL_STATUS,
+        **extra,
+    }
+
+
+@pytest.fixture
+def fhir_source(patient, device):
+    return FhirSource.objects.create(
+        patient=patient, data_source=device, label="Patient EHR", fhir_base_url="https://ehr.example/fhir"
+    )
+
+
+def _src(fhir_source):
+    """Kwargs adding the X-JHE-FHIR-Source-ID header to a test-client request."""
+    return {"HTTP_X_JHE_FHIR_SOURCE_ID": str(fhir_source.id)}
 
 
 # ---------------------------------------------------------------------------
-# Auxiliary resource CRUD
+# Auxiliary resource CRUD + source header
 # ---------------------------------------------------------------------------
 
 
-def test_aux_create_and_read(api_client, patient):
-    body = _condition(patient.id, code={"text": "Hypertension"}, clinicalStatus={"text": "active"})
-    r = api_client.post("/FHIR/R5/Condition", body)
+def test_aux_create_and_read(api_client, patient, fhir_source):
+    body = _condition(patient.id, id="cond-1", code={"text": "Hypertension"})
+    r = api_client.post("/FHIR/R5/Condition", body, **_src(fhir_source))
     assert r.status_code == 201, r.text
     created = r.json()
     assert created["resourceType"] == "Condition"
     assert created["code"] == {"text": "Hypertension"}
 
-    # The FHIR id is the Django pk; the row links the patient and keeps the original body.
+    # The FHIR id is a UUID (the FhirAuxResource pk); the row links the source and its patient.
+    assert uuid.UUID(created["id"])
     aux = FhirAuxResource.objects.get(pk=created["id"])
     assert aux.resource_type == "Condition"
+    assert aux.fhir_source_id == fhir_source.id
     assert aux.patient_id == patient.id
+    # fhir_resource_id comes from the body id; patient_fhir_id from subject.reference.
+    assert aux.fhir_resource_id == "cond-1"
     assert aux.patient_fhir_id == str(patient.id)
-    assert aux.fhir_data["code"] == {"text": "Hypertension"}
 
-    r = api_client.get(f"/FHIR/R5/Condition/{created['id']}")
+    r = api_client.get(f"/FHIR/R5/Condition/{created['id']}", **_src(fhir_source))
     assert r.status_code == 200, r.text
     assert r.json() == created
 
 
-def test_aux_search_returns_searchset_bundle(api_client, patient):
-    for i in range(3):
-        assert api_client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": f"c{i}"})).status_code == 201
+def test_aux_write_requires_source_header_400(api_client, patient, fhir_source):
+    # A write requires the source header; a read does not.
+    assert api_client.post("/FHIR/R5/Condition", _condition(patient.id)).status_code == 400
+    assert api_client.get("/FHIR/R5/Condition").status_code == 200
 
-    r = api_client.get("/FHIR/R5/Condition")
+
+def test_aux_read_without_header_shows_all_accessible(api_client, patient, fhir_source):
+    # Create (header required), then read without a header -> still visible (practitioner's
+    # org patient), and reading with the header scopes to that source's patient too.
+    api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source))
+    assert api_client.get("/FHIR/R5/Condition").json()["total"] == 1
+    assert api_client.get("/FHIR/R5/Condition", **_src(fhir_source)).json()["total"] == 1
+
+
+def test_aux_unknown_source_400(api_client, patient):
+    r = api_client.post("/FHIR/R5/Condition", _condition(patient.id), HTTP_X_JHE_FHIR_SOURCE_ID="999999")
+    assert r.status_code == 400, r.text
+
+
+def test_aux_source_for_unauthorized_patient_403(api_client, device):
+    # A source whose patient the practitioner cannot access (different, unshared org).
+    from core.models import JheUser
+
+    other = Organization.objects.create(name="Other", type="other")
+    stranger = JheUser.objects.create_user(email="stranger@example.org", user_type="patient").patient
+    stranger.organizations.add(other)
+    stranger_source = FhirSource.objects.create(
+        patient=stranger, data_source=device, label="x", fhir_base_url="https://x/fhir"
+    )
+
+    r = api_client.post("/FHIR/R5/Condition", _condition(stranger.id), **_src(stranger_source))
+    assert r.status_code == 403, r.text
+
+
+def test_aux_create_invalid_fhir_400(api_client, fhir_source):
+    # Condition.subject is required by FHIR R5; a body missing it is rejected.
+    r = api_client.post("/FHIR/R5/Condition", {"resourceType": "Condition"}, **_src(fhir_source))
+    assert r.status_code == 400, r.text
+
+
+def test_aux_patient_fhir_id_for_patient_resource(api_client, patient, fhir_source):
+    # For a Patient aux resource, patient_fhir_id is the resource's own id.
+    r = api_client.post("/FHIR/R5/Patient", {"resourceType": "Patient", "id": "ext-pat-9"}, **_src(fhir_source))
+    assert r.status_code == 201, r.text
+    aux = FhirAuxResource.objects.get(pk=r.json()["id"])
+    assert aux.patient_fhir_id == "ext-pat-9"
+    assert aux.fhir_resource_id == "ext-pat-9"
+
+
+def test_aux_patient_user_scoped_to_self(patient, fhir_source):
+    client = APIClient()
+    client.default_format = "json"
+    client.force_authenticate(patient.jhe_user)
+
+    # A patient user is scoped to themselves via the token; the source must be theirs.
+    r = client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "self"}), **_src(fhir_source))
+    assert r.status_code == 201, r.text
+    assert FhirAuxResource.objects.get(pk=r.json()["id"]).patient_id == patient.id
+
+    r = client.get("/FHIR/R5/Condition", **_src(fhir_source))
+    assert r.status_code == 200
+    assert r.json()["total"] == 1
+
+
+def test_aux_search_returns_searchset_bundle(api_client, patient, fhir_source):
+    for i in range(3):
+        assert (
+            api_client.post(
+                "/FHIR/R5/Condition", _condition(patient.id, code={"text": f"c{i}"}), **_src(fhir_source)
+            ).status_code
+            == 201
+        )
+
+    r = api_client.get("/FHIR/R5/Condition", **_src(fhir_source))
     assert r.status_code == 200, r.text
     bundle = r.json()
     assert bundle["resourceType"] == "Bundle"
@@ -57,39 +155,41 @@ def test_aux_search_returns_searchset_bundle(api_client, patient):
     assert {e["resource"]["resourceType"] for e in bundle["entry"]} == {"Condition"}
 
 
-def test_aux_search_is_scoped_by_resource_type(api_client, patient):
-    api_client.post("/FHIR/R5/Condition", _condition(patient.id))
-    r = api_client.get("/FHIR/R5/QuestionnaireResponse")
+def test_aux_search_is_scoped_by_resource_type(api_client, patient, fhir_source):
+    api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source))
+    r = api_client.get("/FHIR/R5/QuestionnaireResponse", **_src(fhir_source))
     assert r.status_code == 200, r.text
     assert r.json()["total"] == 0
 
 
-def test_aux_put_replaces_and_patch_merges(api_client, patient):
+def test_aux_put_replaces_and_patch_merges(api_client, patient, fhir_source):
     created = api_client.post(
-        "/FHIR/R5/Condition", _condition(patient.id, code={"text": "old"}, recordedDate="2020-01-01")
+        "/FHIR/R5/Condition",
+        _condition(patient.id, code={"text": "old"}, recordedDate="2020-01-01"),
+        **_src(fhir_source),
     ).json()
     cid = created["id"]
 
-    # PUT replaces the whole body.
-    r = api_client.put(f"/FHIR/R5/Condition/{cid}", _condition(patient.id, code={"text": "new"}))
+    # PUT replaces the whole body (id is a UUID -> routed to aux).
+    r = api_client.put(f"/FHIR/R5/Condition/{cid}", _condition(patient.id, code={"text": "new"}), **_src(fhir_source))
     assert r.status_code == 200, r.text
     assert r.json()["code"] == {"text": "new"}
     assert "recordedDate" not in r.json()
 
     # PATCH merges at the top level.
-    r = api_client.patch(f"/FHIR/R5/Condition/{cid}", {"recordedDate": "2021-02-02"})
+    r = api_client.patch(f"/FHIR/R5/Condition/{cid}", {"recordedDate": "2021-02-02"}, **_src(fhir_source))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["recordedDate"] == "2021-02-02"
     assert body["code"] == {"text": "new"}  # preserved from before
 
 
-def test_aux_delete(api_client, patient):
-    cid = api_client.post("/FHIR/R5/Condition", _condition(patient.id)).json()["id"]
-    r = api_client.delete(f"/FHIR/R5/Condition/{cid}")
+def test_aux_delete(api_client, patient, fhir_source):
+    cid = api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source)).json()["id"]
+    r = api_client.delete(f"/FHIR/R5/Condition/{cid}", **_src(fhir_source))
     assert r.status_code == 204, r.text
     assert not FhirAuxResource.objects.filter(pk=cid).exists()
-    assert api_client.get(f"/FHIR/R5/Condition/{cid}").status_code == 404
+    assert api_client.get(f"/FHIR/R5/Condition/{cid}", **_src(fhir_source)).status_code == 404
 
 
 def test_aux_unsupported_resource_type_404(api_client):
@@ -97,35 +197,8 @@ def test_aux_unsupported_resource_type_404(api_client):
     assert api_client.post("/FHIR/R5/Bogus", {"resourceType": "Bogus"}).status_code == 404
 
 
-def test_aux_create_unauthorized_patient_403(api_client, organization):
-    # A patient the practitioner cannot access (different, unshared org).
-    from core.models import Organization
-
-    other = Organization.objects.create(name="Other", type="other")
-    stranger = JheUser.objects.create_user(email="stranger@example.org", user_type="patient").patient
-    stranger.organizations.add(other)
-
-    r = api_client.post("/FHIR/R5/Condition", _condition(stranger.id))
-    assert r.status_code == 403, r.text
-
-
-def test_aux_patient_user_scoped_to_self(patient):
-    client = APIClient()
-    client.default_format = "json"
-    client.force_authenticate(patient.jhe_user)
-
-    # No subject reference: a patient user owns what they create.
-    r = client.post("/FHIR/R5/Condition", {"resourceType": "Condition", "code": {"text": "self"}})
-    assert r.status_code == 201, r.text
-    assert FhirAuxResource.objects.get(pk=r.json()["id"]).patient_id == patient.id
-
-    r = client.get("/FHIR/R5/Condition")
-    assert r.status_code == 200
-    assert r.json()["total"] == 1
-
-
 # ---------------------------------------------------------------------------
-# Mapped resource read-by-id
+# Mapped resource read-by-id (integer id) vs aux (UUID id)
 # ---------------------------------------------------------------------------
 
 
@@ -151,12 +224,19 @@ def test_patient_read_by_id(api_client, patient):
     assert r.json()["id"] == str(patient.id)
 
 
+def test_uuid_id_routes_to_aux_read(api_client, patient, fhir_source):
+    cid = api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source)).json()["id"]
+    # A UUID id is unambiguously a FhirAuxResource lookup.
+    assert api_client.get(f"/FHIR/R5/Condition/{cid}", **_src(fhir_source)).status_code == 200
+    assert api_client.get(f"/FHIR/R5/Condition/{uuid.uuid4()}", **_src(fhir_source)).status_code == 404
+
+
 # ---------------------------------------------------------------------------
-# aux_fhir_data split on mapped writes
+# Observation create routing (OMH -> Django model, otherwise -> aux)
 # ---------------------------------------------------------------------------
 
 
-def test_observation_create_preserves_unmapped_fields_in_aux(api_client, device, hr_study, patient):
+def test_observation_omh_create_maps_columns(api_client, device, hr_study, patient):
     record = generate_observation_value_attachment_data(Code.HeartRate.value)
     resource = {
         "resourceType": "Observation",
@@ -168,44 +248,18 @@ def test_observation_create_preserves_unmapped_fields_in_aux(api_client, device,
             "contentType": "application/json",
             "data": base64.b64encode(json.dumps(record).encode()).decode(),
         },
-        # Not in the config mapping -> must be preserved verbatim in aux_fhir_data.
-        "note": [{"text": "patient reported palpitations"}],
     }
     r = api_client.post("/FHIR/R5/Observation", resource)
     assert r.status_code == 201, r.text
-
+    # OMH code -> a Django Observation row (integer id), not aux. No source header needed.
     obs = Observation.objects.get(subject_patient=patient)
-    assert obs.aux_fhir_data["note"] == [{"text": "patient reported palpitations"}]
-
-    # The unmapped field round-trips back out on read.
-    read = api_client.get(f"/FHIR/R5/Observation/{obs.id}").json()
-    assert read["note"] == [{"text": "patient reported palpitations"}]
-
-
-def test_observation_omh_create_maps_columns_and_hides_criteria(api_client, device, hr_study, patient):
-    record = generate_observation_value_attachment_data(Code.HeartRate.value)
-    resource = {
-        "resourceType": "Observation",
-        "status": "final",
-        "code": {"coding": [{"system": Code.OpenMHealth.value, "code": Code.HeartRate.value}]},
-        "subject": {"reference": f"Patient/{patient.id}"},
-        "device": {"reference": f"Device/{device.id}"},
-        "valueAttachment": {
-            "contentType": "application/json",
-            "data": base64.b64encode(json.dumps(record).encode()).decode(),
-        },
-    }
-    assert api_client.post("/FHIR/R5/Observation", resource).status_code == 201
-
-    obs = Observation.objects.get(subject_patient=patient)
-    # OMH code -> mapped onto columns, not aux.
     assert obs.codeable_concept is not None
     assert obs.omh_data["body"] == record["body"]
+    assert not FhirAuxResource.objects.filter(resource_type="Observation").exists()
 
     read = api_client.get(f"/FHIR/R5/Observation/{obs.id}").json()
     assert read["code"]["coding"][0]["system"] == Code.OpenMHealth.value
     # The __criteria annotation never leaks into the rendered resource.
-    assert "__criteria" not in read.get("meta", {})
     assert "__criteria" not in json.dumps(read)
 
 
@@ -222,124 +276,108 @@ def _non_omh_observation(patient_id, payload):
     }
 
 
-def test_observation_non_omh_create_goes_to_aux(api_client, patient):
-    # A non-OMH (LOINC) observation: mapping bypassed, no device, no scope consent needed.
-    payload = {"systolic": 120, "diastolic": 80}
-    resource = _non_omh_observation(patient.id, payload)
-    r = api_client.post("/FHIR/R5/Observation", resource)
+def test_observation_non_omh_create_goes_to_aux(api_client, patient, fhir_source):
+    # A non-OMH (LOINC) observation: no Django row, stored verbatim in FhirAuxResource.
+    resource = _non_omh_observation(patient.id, {"systolic": 120, "diastolic": 80})
+    r = api_client.post("/FHIR/R5/Observation", resource, **_src(fhir_source))
     assert r.status_code == 201, r.text
+    assert not Observation.objects.filter(subject_patient=patient).exists()
 
-    obs = Observation.objects.get(subject_patient=patient)
-    # The OMH columns stay null; the clinical payload lives opaquely in aux_fhir_data.
-    assert obs.codeable_concept is None
-    assert obs.omh_data is None
-    assert obs.aux_fhir_data["code"]["coding"][0]["system"] == "http://loinc.org"
-    assert obs.aux_fhir_data["valueAttachment"]["data"] == resource["valueAttachment"]["data"]
-    # subject/meta are structural and not duplicated into aux.
-    assert "subject" not in obs.aux_fhir_data
-    assert "meta" not in obs.aux_fhir_data
+    aux = FhirAuxResource.objects.get(resource_type="Observation")
+    assert aux.patient_id == patient.id
+    assert aux.fhir_source_id == fhir_source.id
+    assert aux.patient_fhir_id == str(patient.id)
+    assert aux.fhir_data["code"]["coding"][0]["system"] == "http://loinc.org"
 
-    # Read returns the code and value verbatim from aux (value NOT double-encoded).
-    read = api_client.get(f"/FHIR/R5/Observation/{obs.id}").json()
+    # Read by the aux UUID returns the body verbatim (value NOT double-encoded).
+    read = api_client.get(f"/FHIR/R5/Observation/{aux.id}", **_src(fhir_source)).json()
     assert read["code"]["coding"][0]["code"] == "85354-9"
     assert read["valueAttachment"]["data"] == resource["valueAttachment"]["data"]
-    assert read["subject"] == {"reference": f"Patient/{patient.id}"}
 
 
-def test_observation_non_omh_skips_scope_consent(api_client, patient):
-    # The patient has consented to no scopes, yet a non-OMH observation is accepted
-    # (an OMH code without consent would be rejected with 403).
+def test_observation_non_omh_skips_scope_consent(api_client, patient, fhir_source):
+    # The patient has consented to no scopes, yet a non-OMH observation is accepted via aux.
     assert not patient.consolidated_consented_scopes().exists()
-    r = api_client.post("/FHIR/R5/Observation", _non_omh_observation(patient.id, {"x": 1}))
+    r = api_client.post("/FHIR/R5/Observation", _non_omh_observation(patient.id, {"x": 1}), **_src(fhir_source))
     assert r.status_code == 201, r.text
 
 
-def test_patient_fhir_create_splits_columns_and_aux(organization, user):
-    # Patient is read/search-only via FHIR (see __interaction), but the reverse-mapping
-    # create logic is still exercised here at the model level.
-    user.practitioner_profile.save_setting("current_organization_id", organization.id)
-    resource = {
-        "resourceType": "Patient",
-        "name": [{"family": "Doe", "given": ["Jane"]}],
-        "birthDate": "1990-07-15",
-        "telecom": [{"system": "email", "value": "jane-fhir@example.com"}],
-        "identifier": [{"system": "http://hospital.org", "value": "MRN-9"}],
-        # Not in the mapping -> aux_fhir_data.
-        "gender": "female",
-    }
-    patient = Patient.fhir_create(resource, user)
-    # Config-mapped fields landed on columns...
-    assert patient.name_family == "Doe"
-    assert patient.name_given == "Jane"
-    assert str(patient.birth_date) == "1990-07-15"
-    # ...the linked JheUser was resolved from telecom email...
-    assert patient.jhe_user.email == "jane-fhir@example.com"
-    # ...identifiers fanned out to rows...
-    assert patient.identifiers.get().value == "MRN-9"
-    # ...and the unmapped field went to aux_fhir_data.
-    assert patient.aux_fhir_data == {"gender": "female"}
-
-    # The rendered resource reflects both column-mapped and aux fields.
-    rendered = FHIRPatientSerializer().to_representation(patient)
-    assert rendered["gender"] == "female"
-    assert rendered["birthDate"] == "1990-07-15"
-
-
-def test_patient_fhir_create_requires_practitioner(patient):
-    with pytest.raises(PermissionDenied):
-        Patient.fhir_create({"resourceType": "Patient", "birthDate": "2000-01-01"}, patient.jhe_user)
-
-
 # ---------------------------------------------------------------------------
-# __interaction allow-list enforcement
+# Writes to read/search-only mapped types fall through to aux
 # ---------------------------------------------------------------------------
 
 
-def test_interaction_create_on_read_only_resource_returns_405(api_client, patient):
-    # Patient declares __interaction: [read, search]; create is refused before any handler.
-    r = api_client.post("/FHIR/R5/Patient", {"resourceType": "Patient", "birthDate": "2000-01-01"})
-    assert r.status_code == 405, r.text
-    assert r.json()["resourceType"] == "OperationOutcome"
+def test_patient_create_goes_to_aux(api_client, patient, fhir_source):
+    # Patient is read/search-only against the Django model; a FHIR create lands in aux.
+    r = api_client.post(
+        "/FHIR/R5/Patient", {"resourceType": "Patient", "name": [{"family": "Doe"}]}, **_src(fhir_source)
+    )
+    assert r.status_code == 201, r.text
+    assert uuid.UUID(r.json()["id"])
+    assert FhirAuxResource.objects.filter(resource_type="Patient", patient=patient).exists()
 
 
-def test_interaction_update_and_delete_on_read_only_resource_return_405(api_client, patient):
+def test_group_create_goes_to_aux(api_client, patient, fhir_source):
+    group = {"resourceType": "Group", "type": "person", "membership": "enumerated"}
+    r = api_client.post("/FHIR/R5/Group", group, **_src(fhir_source))
+    assert r.status_code == 201, r.text
+    assert FhirAuxResource.objects.filter(resource_type="Group", patient=patient).exists()
+
+
+def test_organization_create_goes_to_aux(api_client, patient, fhir_source):
+    r = api_client.post(
+        "/FHIR/R5/Organization", {"resourceType": "Organization", "name": "Aux Org"}, **_src(fhir_source)
+    )
+    assert r.status_code == 201, r.text
+    assert FhirAuxResource.objects.filter(resource_type="Organization", patient=patient).exists()
+
+
+# ---------------------------------------------------------------------------
+# Search is a union of mapped Django rows + aux rows
+# ---------------------------------------------------------------------------
+
+
+def test_search_unions_mapped_and_aux(api_client, patient, organization, fhir_source):
+    # Mapped: the practitioner's own organization. Aux: an Organization stored in FhirAuxResource.
+    api_client.post("/FHIR/R5/Organization", {"resourceType": "Organization", "name": "Aux Org"}, **_src(fhir_source))
+    # The source header is required to include the aux portion of a mapped+aux search.
+    r = api_client.get("/FHIR/R5/Organization", **_src(fhir_source))
+    assert r.status_code == 200, r.text
+    bundle = r.json()
+    assert bundle["total"] >= 2
+    names = {e["resource"].get("name") for e in bundle["entry"]}
+    assert "Aux Org" in names  # the aux row
+    assert organization.name in names  # the mapped row
+    assert {e["resource"]["resourceType"] for e in bundle["entry"]} == {"Organization"}
+
+
+def test_union_search_without_header_includes_mapped_and_accessible_aux(api_client, hr_study, patient, fhir_source):
+    # Without a source header a read returns the union of mapped studies and every accessible
+    # aux Group (here the one just stored, for an org patient of the practitioner).
+    aux_id = api_client.post(
+        "/FHIR/R5/Group", {"resourceType": "Group", "type": "person", "membership": "enumerated"}, **_src(fhir_source)
+    ).json()["id"]
+    bundle = api_client.get("/FHIR/R5/Group").json()
+    ids = {e["resource"]["id"] for e in bundle["entry"]}
+    assert str(hr_study.id) in ids  # mapped study
+    assert aux_id in ids  # accessible aux Group
+    assert {e["resource"]["resourceType"] for e in bundle["entry"]} == {"Group"}
+
+
+# ---------------------------------------------------------------------------
+# Update / delete routing on read-only mapped types
+# ---------------------------------------------------------------------------
+
+
+def test_update_delete_on_mapped_integer_id_returns_405(api_client, patient):
+    # An integer id targets the read/search-only Django model -> update/delete are refused.
     assert api_client.put(f"/FHIR/R5/Patient/{patient.id}", {"resourceType": "Patient"}).status_code == 405
     assert api_client.patch(f"/FHIR/R5/Patient/{patient.id}", {"resourceType": "Patient"}).status_code == 405
     assert api_client.delete(f"/FHIR/R5/Patient/{patient.id}").status_code == 405
 
 
-def test_interaction_read_only_resource_allows_read(api_client, patient):
-    # read is in the allow-list, so it is not blocked by interaction enforcement.
+def test_read_only_mapped_resource_allows_read(api_client, patient):
     assert api_client.get(f"/FHIR/R5/Patient/{patient.id}").status_code == 200
-
-
-def test_interaction_disallowed_precedes_missing_handler(api_client):
-    # Organization allows only read/search, so create is 405 even though it has no handler.
-    assert api_client.post("/FHIR/R5/Organization", {"resourceType": "Organization"}).status_code == 405
-
-
-def test_configured_resource_without_handler_returns_501(api_client):
-    # Organization read IS allowed by __interaction, but no handler is wired up yet.
-    r = api_client.get("/FHIR/R5/Organization/1")
-    assert r.status_code == 501, r.text
-    assert r.json()["resourceType"] == "OperationOutcome"
-
-
-def test_observation_without_interaction_allows_all(api_client, device, hr_study, patient):
-    # Observation declares no __interaction, so create (and the rest) stay available.
-    record = generate_observation_value_attachment_data(Code.HeartRate.value)
-    resource = {
-        "resourceType": "Observation",
-        "status": "final",
-        "code": {"coding": [{"system": Code.OpenMHealth.value, "code": Code.HeartRate.value}]},
-        "subject": {"reference": f"Patient/{patient.id}"},
-        "device": {"reference": f"Device/{device.id}"},
-        "valueAttachment": {
-            "contentType": "application/json",
-            "data": base64.b64encode(json.dumps(record).encode()).decode(),
-        },
-    }
-    assert api_client.post("/FHIR/R5/Observation", resource).status_code == 201
 
 
 # ---------------------------------------------------------------------------
@@ -347,9 +385,10 @@ def test_observation_without_interaction_allows_all(api_client, device, hr_study
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_lowercase_path_alias_still_works(api_client, patient):
-    # The canonical base is /FHIR/R5/; the old /fhir/r5/ path is kept as an alias.
-    cid = api_client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "x"})).json()["id"]
-    r = api_client.get(f"/fhir/r5/Condition/{cid}")
+def test_legacy_lowercase_path_alias_still_works(api_client, patient, fhir_source):
+    cid = api_client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "x"}), **_src(fhir_source)).json()[
+        "id"
+    ]
+    r = api_client.get(f"/fhir/r5/Condition/{cid}", **_src(fhir_source))
     assert r.status_code == 200, r.text
     assert r.json()["id"] == str(cid)
