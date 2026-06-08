@@ -52,9 +52,14 @@ const ROUTES = {
     action: "renderStudies",
   },
   observations: {
-    label: "Observations",
+    label: "OMH Observations",
     iconClass: "bi-database",
     action: "renderObservations",
+  },
+  fhir: {
+    label: "FHIR Resources",
+    iconClass: "bi-fire",
+    action: "renderFhir",
   },
   clients: {
     label: "Clients",
@@ -85,6 +90,7 @@ const actions = {
   renderPatients,
   renderStudies,
   renderObservations,
+  renderFhir,
   renderClients,
   renderDataSources,
   renderDebug,
@@ -327,23 +333,26 @@ function getCurrentRouteAndParams() {
   };
 }
 
-async function apiRequest(method, resourcePath, params) {
+async function apiRequest(method, resourcePath, query) {
   console.log(
-    `apiRequest: ${method} ${resourcePath} ${JSON.stringify(params)}`
+    `apiRequest: ${method} ${resourcePath} ${JSON.stringify(query)}`
   );
   const headers = {
     "Cache-Control": "no-cache",
   };
   const user = await userManager.getUser();
   if (user) headers["Authorization"] = `Bearer ${user.access_token}`;
-  let url = API_PATH + '/' + resourcePath;
+  // FHIR resources are served at the site root (e.g. /FHIR/R5/Patient), not under API_PATH.
+  let url = resourcePath.startsWith("FHIR")
+    ? "/" + resourcePath
+    : API_PATH + "/" + resourcePath;
   let body;
-  if (params) {
+  if (query) {
     if (method === "GET") {
-      url = `${url}?${new URLSearchParams(params).toString()}`;
+      url = `${url}?${new URLSearchParams(query).toString()}`;
     } else {
       headers["Content-Type"] = "application/json";
-      body = JSON.stringify(params);
+      body = JSON.stringify(query);
     }
   }
   let response = null;
@@ -1593,6 +1602,157 @@ async function renderObservations(queryParams) {
     ),
     organizationForObservationsSelect: organizationForObservationsSelect,
     studyForObservationsSelect: studyForObservationsSelect,
+    pageSizes: [20, 100, 500, 1000],
+  };
+
+  return content(renderParams);
+}
+
+// ────────────────────────────────────────────────────
+// FHIR Resources
+// ────────────────────────────────────────────────────
+
+// Best-effort extraction of the Patient id referenced by a FHIR resource (may be null).
+function fhirPatientId(resource) {
+  if (resource.resourceType === "Patient") return resource.id;
+  for (const key of ["subject", "patient", "beneficiary"]) {
+    const reference = resource[key]?.reference;
+    if (typeof reference === "string" && reference.startsWith("Patient/")) {
+      return reference.split("/")[1];
+    }
+  }
+  return null;
+}
+
+async function renderFhir(queryParams) {
+  const organizationsResponse = await apiRequest("GET", "users/organizations");
+  const organizations = await organizationsResponse.json();
+
+  if (organizations.length == 0) {
+    alert("This user does not belong to any Organization.");
+    return;
+  }
+
+  // If no org is selected, lets check what they were last using in the profile,
+  // otherwise default to the first organization in the list
+  if (!queryParams.organizationId) {
+    const currentOrganizationId = (await getUserProfile()).settings
+      ?.currentOrganizationId;
+    if (currentOrganizationId) {
+      console.log(
+        "Setting currentOrganizationId from user profile settings: ",
+        currentOrganizationId,
+      );
+      queryParams.organizationId = currentOrganizationId;
+    } else {
+      queryParams.organizationId = organizations[0].id;
+    }
+  }
+  let selectedOrganization;
+  const organizationForFhirSelect = organizations.map((organization) => {
+    if (organization.id === parseInt(queryParams.organizationId)) {
+      organization.selected = true;
+      selectedOrganization = organization;
+    } else {
+      organization.selected = false;
+    }
+    return organization;
+  });
+
+  const studiesResponse = await apiRequest("GET", "studies", {
+    organizationId: queryParams.organizationId,
+  });
+  const studies = await studiesResponse.json();
+
+  // Restore the last-used study from settings when arriving without an explicit studyId
+  // (e.g. navigating here from another route). If studyId is present as a key — even as
+  // null, which "All Studies" passes — skip restoration so the user's choice is honoured.
+  const currentStudyId = (await getUserProfile()).settings?.currentStudyId;
+  if (currentStudyId && !("studyId" in queryParams)) {
+    queryParams.studyId = currentStudyId;
+  }
+
+  const selectedStudyId = queryParams.studyId
+    ? parseInt(queryParams.studyId)
+    : null;
+  const studyForFhirSelect = studies.results.map((study) => {
+    const studyIsSelected =
+      selectedStudyId !== null && study.id === selectedStudyId;
+    study.selected = studyIsSelected;
+    return study;
+  });
+
+  // Restore the last-used resource from settings when arriving without an explicit resource
+  // (e.g. navigating here from another route), mirroring the organization/study restoration.
+  const currentFhirResource = (await getUserProfile()).settings
+    ?.currentFhirResource;
+  if (currentFhirResource && !("resource" in queryParams)) {
+    queryParams.resource = currentFhirResource;
+  }
+
+  // The Resource select lists every supported FHIR resource type (from server settings).
+  const selectedResource = queryParams.resource || CONSTANTS.FHIR_RESOURCES[0];
+  const resourceForFhirSelect = CONSTANTS.FHIR_RESOURCES.map((resource) => ({
+    name: resource,
+    selected: resource === selectedResource,
+  }));
+
+  const content = Handlebars.compile(
+    document.getElementById("t-fhir").innerHTML,
+  );
+
+  // Parse the page and pageSize from queryParams
+  const pageParsed = parseInt(queryParams.page) || 1;
+  const pageSizeParsed = parseInt(queryParams.pageSize) || 20;
+
+  // FHIR search uses the canonical location filters and the _page/_count pagination params.
+  const fhirQuery = {
+    "patient.organization": queryParams.organizationId,
+    _page: isNaN(pageParsed) ? 1 : pageParsed,
+    _count: isNaN(pageSizeParsed) ? 20 : pageSizeParsed,
+  };
+
+  if (queryParams.studyId) {
+    fhirQuery["patient._has:Group:member:_id"] = queryParams.studyId;
+  }
+
+  const fhirResponse = await apiRequest(
+    "GET",
+    `FHIR/R5/${selectedResource}`,
+    fhirQuery,
+  );
+
+  const bundle = await fhirResponse.json();
+
+  const fhir = (bundle.entry || []).map((entry) => {
+    const resource = entry.resource;
+    return {
+      id: resource.id,
+      patientId: fhirPatientId(resource),
+      fhirData: JSON.stringify(resource, null, 2),
+    };
+  });
+
+  Handlebars.registerPartial(
+    "crudButton",
+    document.getElementById("t-crudButton").innerHTML,
+  );
+
+  Handlebars.registerHelper("eq", function (v1, v2) {
+    return v1 === v2;
+  });
+
+  const renderParams = {
+    ...queryParams,
+    fhir: fhir,
+    page: isNaN(pageParsed) ? 1 : pageParsed,
+    pageSize: isNaN(pageSizeParsed) ? 20 : pageSizeParsed,
+    totalPages: Math.ceil(
+      bundle.total / (isNaN(pageSizeParsed) ? 20 : pageSizeParsed),
+    ),
+    organizationForFhirSelect: organizationForFhirSelect,
+    studyForFhirSelect: studyForFhirSelect,
+    resourceForFhirSelect: resourceForFhirSelect,
     pageSizes: [20, 100, 500, 1000],
   };
 

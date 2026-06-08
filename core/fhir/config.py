@@ -74,6 +74,11 @@ def aux_resource_types():
     return frozenset(_AUX_RESOURCES)
 
 
+def supported_resource_types():
+    """The sorted list of every resource type served (mapped and/or auxiliary)."""
+    return sorted(set(_MAPPED_RESOURCES) | set(_AUX_RESOURCES))
+
+
 def mapped_interactions(resource_type):
     """The set of interactions a *mapped* resource exposes against its Django model.
 

@@ -60,11 +60,11 @@
         {{/if}}
       </div>
     </div>
-    <div class="d-flex align-items-center">
-      <span class="me-2">Page
+    <div class="d-flex align-items-center flex-wrap gap-2">
+      <span class="d-inline-flex align-items-center text-nowrap me-3">Page
         <input
           type="number"
-          class="form-control form-control-sm d-inline-block"
+          class="form-control form-control-sm d-inline-block mx-2"
           style="width: 60px;"
           value="{{page}}"
           min="1"
@@ -73,16 +73,18 @@
           onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('patients', null, {...getCurrentRouteAndParams().params, page: this.value}) }"
         /> of {{totalPages}}
       </span>
-      <select
-        class="form-select form-select-sm me-2"
-        style="width: auto;"
-        onchange="nav('patients', null, {...getCurrentRouteAndParams().params, pageSize: this.value, page: 1})"
-      >
-        {{#each pageSizes}}
-          <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
-        {{/each}}
-      </select>
-      <span>per page</span>
+      <span class="d-inline-flex align-items-center text-nowrap">
+        <select
+          class="form-select form-select-sm me-2"
+          style="width: auto;"
+          onchange="nav('patients', null, {...getCurrentRouteAndParams().params, pageSize: this.value, page: 1})"
+        >
+          {{#each pageSizes}}
+            <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
+          {{/each}}
+        </select>
+        per page
+      </span>
     </div>
   </div>
   <table class="table table-striped">

@@ -41,19 +41,16 @@ from core.fhir.config import (
     is_supported_resource,
     mapped_criteria,
     mapped_interactions,
+    mapped_model_name,
 )
 from core.fhir.engine import build_fhir_resource, matches_criteria
 from core.fhir.fhir_validation import validate_fhir_resource
 from core.fhir.pagination import ConcatenatedResults, FHIRBundlePagination
 from core.models import (
-    DataSource,
     FhirAuxResource,
     FhirSource,
     Observation,
-    Organization,
     Patient,
-    Practitioner,
-    Study,
 )
 from core.serializers import FHIRAuxResourceSerializer, FHIRObservationSerializer
 from core.views.fhir_base import FHIRBase
@@ -68,97 +65,87 @@ FHIR_SOURCE_ID_HEADER = "X-JHE-FHIR-Source-ID"
 # ---------------------------------------------------------------------------
 
 
-class MappedResourceHandler:
-    """Renders a mapped resource's Django rows. Subclasses provide the scoped queryset.
+def _canonical_search_kwargs(request):
+    """Translate the canonical FHIR search params into ``fhir_search`` kwargs.
 
-    ``search`` returns a queryset of model instances (the view paginates and serializes each);
-    ``read`` returns a single instance or raises ``NotFound``. Serialization is generic: the
-    engine renders the instance through the config mapping.
+    Shared by the mapped and auxiliary handlers. Every supported resource accepts the
+    ``patient`` / ``patient.organization`` / ``patient._has:Group:member`` location filters;
+    Patient/Observation additionally accept an ``identifier`` and Observation a ``code``, passed
+    through as ``**params`` (each model ignores the keys it does not use).
+
+    NOTE: the client sends the FHIR-standard ``patient._has:Group:member:_id`` (capital "Group"),
+    but the djangorestframework-camel-case parser snake-cases every incoming query-param key
+    before it reaches request.GET, so "Group" arrives as "_group". We therefore read
+    ``patient._has:_group:member:_id``. The other keys (patient, patient.organization, identifier,
+    code) are already lowercase and pass through as-is.
+    """
+    identifier = request.GET.get("identifier") or request.GET.get("patient.identifier")
+    code = request.GET.get("code")
+    kwargs = {
+        "organization_id": request.GET.get("patient.organization"),
+        "study_id": request.GET.get("patient._has:_group:member:_id"),
+        "patient_id": request.GET.get("patient"),
+    }
+    if identifier:
+        system, _, value = identifier.partition("|")
+        kwargs["patient_identifier_system"] = system
+        kwargs["patient_identifier_value"] = value
+    if code:
+        system, _, value = code.partition("|")
+        kwargs["coding_system"] = system
+        kwargs["coding_code"] = value
+    return kwargs
+
+
+class MappedResourceHandler:
+    """Renders a mapped resource's Django rows via the model's normalized ``fhir_search``.
+
+    Every mapped model exposes ``fhir_search(jhe_user_id, resource_id=None,
+    organization_id=None, study_id=None, patient_id=None, **params)``: it resolves the
+    requesting user (patient vs practitioner), applies organization-membership authorization
+    (an unauthorized organization/study/patient -> 403), and returns a queryset of model
+    instances. The handler is therefore generic -- it only translates the canonical FHIR
+    query params into those kwargs and renders each instance through the config mapping.
+    ``ObservationHandler`` subclasses this to override serialization (Base64) and create.
     """
 
-    resource_type = None
-
-    def __init__(self, request):
+    def __init__(self, resource_type, request):
+        self.resource_type = resource_type
         self.request = request
         self.user = request.user
-        self.is_patient = self.user.is_patient()
+
+    def _model(self):
+        from django.apps import apps
+
+        return apps.get_model("core", mapped_model_name(self.resource_type))
 
     def serialize(self, instance):
         return build_fhir_resource(instance, self.resource_type, get_resource_mapping(self.resource_type))
 
     def search(self):
-        raise NotImplementedError
+        return self._model().fhir_search(self.user.id, **_canonical_search_kwargs(self.request))
 
     def read(self, fhir_id):
-        instance = self.search().filter(pk=fhir_id).first()
+        instance = self._model().fhir_search(self.user.id, resource_id=fhir_id).first()
         if instance is None:
             raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
         return instance
 
 
 class ObservationHandler(MappedResourceHandler):
-    resource_type = "Observation"
+    """Observation needs a custom serializer (Base64 valueAttachment) and the OMH create path."""
 
     def serialize(self, instance):
         # valueAttachment.data needs Base64 encoding, which the config can't express.
         return FHIRObservationSerializer().to_representation(instance)
-
-    def search(self):
-        request = self.request
-        # GET /Observation?patient._has:Group:member:_id=<group-id>
-        study_id = request.GET.get("patient._has:_group:member:_id", None)
-        if study_id is None:  # TBD: remove this
-            study_id = request.GET.get("_has:_group:member:_id", None)
-
-        patient_id = request.GET.get("patient", None)
-        patient_identifier_system_and_value = request.GET.get("patient.identifier", None)
-        coding_system_and_value = request.GET.get("code", None)
-
-        if not (study_id or patient_id or patient_identifier_system_and_value):
-            raise DRFValidationError(
-                "Request parameter patient._has:Group:member:_id=<study_id> or"
-                " patient=<patient_id> or patient.identifier=<system>|<value> must be provided."
-            )
-
-        if study_id and (not Study.practitioner_authorized(self.user.id, study_id)):
-            raise DRFPermissionDenied("Current User does not have authorization to access this Study.")
-
-        if study_id and patient_id and (not Study.has_patient(study_id, patient_id)):
-            raise DRFValidationError("The requested Patient is not part of the specified Study.")
-
-        coding_system = None
-        coding_value = None
-        if coding_system_and_value:
-            coding_system, _, coding_value = coding_system_and_value.partition("|")
-
-        patient_identifier_system = None
-        patient_identifier_value = None
-        if patient_identifier_system_and_value:
-            patient_identifier_system, _, patient_identifier_value = patient_identifier_system_and_value.partition("|")
-
-        return Observation.fhir_search(
-            self.user.id,
-            study_id=study_id,
-            patient_id=patient_id,
-            patient_identifier_system=patient_identifier_system,
-            patient_identifier_value=patient_identifier_value,
-            coding_system=coding_system,
-            coding_code=coding_value,
-        )
-
-    def read(self, fhir_id):
-        observation = Observation.fhir_search(self.user.id, observation_id=fhir_id).first()
-        if observation is None:
-            raise NotFound(f"Observation/{fhir_id} not found.")
-        return observation
 
     def create(self, data):
         # Only the OMH path reaches here (the view routes non-OMH Observations to aux).
         observation = Observation.fhir_create(data, self.user)
         logger.debug("created observation: %s", observation)
 
-        # Patients have no Practitioner record, so fhir_search (which requires one) would 404.
-        # Build a minimal FHIR-compliant response for the patient path.
+        # Return a minimal FHIR-compliant response for the patient path (avoids re-rendering
+        # the full search/serializer for the single just-created row).
         if self.user.is_patient():
             obs = Observation.objects.select_related("subject_patient", "codeable_concept").get(pk=observation.id)
             return {
@@ -172,88 +159,13 @@ class ObservationHandler(MappedResourceHandler):
                 },
             }
 
-        fhir_observation = Observation.fhir_search(self.user.id, observation_id=observation.id).first()
+        fhir_observation = Observation.fhir_search(self.user.id, resource_id=observation.id).first()
         return self.serialize(fhir_observation)
 
 
-class PatientHandler(MappedResourceHandler):
-    resource_type = "Patient"
-
-    def search(self):
-        request = self.request
-        patient_identifier_system_and_value = request.GET.get("identifier", None)
-        # GET /Patient?_has:Group:member:_id=<group-id>
-        study_id = request.GET.get("_has:_group:member:_id", None)
-
-        if not (study_id or patient_identifier_system_and_value):
-            raise DRFValidationError(
-                "Request parameter _has:Group:member:_id=<study_id> or"
-                " patient.identifier=<system>|<value> must be provided."
-            )
-
-        patient_identifier_system = None
-        patient_identifier_value = None
-        if patient_identifier_system_and_value:
-            patient_identifier_split = patient_identifier_system_and_value.split("|")
-            patient_identifier_system = patient_identifier_split[0]
-            patient_identifier_value = patient_identifier_split[1]
-
-        if study_id and (not Study.practitioner_authorized(self.user.id, study_id)):
-            raise DRFPermissionDenied("Current User does not have authorization to access this Study.")
-
-        if patient_identifier_system_and_value and (
-            not Patient.practitioner_authorized(self.user.id, None, None, patient_identifier_value)
-        ):
-            raise DRFPermissionDenied("Current User does not have authorization to access this Patient.")
-
-        return Patient.fhir_search(self.user.id, study_id, patient_identifier_system, patient_identifier_value)
-
-    def read(self, fhir_id):
-        patient = Patient.for_practitioner_organization_study(self.user.id, patient_id=fhir_id).first()
-        if patient is None:
-            raise NotFound(f"Patient/{fhir_id} not found.")
-        return patient
-
-
-class GroupHandler(MappedResourceHandler):
-    resource_type = "Group"
-
-    def search(self):
-        if self.is_patient:
-            return Study.objects.filter(studypatient__patient__jhe_user_id=self.user.id).distinct().order_by("name")
-        return Study.for_practitioner_organization(self.user.id)
-
-
-class OrganizationHandler(MappedResourceHandler):
-    resource_type = "Organization"
-
-    def search(self):
-        if self.is_patient:
-            return Organization.for_patient(self.user.id)
-        return Organization.for_practitioner(self.user.id)
-
-
-class DeviceHandler(MappedResourceHandler):
-    resource_type = "Device"
-
-    def search(self):
-        return DataSource.fhir_search(self.user.id, is_patient=self.is_patient)
-
-
-class PractitionerHandler(MappedResourceHandler):
-    resource_type = "Practitioner"
-
-    def search(self):
-        return Practitioner.fhir_search(self.user.id, is_patient=self.is_patient)
-
-
+# Mapped resources use the generic handler unless they need custom behavior.
 _MAPPED_HANDLERS = {
     "Observation": ObservationHandler,
-    "Patient": PatientHandler,
-    "Group": GroupHandler,
-    "Organization": OrganizationHandler,
-    "Device": DeviceHandler,
-    "Practitioner": PractitionerHandler,
 }
 
 
@@ -283,29 +195,30 @@ class AuxResourceHandler:
         # missing, 403/400 if the source is unknown or the user may not use it.
         return resolve_fhir_source_context(self.request, self.user)
 
-    def _read_queryset(self):
-        # A source header scopes a read to that source's patient; without it, the read spans
-        # everything the user can access.
+    def _read_scope(self):
+        # Reads go through the normalized FhirAuxResource.fhir_search (patient-vs-practitioner +
+        # org-membership authorization), exactly like the mapped handler. The header wins: when
+        # present it scopes the read to that source's patient (resolving the source also
+        # authorizes the caller) and the canonical query params are ignored. When absent, the
+        # canonical patient / patient.organization / patient._has:Group:member filters apply, so
+        # e.g. ?patient._has:Group:member:_id=<study> returns the aux rows of that resource type
+        # for the study's patients the practitioner can access.
         if self.request.headers.get(FHIR_SOURCE_ID_HEADER):
             patient, _ = resolve_fhir_source_context(self.request, self.user)
-            return FhirAuxResource.for_patient(patient, self.resource_type)
-        if self.user.is_patient():
-            own = self.user.get_patient()
-            if own is None:
-                return FhirAuxResource.objects.none()
-            return FhirAuxResource.for_patient(own, self.resource_type)
-        return FhirAuxResource.fhir_search(self.user.id, self.resource_type)
+            return {"patient_id": patient.id}
+        return _canonical_search_kwargs(self.request)
 
     def serialize(self, instance):
         return FHIRAuxResourceSerializer().to_representation(instance)
 
     def search(self):
-        return self._read_queryset()
+        return FhirAuxResource.fhir_search(self.user.id, self.resource_type, **self._read_scope())
 
     def read(self, fhir_id):
-        try:
-            instance = self._read_queryset().get(pk=fhir_id)
-        except (FhirAuxResource.DoesNotExist, ValueError, TypeError):
+        instance = FhirAuxResource.fhir_search(
+            self.user.id, self.resource_type, resource_id=fhir_id, **self._read_scope()
+        ).first()
+        if instance is None:
             raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
         return self.serialize(instance)
 
@@ -314,8 +227,8 @@ class AuxResourceHandler:
         # validating and storing so fhir_data round-trips as valid FHIR.
         data = _camelized(data)
         validate_fhir_resource(self.resource_type, data)
-        patient, fhir_source = self._write_context()
-        return self.serialize(create_aux_resource(self.resource_type, data, patient, fhir_source))
+        _, fhir_source = self._write_context()
+        return self.serialize(create_aux_resource(self.resource_type, data, fhir_source))
 
     def update(self, fhir_id, data, partial=False):
         patient, fhir_source = self._write_context()
@@ -326,7 +239,7 @@ class AuxResourceHandler:
             merged.update(body)
             body = merged
         validate_fhir_resource(self.resource_type, {**body, "resourceType": self.resource_type})
-        return self.serialize(_persist_aux(instance, self.resource_type, body, patient, fhir_source))
+        return self.serialize(_persist_aux(instance, self.resource_type, body, fhir_source))
 
     def delete(self, fhir_id):
         patient, _ = self._write_context()
@@ -387,10 +300,9 @@ def _derive_patient_fhir_id(resource_type, body):
     return None
 
 
-def _persist_aux(instance, resource_type, body, patient, fhir_source):
+def _persist_aux(instance, resource_type, body, fhir_source):
     body = _aux_body(body)
     instance.resource_type = resource_type
-    instance.patient = patient
     instance.fhir_source = fhir_source
     instance.patient_fhir_id = _derive_patient_fhir_id(resource_type, body)
     instance.fhir_resource_id = body.get("id")
@@ -399,9 +311,9 @@ def _persist_aux(instance, resource_type, body, patient, fhir_source):
     return instance
 
 
-def create_aux_resource(resource_type, data, patient, fhir_source):
-    """Create a FhirAuxResource of ``resource_type`` linked to ``patient``/``fhir_source``."""
-    return _persist_aux(FhirAuxResource(), resource_type, _aux_body(data), patient, fhir_source)
+def create_aux_resource(resource_type, data, fhir_source):
+    """Create a FhirAuxResource of ``resource_type`` linked to ``fhir_source`` (and its patient)."""
+    return _persist_aux(FhirAuxResource(), resource_type, _aux_body(data), fhir_source)
 
 
 # ---------------------------------------------------------------------------
@@ -440,10 +352,10 @@ class FHIRResourceView(APIView):
             return False
 
     def _mapped_handler(self, resource):
-        handler_cls = _MAPPED_HANDLERS.get(resource)
-        if handler_cls is None:
+        if not is_mapped_resource(resource):
             raise NotFound(f"Unsupported FHIR resource type: {resource}.")
-        return handler_cls(self.request)
+        handler_cls = _MAPPED_HANDLERS.get(resource, MappedResourceHandler)
+        return handler_cls(resource, self.request)
 
     def _aux_handler(self, resource):
         return AuxResourceHandler(resource, self.request)
@@ -458,8 +370,16 @@ class FHIRResourceView(APIView):
     def get(self, request, resource, id=None):
         self._check_supported(resource)
         if id is None:
+            self._remember_resource(resource)
             return self._search_bundle(resource)
         return Response(self._read(resource, id))
+
+    def _remember_resource(self, resource):
+        # Make the admin UI's Resource select sticky, mirroring how the studies/observations
+        # viewsets persist current_organization_id / current_study_id (see core/views/study.py).
+        user = self.request.user
+        if hasattr(user, "practitioner_profile"):
+            user.practitioner_profile.save_setting("current_fhir_resource", resource)
 
     def post(self, request, resource, id=None):
         self._check_supported(resource)

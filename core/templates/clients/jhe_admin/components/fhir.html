@@ -1,34 +1,47 @@
 {% verbatim %}
-<script id="t-observations" type="text/template">
+<script id="t-fhir" type="text/template">
 
   <div class="d-flex justify-content-between align-items-center mb-3">
     <table>
       <tr>
         <td class="pe-3">
           <select
-            id="organizationForObservations"
+            id="organizationForFhir"
             class="form-control form-select"
-            onchange="nav('observations', null, {organizationId: this.value})"
+            onchange="nav('fhir', null, {organizationId: this.value})"
           >
-            {{#organizationForObservationsSelect}} {{#if selected}}
+            {{#organizationForFhirSelect}} {{#if selected}}
               <option value="{{id}}" selected>{{name}}</option>
             {{else}}
               <option value="{{id}}">{{name}}</option>
-            {{/if}} {{/organizationForObservationsSelect}}
+            {{/if}} {{/organizationForFhirSelect}}
           </select>
         </td>
         <td class="pe-3">
           <select
-            id="studyForObservations"
+            id="studyForFhir"
             class="form-control form-select"
-            onchange="this.value == 'all' ? nav('observations',{ organizationId: {{organizationId}}, page: 1, studyId: null }) : nav('observations',{studyId: this.value, organizationId: {{organizationId}}, page: 1 })"
+            onchange="this.value == 'all' ? nav('fhir',{ organizationId: {{organizationId}}, page: 1, studyId: null }) : nav('fhir',{studyId: this.value, organizationId: {{organizationId}}, page: 1 })"
           >
               <option value="all">All Studies</option>
-            {{#studyForObservationsSelect}} {{#if selected}}
+            {{#studyForFhirSelect}} {{#if selected}}
               <option value="{{id}}" selected>{{name}}</option>
             {{else}}
               <option value="{{id}}">{{name}}</option>
-            {{/if}} {{/studyForObservationsSelect}}
+            {{/if}} {{/studyForFhirSelect}}
+          </select>
+        </td>
+        <td class="pe-3">
+          <select
+            id="resourceForFhir"
+            class="form-control form-select"
+            onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, resource: this.value, page: 1})"
+          >
+            {{#resourceForFhirSelect}} {{#if selected}}
+              <option value="{{name}}" selected>{{name}}</option>
+            {{else}}
+              <option value="{{name}}">{{name}}</option>
+            {{/if}} {{/resourceForFhirSelect}}
           </select>
         </td>
       </tr>
@@ -42,15 +55,15 @@
           value="{{page}}"
           min="1"
           max="{{totalPages}}"
-          onchange="nav('observations', null, {...getCurrentRouteAndParams().params, page: this.value})"
-          onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('observations', null, {...getCurrentRouteAndParams().params, page: this.value}) }"
+          onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, page: this.value})"
+          onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('fhir', null, {...getCurrentRouteAndParams().params, page: this.value}) }"
         /> of {{totalPages}}
       </span>
       <span class="d-inline-flex align-items-center text-nowrap">
         <select
           class="form-select form-select-sm me-2"
           style="width: auto;"
-          onchange="nav('observations', null, {...getCurrentRouteAndParams().params, pageSize: this.value, page: 1})"
+          onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, pageSize: this.value, page: 1})"
         >
           {{#each pageSizes}}
             <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
@@ -64,26 +77,19 @@
   <table class="table table-striped">
     <thead>
       <tr>
-        <th scope="col"></th>
         <th scope="col">ID</th>
-        <th scope="col">Scope</th>
-        <th scope="col">Patient</th>
-        <th scope="col">Transaction Time</th>
+        <th scope="col">Patient ID</th>
         <th scope="col">Data</th>
       </tr>
     </thead>
     <tbody>
-      {{#observations}}
+      {{#fhir}}
         <tr>
-          <td>
-          </td>
           <td>{{id}}</td>
-          <td>{{codingText}}</td>
-          <td>{{patientNameFamily}}, {{patientNameGiven}}</td>
-          <td>{{lastUpdated}}</td>
-          <td><pre>{{omhData}}</pre></td>
+          <td>{{patientId}}</td>
+          <td><pre>{{fhirData}}</pre></td>
         </tr>
-      {{/observations}}
+      {{/fhir}}
     </tbody>
   </table>
 </script>

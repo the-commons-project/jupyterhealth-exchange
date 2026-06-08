@@ -1,6 +1,8 @@
 from django.db import models
 from django.db.models import Q
 
+from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
+
 from .patient import PatientOrganization
 from .practitioner import PractitionerOrganization
 
@@ -83,6 +85,40 @@ class Organization(models.Model):
         # "patients" reverse relation (which spans the PatientOrganization join table), so an
         # organization matches only when the patient is one of its members.
         return Organization.objects.filter(patients__jhe_user_id=patient_user_id)
+
+    @staticmethod
+    def fhir_search(
+        jhe_user_id,
+        resource_id=None,
+        organization_id=None,
+        study_id=None,
+        patient_id=None,
+        **params,
+    ):
+        # Return the Organizations visible to the user as a queryset of Organization instances
+        # (the serializer renders them into FHIR JSON). A patient user sees the organizations
+        # they belong to and the organization/study/patient filters are ignored; a practitioner
+        # sees the organizations they belong to -- narrowed to a single organization, the
+        # organization backing a given study, or the organizations a given patient belongs to
+        # (each explicit filter authorized up front, 403 on mismatch). resource_id selects a
+        # single organization.
+        user = resolve_fhir_user(jhe_user_id)
+        if user.is_patient():
+            qs = Organization.for_patient(jhe_user_id)
+        else:
+            authorize_practitioner_scope(jhe_user_id, organization_id, study_id, patient_id)
+            qs = Organization.for_practitioner(jhe_user_id)
+            if organization_id:
+                qs = qs.filter(id=organization_id)
+            if study_id:
+                qs = qs.filter(study__id=study_id)
+            if patient_id:
+                qs = qs.filter(patients__id=patient_id)
+
+        if resource_id:
+            qs = qs.filter(id=resource_id)
+
+        return qs.distinct().order_by("name")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

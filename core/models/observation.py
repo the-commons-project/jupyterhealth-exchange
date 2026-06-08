@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 from fhir.resources.observation import Observation as FHIRObservation
 from jsonschema import ValidationError
 
+from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
 from core.utils import validate_with_registry
 
 from .codeable_concept import CodeableConcept
@@ -119,38 +120,55 @@ class Observation(models.Model):
     @staticmethod
     def fhir_search(
         jhe_user_id,
+        resource_id=None,
+        organization_id=None,
         study_id=None,
         patient_id=None,
-        patient_identifier_system=None,
-        patient_identifier_value=None,
-        coding_system=None,
-        coding_code=None,
-        observation_id=None,
+        **params,
     ):
-        # Return the observations a practitioner may see via the FHIR API as a queryset of
-        # Observation instances; formatting into FHIR JSON is the serializer's job. An
-        # observation is visible only when its patient shares an organization with the
-        # practitioner. When a study is given, the patient must be enrolled in it AND the
-        # observation's code must be one of that study's requested scopes. Related rows used
-        # by the serializer's data-mapping traversal are selected/prefetched to avoid N+1.
-        practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
+        # Return the Observations visible to the user as a queryset of Observation instances
+        # (the serializer renders them into FHIR JSON). A patient user sees only their own
+        # observations and the organization/study/patient filters are ignored; a practitioner
+        # sees observations whose patient shares one of their organizations -- narrowed by the
+        # explicit organization/study/patient filters (each authorized up front, 403 on
+        # mismatch) and, via **params, by patient identifier and coding system|code. When a
+        # study is given the patient must be enrolled in it AND the observation's code must be
+        # one of that study's requested scopes. resource_id selects a single observation.
+        # Related rows are selected/prefetched to avoid N+1; distinct() collapses the duplicate
+        # rows produced by spanning these many-to-many relationships.
+        coding_system = params.get("coding_system")
+        coding_code = params.get("coding_code")
+        patient_identifier_value = params.get("patient_identifier_value")
 
-        qs = Observation.objects.filter(subject_patient__organizations__practitioners=practitioner)
-        if study_id:
-            qs = qs.filter(
-                subject_patient__studypatient__study_id=study_id,
-                codeable_concept__studyscoperequest__study_id=study_id,
-            )
-        if patient_id:
-            qs = qs.filter(subject_patient_id=patient_id)
+        user = resolve_fhir_user(jhe_user_id)
+        if user.is_patient():
+            qs = Observation.objects.filter(subject_patient__jhe_user_id=jhe_user_id)
+        else:
+            authorize_practitioner_scope(jhe_user_id, organization_id, study_id, patient_id)
+            # Anchor on the practitioner's organization membership; an optional organization_id
+            # narrows that SAME shared organization (kept in one filter() so Django reuses the
+            # join). A study additionally requires the patient be enrolled AND the code be one
+            # of that study's requested scopes (matched against the same study).
+            organization_filters = {"subject_patient__organizations__practitioners__jhe_user_id": jhe_user_id}
+            if organization_id:
+                organization_filters["subject_patient__organizations__id"] = organization_id
+            qs = Observation.objects.filter(**organization_filters)
+            if study_id:
+                qs = qs.filter(
+                    subject_patient__studypatient__study_id=study_id,
+                    codeable_concept__studyscoperequest__study_id=study_id,
+                )
+            if patient_id:
+                qs = qs.filter(subject_patient_id=patient_id)
+
+        if resource_id:
+            qs = qs.filter(id=resource_id)
         if patient_identifier_value:
             qs = qs.filter(subject_patient__identifiers__value=patient_identifier_value)
         if coding_system:
             qs = qs.filter(codeable_concept__coding_system=coding_system)
         if coding_code:
             qs = qs.filter(codeable_concept__coding_code=coding_code)
-        if observation_id:
-            qs = qs.filter(id=observation_id)
 
         return (
             qs.select_related("subject_patient", "codeable_concept")
