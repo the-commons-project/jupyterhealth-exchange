@@ -30,16 +30,24 @@ env:
   # only publish from this repo, not forks
   PUBLISHING_REPO: jupyterhealth/jupyterhealth-exchange
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-image:
+    name: build ${{ matrix.image_name }}
     services:
       # So that we can test this in PRs/branches
       local-registry:
         image: registry:2
         ports:
           - 5000:5000
+
+    strategy:
+      matrix:
+        include:
+          - image_name: ${{ github.repository }}
+            context: .
+          - image_name: ${{ github.repository }}-mcp
+            context: mcp_server
 
     runs-on: ubuntu-24.04
     permissions:
@@ -104,7 +112,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ matrix.image_name }}
 
       # https://github.com/docker/build-push-action
       - name: Build and push Docker image
@@ -115,3 +123,4 @@ jobs:
           platforms: linux/amd64,linux/aarch64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          context: ${{ matrix.context }}
