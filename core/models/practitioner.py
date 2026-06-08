@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
+
 
 class Practitioner(models.Model):
     jhe_user = models.OneToOneField(
@@ -29,18 +31,38 @@ class Practitioner(models.Model):
         return self.settings.get(key)
 
     @staticmethod
-    def fhir_search(jhe_user_id, practitioner_id=None, is_patient=False):
-        # Return the Practitioners a user may see via the FHIR API as a queryset of Practitioner
-        # instances; the serializer renders them. Visibility is by shared organization: a
-        # practitioner sees practitioners in any organization they belong to; a patient sees
-        # practitioners in the organizations they are a member of. distinct() collapses the
+    def fhir_search(
+        jhe_user_id,
+        resource_id=None,
+        organization_id=None,
+        study_id=None,
+        patient_id=None,
+        **params,
+    ):
+        # Return the Practitioners visible to the user as a queryset of Practitioner instances
+        # (the serializer renders them into FHIR JSON). A patient user sees the practitioners in
+        # the organizations they belong to and the organization/study/patient filters are
+        # ignored; a practitioner sees the practitioners sharing one of their organizations --
+        # narrowed to one organization, the organization backing a given study, or the
+        # organizations a given patient belongs to (each explicit filter authorized up front,
+        # 403 on mismatch). resource_id selects a single practitioner. distinct() collapses the
         # duplicate rows produced by spanning the organization many-to-many relationship.
-        if is_patient:
+        user = resolve_fhir_user(jhe_user_id)
+        if user.is_patient():
             qs = Practitioner.objects.filter(organizations__patients__jhe_user_id=jhe_user_id)
         else:
+            authorize_practitioner_scope(jhe_user_id, organization_id, study_id, patient_id)
             qs = Practitioner.objects.filter(organizations__practitioners__jhe_user_id=jhe_user_id)
-        if practitioner_id:
-            qs = qs.filter(id=practitioner_id)
+            if organization_id:
+                qs = qs.filter(organizations__id=organization_id)
+            if study_id:
+                qs = qs.filter(organizations__study__id=study_id)
+            if patient_id:
+                qs = qs.filter(organizations__patients__id=patient_id)
+
+        if resource_id:
+            qs = qs.filter(id=resource_id)
+
         return qs.distinct().order_by("name_family", "name_given")
 
     def __str__(self):

@@ -2,6 +2,8 @@ from django.conf import settings
 from django.db import models
 from django.shortcuts import get_object_or_404
 
+from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
+
 from .codeable_concept import CodeableConcept
 from .data_source import DataSource
 from .practitioner import Practitioner
@@ -46,6 +48,39 @@ class Study(models.Model):
     def practitioner_authorized(practitioner_user_id, study_id):
         qs = Study.for_practitioner_organization(practitioner_user_id, None, study_id)
         return qs.exists()
+
+    @staticmethod
+    def fhir_search(
+        jhe_user_id,
+        resource_id=None,
+        organization_id=None,
+        study_id=None,
+        patient_id=None,
+        **params,
+    ):
+        # Return the Groups (Studies) visible to the user as a queryset of Study instances (the
+        # serializer renders them into FHIR JSON). A patient user sees the studies they are
+        # enrolled in and the organization/study/patient filters are ignored; a practitioner
+        # sees studies under an organization they belong to -- narrowed to one organization, a
+        # single study, or the studies a given patient is enrolled in (each explicit filter
+        # authorized up front, 403 on mismatch). resource_id selects a single study.
+        user = resolve_fhir_user(jhe_user_id)
+        if user.is_patient():
+            qs = Study.objects.filter(studypatient__patient__jhe_user_id=jhe_user_id)
+        else:
+            authorize_practitioner_scope(jhe_user_id, organization_id, study_id, patient_id)
+            qs = Study.objects.filter(organization__practitioners__jhe_user_id=jhe_user_id)
+            if organization_id:
+                qs = qs.filter(organization_id=organization_id)
+            if study_id:
+                qs = qs.filter(id=study_id)
+            if patient_id:
+                qs = qs.filter(studypatient__patient_id=patient_id)
+
+        if resource_id:
+            qs = qs.filter(id=resource_id)
+
+        return qs.select_related("organization").distinct().order_by("name")
 
     def has_patient(study_id, patient_id):
         study_patients = StudyPatient.objects.filter(study_id=study_id, patient_id=patient_id)

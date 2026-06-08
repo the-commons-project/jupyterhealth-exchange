@@ -3,12 +3,11 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.db import models
 from django.db.utils import IntegrityError
-from django.shortcuts import get_object_or_404
 
+from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
 from core.services.jhe_settings import get_setting
 
 from .codeable_concept import CodeableConcept
-from .practitioner import Practitioner
 
 
 class Patient(models.Model):
@@ -120,29 +119,35 @@ class Patient(models.Model):
     def from_jhe_user_id(jhe_user_id):
         return Patient.objects.get(jhe_user_id=jhe_user_id)
 
-    # GET /Patient?_has:Group:member:_id=<group-id>
     @staticmethod
     def fhir_search(
         jhe_user_id,
+        resource_id=None,
+        organization_id=None,
         study_id=None,
-        patient_identifier_system=None,
-        patient_identifier_value=None,
+        patient_id=None,
+        **params,
     ):
-        # Return the patients a practitioner may see via the FHIR API as a queryset of
-        # Patient instances; formatting into FHIR JSON is the serializer's job. A patient
-        # qualifies only when enrolled in some study (studypatient) AND sharing an
-        # organization with the practitioner. jhe_user is selected and identifiers are
-        # prefetched so the serializer's data-mapping traversal does not issue N+1 queries.
-        practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
+        # Return the Patients visible to the user as a queryset of Patient instances (the
+        # serializer renders them into FHIR JSON). A patient user sees only themselves and the
+        # organization/study/patient filters are ignored; a practitioner sees patients who
+        # share one of their organizations -- narrowed by the explicit organization/study/
+        # patient filters (each authorized up front, 403 on mismatch) and, via **params, by
+        # identifier. resource_id selects a single patient. jhe_user is selected and
+        # identifiers prefetched so the serializer's traversal does not issue N+1 queries.
+        patient_identifier_value = params.get("patient_identifier_value")
 
-        qs = Patient.objects.filter(
-            organizations__practitioners=practitioner,
-            studypatient__isnull=False,
-        )
-        if study_id:
-            qs = qs.filter(studypatient__study_id=study_id)
-        if patient_identifier_value:
-            qs = qs.filter(identifiers__value=patient_identifier_value)
+        user = resolve_fhir_user(jhe_user_id)
+        if user.is_patient():
+            qs = Patient.objects.filter(jhe_user_id=jhe_user_id)
+        else:
+            authorize_practitioner_scope(jhe_user_id, organization_id, study_id, patient_id)
+            qs = Patient.for_practitioner_organization_study(
+                jhe_user_id, organization_id, study_id, patient_id, patient_identifier_value
+            )
+
+        if resource_id:
+            qs = qs.filter(id=resource_id)
 
         return qs.select_related("jhe_user").prefetch_related("identifiers").distinct().order_by("name_family")
 

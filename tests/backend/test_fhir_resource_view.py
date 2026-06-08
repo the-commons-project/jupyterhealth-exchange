@@ -63,7 +63,7 @@ def test_aux_create_and_read(api_client, patient, fhir_source):
     aux = FhirAuxResource.objects.get(pk=created["id"])
     assert aux.resource_type == "Condition"
     assert aux.fhir_source_id == fhir_source.id
-    assert aux.patient_id == patient.id
+    assert aux.fhir_source.patient_id == patient.id
     # fhir_resource_id comes from the body id; patient_fhir_id from subject.reference.
     assert aux.fhir_resource_id == "cond-1"
     assert aux.patient_fhir_id == str(patient.id)
@@ -130,7 +130,7 @@ def test_aux_patient_user_scoped_to_self(patient, fhir_source):
     # A patient user is scoped to themselves via the token; the source must be theirs.
     r = client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "self"}), **_src(fhir_source))
     assert r.status_code == 201, r.text
-    assert FhirAuxResource.objects.get(pk=r.json()["id"]).patient_id == patient.id
+    assert FhirAuxResource.objects.get(pk=r.json()["id"]).fhir_source.patient_id == patient.id
 
     r = client.get("/FHIR/R5/Condition", **_src(fhir_source))
     assert r.status_code == 200
@@ -284,7 +284,7 @@ def test_observation_non_omh_create_goes_to_aux(api_client, patient, fhir_source
     assert not Observation.objects.filter(subject_patient=patient).exists()
 
     aux = FhirAuxResource.objects.get(resource_type="Observation")
-    assert aux.patient_id == patient.id
+    assert aux.fhir_source.patient_id == patient.id
     assert aux.fhir_source_id == fhir_source.id
     assert aux.patient_fhir_id == str(patient.id)
     assert aux.fhir_data["code"]["coding"][0]["system"] == "http://loinc.org"
@@ -314,14 +314,14 @@ def test_patient_create_goes_to_aux(api_client, patient, fhir_source):
     )
     assert r.status_code == 201, r.text
     assert uuid.UUID(r.json()["id"])
-    assert FhirAuxResource.objects.filter(resource_type="Patient", patient=patient).exists()
+    assert FhirAuxResource.objects.filter(resource_type="Patient", fhir_source__patient=patient).exists()
 
 
 def test_group_create_goes_to_aux(api_client, patient, fhir_source):
     group = {"resourceType": "Group", "type": "person", "membership": "enumerated"}
     r = api_client.post("/FHIR/R5/Group", group, **_src(fhir_source))
     assert r.status_code == 201, r.text
-    assert FhirAuxResource.objects.filter(resource_type="Group", patient=patient).exists()
+    assert FhirAuxResource.objects.filter(resource_type="Group", fhir_source__patient=patient).exists()
 
 
 def test_organization_create_goes_to_aux(api_client, patient, fhir_source):
@@ -329,7 +329,7 @@ def test_organization_create_goes_to_aux(api_client, patient, fhir_source):
         "/FHIR/R5/Organization", {"resourceType": "Organization", "name": "Aux Org"}, **_src(fhir_source)
     )
     assert r.status_code == 201, r.text
-    assert FhirAuxResource.objects.filter(resource_type="Organization", patient=patient).exists()
+    assert FhirAuxResource.objects.filter(resource_type="Organization", fhir_source__patient=patient).exists()
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ from functools import lru_cache
 from django.conf import settings
 from oauth2_provider.models import get_application_model
 
+from core.fhir.config import supported_resource_types
 from core.models import DataSource, JheSetting, Organization
 from core.permissions import ROLE_PERMISSIONS
 from core.services.jhe_settings import get_setting
@@ -42,4 +43,5 @@ def constants(request):
         "DATA_SOURCE_TYPES": json.dumps(DataSource.DATA_SOURCE_TYPES),
         "JHE_SETTING_VALUE_TYPES": json.dumps(JheSetting.JHE_SETTING_VALUE_TYPES),
         "ROLE_PERMISSIONS": json.dumps(ROLE_PERMISSIONS),
+        "FHIR_RESOURCES": json.dumps(supported_resource_types()),
     }

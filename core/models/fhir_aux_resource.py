@@ -1,11 +1,9 @@
 import uuid
 
 from django.db import models
-from django.shortcuts import get_object_or_404
 
 from core.fhir.config import aux_resource_types
-
-from .practitioner import Practitioner
+from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
 
 
 class FhirAuxResource(models.Model):
@@ -20,9 +18,9 @@ class FhirAuxResource(models.Model):
     The primary key (and therefore the FHIR-facing ``id``) is a UUID, keeping it disjoint
     from the integer pks of the mapped models so a request can be routed by id shape. Every row
     is linked to a ``fhir_source`` (required) -- the patient-registered upstream source it was
-    uploaded through, identified by the ``X-JHE-FHIR-Source-ID`` header -- and to that source's
-    ``patient``. ``fhir_resource_id`` and ``patient_fhir_id`` are best-effort copies of the
-    resource's own ``id`` and its referenced Patient id (both may be null).
+    uploaded through, identified by the ``X-JHE-FHIR-Source-ID`` header -- which in turn carries
+    the owning ``patient``. ``fhir_resource_id`` and ``patient_fhir_id`` are best-effort copies of
+    the resource's own ``id`` and its referenced Patient id (both may be null).
     """
 
     # Not passed to the field — keeps choices out of migration state so adding/removing
@@ -30,7 +28,6 @@ class FhirAuxResource(models.Model):
     RESOURCE_TYPE_CHOICES = [(name, name) for name in sorted(aux_resource_types())]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    patient = models.ForeignKey("Patient", on_delete=models.CASCADE)
     fhir_source = models.ForeignKey("FhirSource", on_delete=models.CASCADE, related_name="aux_resources")
     resource_type = models.CharField()
     patient_fhir_id = models.CharField(null=True, blank=True)
@@ -40,7 +37,7 @@ class FhirAuxResource(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=["resource_type", "patient"]),
+            models.Index(fields=["resource_type", "fhir_source"]),
         ]
 
     def __str__(self):
@@ -49,18 +46,50 @@ class FhirAuxResource(models.Model):
     @staticmethod
     def for_patient(patient, resource_type):
         # Auxiliary resources for a single patient (the resolved FhirSource patient).
-        return FhirAuxResource.objects.filter(resource_type=resource_type, patient=patient).order_by("-last_updated")
+        return FhirAuxResource.objects.filter(resource_type=resource_type, fhir_source__patient=patient).order_by(
+            "-last_updated"
+        )
 
     @staticmethod
-    def fhir_search(jhe_user_id, resource_type):
-        # The auxiliary resources a practitioner may see when no source is named: those for any
-        # patient who shares an organization with the practitioner. Used by header-less reads.
-        practitioner = get_object_or_404(Practitioner, jhe_user_id=jhe_user_id)
-        return (
-            FhirAuxResource.objects.filter(
-                resource_type=resource_type,
-                patient__organizations__practitioners=practitioner,
+    def fhir_search(
+        jhe_user_id,
+        resource_type,
+        resource_id=None,
+        organization_id=None,
+        study_id=None,
+        patient_id=None,
+        **params,
+    ):
+        # Return the auxiliary resources of `resource_type` visible to the user, as a queryset of
+        # FhirAuxResource rows. Each row reaches its owning patient through its FhirSource
+        # (FhirAuxResource -> FhirSource -> Patient), so every filter is expressed against
+        # `fhir_source__patient`. This mirrors the mapped models' normalized fhir_search: a
+        # patient user sees only their own rows (the organization/study/patient filters are
+        # ignored); a practitioner sees rows whose patient shares one of their organizations --
+        # narrowed to an organization, to a study (its enrolled patients), or to a single patient
+        # (each authorized up front, 403 on mismatch). resource_id selects a single row by its
+        # UUID. distinct() collapses the duplicate rows produced by spanning the patient's
+        # organization/study many-to-many relationships. **params is reserved for additional FHIR
+        # search predicates.
+        user = resolve_fhir_user(jhe_user_id)
+        if user.is_patient():
+            qs = FhirAuxResource.objects.filter(
+                resource_type=resource_type, fhir_source__patient__jhe_user_id=jhe_user_id
             )
-            .distinct()
-            .order_by("-last_updated")
-        )
+        else:
+            authorize_practitioner_scope(jhe_user_id, organization_id, study_id, patient_id)
+            qs = FhirAuxResource.objects.filter(
+                resource_type=resource_type,
+                fhir_source__patient__organizations__practitioners__jhe_user_id=jhe_user_id,
+            )
+            if organization_id:
+                qs = qs.filter(fhir_source__patient__organizations__id=organization_id)
+            if study_id:
+                qs = qs.filter(fhir_source__patient__studypatient__study_id=study_id)
+            if patient_id:
+                qs = qs.filter(fhir_source__patient_id=patient_id)
+
+        if resource_id:
+            qs = qs.filter(id=resource_id)
+
+        return qs.distinct().order_by("-last_updated")

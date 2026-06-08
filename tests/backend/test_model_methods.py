@@ -449,7 +449,7 @@ class PatientFhirSearchTests(TestCase):
         PatientOrganization.objects.create(patient=self.patient, organization=self.org)
         PatientIdentifier.objects.create(patient=self.patient, system="http://tcp.org", value="PAT001")
 
-        # fhir_search only returns patients enrolled in some study
+        # Enrolled in a study (used by the study-filter test below).
         self.study = Study.objects.create(name="Test Study", description="", organization=self.org)
         StudyPatient.objects.create(study=self.study, patient=self.patient)
 
@@ -483,8 +483,9 @@ class PatientFhirSearchTests(TestCase):
         results = list(Patient.fhir_search(self.practitioner_user.id, patient_identifier_value="NOMATCH"))
         self.assertEqual(results, [])
 
-    def test_fhir_search_excludes_unenrolled_patient(self):
-        # A patient in the same org but not in any study must not appear
+    def test_fhir_search_includes_unenrolled_org_patient(self):
+        # A practitioner sees every patient sharing one of their organizations, whether or not
+        # the patient is enrolled in a study -- organization membership is the access boundary.
         unenrolled_user = JheUser.objects.create_user(email="bob@example.com", password="password")
         unenrolled = Patient.objects.create(
             jhe_user=unenrolled_user,
@@ -497,7 +498,7 @@ class PatientFhirSearchTests(TestCase):
 
         results = list(Patient.fhir_search(self.practitioner_user.id))
         result_ids = [r.id for r in results]
-        self.assertNotIn(unenrolled.id, result_ids)
+        self.assertIn(unenrolled.id, result_ids)
 
     def test_fhir_search_excludes_unauthorized_practitioner(self):
         other_user = JheUser.objects.create_user(
@@ -653,7 +654,7 @@ class ObservationFhirSearchTests(TestCase):
             status="final",
             omh_data=generate_observation_value_attachment_data(self.bp_code.coding_code),
         )
-        results = list(Observation.fhir_search(self.practitioner_user.id, observation_id=self.observation.id))
+        results = list(Observation.fhir_search(self.practitioner_user.id, resource_id=self.observation.id))
         result_ids = [o.id for o in results]
         self.assertIn(self.observation.id, result_ids)
         self.assertNotIn(other.id, result_ids)

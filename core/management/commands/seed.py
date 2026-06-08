@@ -16,6 +16,8 @@ from core.models import (
     CodeableConcept,
     DataSource,
     DataSourceSupportedScope,
+    FhirAuxResource,
+    FhirSource,
     JheSetting,
     JheUser,
     Observation,
@@ -106,6 +108,7 @@ class Command(BaseCommand):
                 "core_observation_id_seq",
                 "core_datasource_id_seq",
                 "core_practitioner_id_seq",
+                "core_fhirsource_id_seq",
             ]
 
             for seq in seqs:
@@ -252,12 +255,15 @@ class Command(BaseCommand):
             name="Lifespan Study on BP", description="Blood Pressure", organization=lifespan_lab
         )
 
-        bp_code = CodeableConcept.objects.get(coding_code="omh:blood-pressure:4.0")
-        hr_code = CodeableConcept.objects.get(coding_code="omh:heart-rate:2.0")
+        code_omh_bp = CodeableConcept.objects.get(coding_code="omh:blood-pressure:4.0")
+        code_omh_hr = CodeableConcept.objects.get(coding_code="omh:heart-rate:2.0")
+        code_fhir_qr = CodeableConcept.objects.get(coding_code="QuestionnaireResponse")
 
-        StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=bp_code)
-        StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=hr_code)
-        StudyScopeRequest.objects.create(study=lifespan_study_bp, scope_code=bp_code)
+        StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_omh_bp)
+        StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_omh_hr)
+        StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_fhir_qr)
+        StudyScopeRequest.objects.create(study=lifespan_study_bp, scope_code=code_omh_bp)
+        StudyScopeRequest.objects.create(study=lifespan_study_bp, scope_code=code_fhir_qr)
 
         carex_ds = DataSource.objects.get(name="CareX")
         questionnaire_ds = DataSource.objects.get(name="Questionnaire")
@@ -285,20 +291,26 @@ class Command(BaseCommand):
         now = timezone.now()
         StudyPatientScopeConsent.objects.create(
             study_patient=sp_peter_bp_hr,
-            scope_code=bp_code,
+            scope_code=code_omh_bp,
             consented=True,
             consented_time=now,
         )
         StudyPatientScopeConsent.objects.create(
             study_patient=sp_peter_bp_hr,
-            scope_code=hr_code,
+            scope_code=code_omh_hr,
+            consented=True,
+            consented_time=now,
+        )
+        StudyPatientScopeConsent.objects.create(
+            study_patient=sp_peter_bp_hr,
+            scope_code=code_fhir_qr,
             consented=True,
             consented_time=now,
         )
 
         for sp, codes in [
-            (sp_pamela_bp_hr, [bp_code, hr_code]),
-            (sp_pamela_bp, [bp_code]),
+            (sp_pamela_bp_hr, [code_omh_bp, code_omh_hr, code_fhir_qr]),
+            (sp_pamela_bp, [code_omh_bp, code_fhir_qr]),
         ]:
             for code in codes:
                 StudyPatientScopeConsent.objects.create(
@@ -311,13 +323,65 @@ class Command(BaseCommand):
         planetary_research_institute_study_patients = [sp_peter_bp_hr, sp_peter_bp, sp_pamela_bp_hr, sp_pamela_bp]
         for consent in StudyPatientScopeConsent.objects.filter(
             consented=True, study_patient__in=planetary_research_institute_study_patients
-        ):
+        ).exclude(scope_code__coding_system="http://hl7.org/fhir/"):
             scope_code = consent.scope_code
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
                 omh_data=generate_observation_value_attachment_data(consent.scope_code.coding_code),
             )
+
+        peter_fhir_source = FhirSource.objects.create(
+            patient=ll_patient_pete,
+            data_source=questionnaire_ds,
+            label="Records from Halo Health System",
+            fhir_base_url="https://fhir.halo.org/api/FHIR/R4",
+        )
+        pamela_fhir_source = FhirSource.objects.create(
+            patient=ll_patient_pamela,
+            data_source=questionnaire_ds,
+            label="Chart from Comet Clinic",
+            fhir_base_url="https://fhir.comet.org/api/FHIR/R4",
+        )
+
+        peter_patient_fhir_id = "a1b2c3d4e5f6"
+        pamela_patient_fhir_id = "b2c3d4e5f6a1"
+
+        peter_qr_resources = [
+            ("c3d4e5f6a1b2", "2025-10-01", 42, 18, 65),
+            ("d4e5f6a1b2c3", "2025-10-08", 55, 30, 72),
+            ("e5f6a1b2c3d4", "2025-10-15", 38, 22, 48),
+        ]
+        pamela_qr_resources = [
+            ("f6a1b2c3d4e5", "2025-10-03", 60, 45, 80),
+            ("a2b3c4d5e6f7", "2025-10-10", 50, 35, 70),
+            ("b3c4d5e6f7a2", "2025-10-17", 25, 10, 40),
+            ("c4d5e6f7a2b3", "2025-10-24", 70, 55, 90),
+        ]
+
+        for fhir_source, patient_fhir_id, resources in [
+            (peter_fhir_source, peter_patient_fhir_id, peter_qr_resources),
+            (pamela_fhir_source, pamela_patient_fhir_id, pamela_qr_resources),
+        ]:
+            for fhir_resource_id, authored, cough, dyspnea, fatigue in resources:
+                FhirAuxResource.objects.create(
+                    fhir_source=fhir_source,
+                    resource_type="QuestionnaireResponse",
+                    patient_fhir_id=patient_fhir_id,
+                    fhir_resource_id=fhir_resource_id,
+                    fhir_data={
+                        "resourceType": "QuestionnaireResponse",
+                        "status": "completed",
+                        "questionnaire": "Questionnaire/weekly-symptom-severity-vas",
+                        "subject": {"reference": f"Patient/{patient_fhir_id}"},
+                        "authored": authored,
+                        "item": [
+                            {"linkId": "cough-severity", "answer": [{"valueInteger": cough}]},
+                            {"linkId": "dyspnea-severity", "answer": [{"valueInteger": dyspnea}]},
+                            {"linkId": "fatigue-severity", "answer": [{"valueInteger": fatigue}]},
+                        ],
+                    },
+                )
 
         for practitioner in [manager_mary, member_megan, viewer_victor]:
             practitioner.save_setting("current_organization_id", lifespan_lab.id)
@@ -355,9 +419,9 @@ class Command(BaseCommand):
             practitioner=three_org_tom, organization=cosmic_cardio_lab, role="manager"
         )
 
-        bg_code = CodeableConcept.objects.get(coding_code="omh:blood-glucose:4.0")
-        bt_code = CodeableConcept.objects.get(coding_code="omh:body-temperature:4.0")
-        o2_code = CodeableConcept.objects.get(coding_code="omh:oxygen-saturation:2.0")
+        code_omh_bg = CodeableConcept.objects.get(coding_code="omh:blood-glucose:4.0")
+        code_omh_bt = CodeableConcept.objects.get(coding_code="omh:body-temperature:4.0")
+        code_omh_o2 = CodeableConcept.objects.get(coding_code="omh:oxygen-saturation:2.0")
 
         cardio_bgl = Study.objects.create(
             name="Cardiology Div Study on BGL",
@@ -375,9 +439,9 @@ class Command(BaseCommand):
             organization=cosmic_cardio_lab,
         )
 
-        StudyScopeRequest.objects.create(study=cardio_bgl, scope_code=bg_code)
-        StudyScopeRequest.objects.create(study=neptunian_pulse_lab_bt, scope_code=bt_code)
-        StudyScopeRequest.objects.create(study=cosmic_cardio_lab_o2, scope_code=o2_code)
+        StudyScopeRequest.objects.create(study=cardio_bgl, scope_code=code_omh_bg)
+        StudyScopeRequest.objects.create(study=neptunian_pulse_lab_bt, scope_code=code_omh_bt)
+        StudyScopeRequest.objects.create(study=cosmic_cardio_lab_o2, scope_code=code_omh_o2)
 
         commonhealth_client = get_application_model().objects.get(name="CommonHealth")
         StudyDataSource.objects.create(study=neptunian_pulse_lab_bt, data_source=DataSource.objects.get(name="iHealth"))
@@ -411,31 +475,33 @@ class Command(BaseCommand):
 
         StudyPatientScopeConsent.objects.create(
             study_patient=sp_percy_bt,
-            scope_code=bt_code,
+            scope_code=code_omh_bt,
             consented=True,
             consented_time=now,
         )
         StudyPatientScopeConsent.objects.create(
             study_patient=sp_paul_o2,
-            scope_code=o2_code,
+            scope_code=code_omh_o2,
             consented=True,
             consented_time=now,
         )
         StudyPatientScopeConsent.objects.create(
             study_patient=sp_pat_bg,
-            scope_code=bg_code,
+            scope_code=code_omh_bg,
             consented=True,
             consented_time=now,
         )
         StudyPatientScopeConsent.objects.create(
             study_patient=sp_pat_o2,
-            scope_code=o2_code,
+            scope_code=code_omh_o2,
             consented=True,
             consented_time=now,
         )
 
         med_study_patients = [sp_percy_bt, sp_paul_o2, sp_pat_bg, sp_pat_o2]
-        for consent in StudyPatientScopeConsent.objects.filter(consented=True, study_patient__in=med_study_patients):
+        for consent in StudyPatientScopeConsent.objects.filter(
+            consented=True, study_patient__in=med_study_patients
+        ).exclude(scope_code__coding_system="http://hl7.org/fhir/"):
             scope_code = consent.scope_code
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,

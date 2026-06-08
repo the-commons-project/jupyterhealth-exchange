@@ -119,8 +119,9 @@ def test_create_validation(api_client, organization):
     assert r.status_code == 400
 
 
-@pytest.mark.xfail(reason="not permitted to list patients in fhir without study")
 def test_fhir_list_patients(api_client, organization, hr_study):
+    # A practitioner may now list every patient in their organizations without a study filter
+    # (organization membership is the access boundary).
     n = 25
     per_page = 10
     existing = Patient.objects.all().count()
@@ -139,7 +140,7 @@ def test_fhir_list_patients_by_study(api_client, organization, hr_study):
     patients = fetch_paginated(
         api_client,
         "/FHIR/R5/Patient",
-        {"_count": per_page, "_has:Group:member:_id": hr_study.id},
+        {"_count": per_page, "patient._has:Group:member:_id": hr_study.id},
     )
     assert len(patients) == n
 
@@ -151,7 +152,7 @@ def test_patient_pagination(api_client, organization):
     for patient in add_patients(n, organization=organization):
         add_patient_to_study(patient, study)
 
-    params = {"_has:Group:member:_id": study.id, "_count": per_page}
+    params = {"patient._has:Group:member:_id": study.id, "_count": per_page}
     with CaptureQueriesContext(connection) as ctx:
         r = api_client.get("/FHIR/R5/Patient", params)
     assert r.status_code == 200, r.text

@@ -104,8 +104,8 @@ class FHIRBase(viewsets.GenericViewSet):
         if criteria is None or matches_criteria(camelized, criteria):
             return Observation.fhir_create(resource, user)
 
-        patient, fhir_source = resolve_fhir_source_context(request, user)
-        return create_aux_resource("Observation", camelized, patient, fhir_source)
+        _, fhir_source = resolve_fhir_source_context(request, user)
+        return create_aux_resource("Observation", camelized, fhir_source)
 
     @staticmethod
     def error_outcome(message):
