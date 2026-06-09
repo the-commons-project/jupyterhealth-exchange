@@ -21,3 +21,21 @@ def test_cgm_value_rises_after_a_meal():
     pre = sum(gen.cgm_value(pre_meal, 0.4, random.Random(i)) for i in range(50)) / 50
     post = sum(gen.cgm_value(post_meal, 0.4, random.Random(i)) for i in range(50)) / 50
     assert post > pre + 15
+
+
+from datetime import date
+
+
+def test_risk_score_increases_with_age():
+    assert gen.risk_score(30) <= gen.risk_score(60) <= gen.risk_score(90)
+    assert 0.0 <= gen.risk_score(95) <= 0.85
+
+
+def test_generate_wearable_day_returns_all_eight_typed_records():
+    rng = random.Random("p1")
+    records = gen.generate_wearable_day(date(2026, 6, 1), 0, age=55, risk=0.3, rng=rng)
+    expected_codes = {code for code, _system, _label in gen.WEARABLE_SCOPES}
+    assert set(records.keys()) == expected_codes
+    for code, rec in records.items():
+        assert "header" in rec and "body" in rec
+        assert rec["header"]["acquisition_provenance"]["source_name"] == gen.WEARABLE_SOURCE_NAME
