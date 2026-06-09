@@ -39,3 +39,49 @@ def test_generate_wearable_day_returns_all_eight_typed_records():
     for code, rec in records.items():
         assert "header" in rec and "body" in rec
         assert rec["header"]["acquisition_provenance"]["source_name"] == gen.WEARABLE_SOURCE_NAME
+
+
+import pytest
+from django.core.management import call_command
+from django.utils import timezone as dj_timezone
+
+from core.models import CodeableConcept, Observation, Patient, Study
+
+
+@pytest.fixture
+def planetary_org(db):
+    from core.models import Organization
+
+    return Organization.objects.create(name="Planetary Research Institute", type="edu")
+
+
+@pytest.mark.django_db
+def test_seed_rich_demo_builds_full_cohort(planetary_org, monkeypatch):
+    # Shrink the generated window so the test stays fast (still exercises all
+    # record types + anchoring). The command reads these as module globals.
+    monkeypatch.setattr(gen, "CGM_WINDOW_DAYS", 1)
+    monkeypatch.setattr(gen, "WEARABLE_MIN_DAYS", 2)
+    monkeypatch.setattr(gen, "WEARABLE_MAX_DAYS", 2)
+
+    call_command("seed_rich_demo")
+
+    study = Study.objects.get(name=gen.STUDY_NAME)
+    patients = Patient.objects.filter(studypatient__study=study).distinct()
+    assert patients.count() == len(gen.MOCK_PATIENTS)
+
+    cgm = CodeableConcept.objects.get(coding_code=gen.CGM_CODE)
+    assert Observation.objects.filter(codeable_concept=cgm).count() > 0
+
+    # All 8 wearable types present.
+    for code, _system, _label in gen.WEARABLE_SCOPES:
+        cc = CodeableConcept.objects.get(coding_code=code)
+        assert Observation.objects.filter(codeable_concept=cc).exists(), code
+
+    # Data is anchored to today: the latest CGM reading is on the run date (UTC).
+    latest = (
+        Observation.objects.filter(codeable_concept=cgm)
+        .order_by("-omh_data__header__source_creation_date_time")
+        .first()
+    )
+    latest_date = latest.omh_data["header"]["source_creation_date_time"][:10]
+    assert latest_date == dj_timezone.now().date().isoformat()

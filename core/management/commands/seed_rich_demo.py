@@ -10,8 +10,28 @@ Wearable simulation math references JP's student's generator
 """
 
 import math
+import random
 import uuid
 from datetime import UTC, datetime, time, timedelta
+
+from django.core.management.base import BaseCommand
+from django.db import transaction
+from django.utils import timezone as dj_timezone
+from django.utils.crypto import get_random_string
+
+from core.models import (
+    CodeableConcept,
+    DataSource,
+    JheUser,
+    Observation,
+    Organization,
+    PatientIdentifier,
+    Study,
+    StudyDataSource,
+    StudyPatient,
+    StudyPatientScopeConsent,
+    StudyScopeRequest,
+)
 
 STUDY_NAME = "CGM & Wearables Demo"
 ORG_NAME_FRAGMENT = "Planetary Research Institute"
@@ -391,3 +411,123 @@ def cgm_body(dt, value):
             "effective_time_frame": {"date_time": _iso(dt)},
         },
     }
+
+
+class Command(BaseCommand):
+    help = "Generate a synthetic demo cohort (CGM + Oura wearables) dated up to today."
+
+    def handle(self, *args, **options):
+        organization = Organization.objects.filter(name__icontains=ORG_NAME_FRAGMENT).first()
+        if not organization:
+            self.stderr.write(
+                self.style.ERROR(f"Missing Organization containing '{ORG_NAME_FRAGMENT}' — run `seed` first.")
+            )
+            return
+
+        cgm_source, _ = DataSource.objects.get_or_create(name=CGM_DATA_SOURCE, defaults={"type": "personal_device"})
+        wearable_source, _ = DataSource.objects.get_or_create(
+            name=WEARABLE_DATA_SOURCE, defaults={"type": "personal_device"}
+        )
+
+        cgm_cc, _ = CodeableConcept.objects.get_or_create(
+            coding_code=CGM_CODE, defaults={"coding_system": OMH, "text": "Blood glucose"}
+        )
+        wearable_cc = {}
+        for code, system, label in WEARABLE_SCOPES:
+            cc, _ = CodeableConcept.objects.get_or_create(
+                coding_code=code, defaults={"coding_system": system, "text": label}
+            )
+            wearable_cc[code] = cc
+
+        study, _ = Study.objects.get_or_create(
+            organization=organization,
+            name=STUDY_NAME,
+            defaults={"description": "Synthetic CGM + Oura wearable demo data.", "icon_url": None},
+        )
+
+        StudyDataSource.objects.get_or_create(study=study, data_source=cgm_source)
+        StudyDataSource.objects.get_or_create(study=study, data_source=wearable_source)
+        StudyScopeRequest.objects.get_or_create(study=study, scope_code=cgm_cc, defaults={"scope_actions": "rs"})
+        for code in wearable_cc:
+            StudyScopeRequest.objects.get_or_create(
+                study=study, scope_code=wearable_cc[code], defaults={"scope_actions": "rs"}
+            )
+
+        now = dj_timezone.now()
+        today = dj_timezone.localdate()
+        total_cgm = 0
+        total_wearable = 0
+
+        with transaction.atomic():
+            for mp in MOCK_PATIENTS:
+                rng = random.Random(f"{SEED}:{mp['email']}")
+                birth = datetime.strptime(mp["birth_date"], "%Y-%m-%d").date()
+                age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+                risk = risk_score(age)
+
+                user = JheUser.objects.create_user(
+                    email=mp["email"],
+                    password=get_random_string(16),
+                    first_name=mp["name_given"],
+                    last_name=mp["name_family"],
+                    user_type="patient",
+                    identifier=mp["email"],
+                )
+                patient = user.patient_profile
+                patient.birth_date = mp["birth_date"]
+                patient.telecom_phone = mp["telecom_phone"]
+                patient.save()
+                patient.organizations.add(organization)
+                PatientIdentifier.objects.get_or_create(patient=patient, system="demo", value=mp["email"])
+                study_patient, _ = StudyPatient.objects.get_or_create(study=study, patient=patient)
+
+                consent_time = now - timedelta(days=WEARABLE_MAX_DAYS + 3)
+                for cc in [cgm_cc, *wearable_cc.values()]:
+                    StudyPatientScopeConsent.objects.update_or_create(
+                        study_patient=study_patient,
+                        scope_code=cc,
+                        defaults={"consented": True, "consented_time": consent_time, "scope_actions": "rs"},
+                    )
+
+                to_create = []
+
+                cgm_start = now - timedelta(days=CGM_WINDOW_DAYS)
+                steps = (CGM_WINDOW_DAYS * 24 * 60) // CGM_INTERVAL_MINUTES
+                for i in range(steps + 1):
+                    dt = cgm_start + timedelta(minutes=i * CGM_INTERVAL_MINUTES)
+                    to_create.append(
+                        Observation(
+                            subject_patient=patient,
+                            codeable_concept=cgm_cc,
+                            data_source=cgm_source,
+                            status="final",
+                            omh_data=cgm_body(dt, cgm_value(dt, risk, rng)),
+                        )
+                    )
+                total_cgm += steps + 1
+
+                wearable_days = rng.randint(WEARABLE_MIN_DAYS, WEARABLE_MAX_DAYS)
+                start_day = today - timedelta(days=wearable_days - 1)
+                for offset in range(wearable_days):
+                    day = start_day + timedelta(days=offset)
+                    records = generate_wearable_day(day, offset, age, risk, rng)
+                    for code, _system, _label in WEARABLE_SCOPES:
+                        to_create.append(
+                            Observation(
+                                subject_patient=patient,
+                                codeable_concept=wearable_cc[code],
+                                data_source=wearable_source,
+                                status="final",
+                                omh_data=records[code],
+                            )
+                        )
+                total_wearable += wearable_days * len(WEARABLE_SCOPES)
+
+                Observation.objects.bulk_create(to_create, batch_size=2000)
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Rich demo seeded: {len(MOCK_PATIENTS)} patients, "
+                f"{total_cgm} CGM + {total_wearable} wearable observations."
+            )
+        )
