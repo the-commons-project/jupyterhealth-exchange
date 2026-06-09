@@ -78,7 +78,7 @@
     <thead>
       <tr>
         <th scope="col">ID</th>
-        <th scope="col">Patient ID</th>
+        <th scope="col">Patient</th>
         <th scope="col">Data</th>
       </tr>
     </thead>
@@ -86,7 +86,7 @@
       {{#fhir}}
         <tr>
           <td>{{id}}</td>
-          <td>{{patientId}}</td>
+          <td>{{patientName}}</td>
           <td><pre>{{fhirData}}</pre></td>
         </tr>
       {{/fhir}}

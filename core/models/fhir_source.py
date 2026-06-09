@@ -12,8 +12,8 @@ class FhirSource(models.Model):
 
     patient = models.ForeignKey("Patient", on_delete=models.CASCADE, related_name="fhir_sources")
     data_source = models.ForeignKey("DataSource", on_delete=models.CASCADE, related_name="fhir_sources")
-    label = models.CharField()
-    fhir_base_url = models.CharField()
+    label = models.CharField(blank=True, default="")
+    fhir_base_url = models.CharField(blank=True, default="")
     last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):

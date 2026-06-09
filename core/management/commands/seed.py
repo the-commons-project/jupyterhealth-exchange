@@ -30,6 +30,7 @@ from core.models import (
     StudyPatient,
     StudyPatientScopeConsent,
     StudyScopeRequest,
+    apply_jhe_extensions,
 )
 from core.utils import generate_observation_value_attachment_data
 
@@ -364,12 +365,8 @@ class Command(BaseCommand):
             (pamela_fhir_source, pamela_patient_fhir_id, pamela_qr_resources),
         ]:
             for fhir_resource_id, authored, cough, dyspnea, fatigue in resources:
-                FhirAuxResource.objects.create(
-                    fhir_source=fhir_source,
-                    resource_type="QuestionnaireResponse",
-                    patient_fhir_id=patient_fhir_id,
-                    fhir_resource_id=fhir_resource_id,
-                    fhir_data={
+                fhir_data = apply_jhe_extensions(
+                    {
                         "resourceType": "QuestionnaireResponse",
                         "status": "completed",
                         "questionnaire": "Questionnaire/weekly-symptom-severity-vas",
@@ -381,6 +378,14 @@ class Command(BaseCommand):
                             {"linkId": "fatigue-severity", "answer": [{"valueInteger": fatigue}]},
                         ],
                     },
+                    fhir_source,
+                )
+                FhirAuxResource.objects.create(
+                    fhir_source=fhir_source,
+                    resource_type="QuestionnaireResponse",
+                    patient_fhir_id=patient_fhir_id,
+                    fhir_resource_id=fhir_resource_id,
+                    fhir_data=fhir_data,
                 )
 
         for practitioner in [manager_mary, member_megan, viewer_victor]:

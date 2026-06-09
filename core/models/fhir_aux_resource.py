@@ -5,6 +5,34 @@ from django.db import models
 from core.fhir.config import aux_resource_types
 from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
 
+JHE_EXTENSION_BASE = "https://jupyterhealth.org/fhir/StructureDefinition"
+JHE_AUX_EXTENSION_URLS = (
+    f"{JHE_EXTENSION_BASE}/fhir-source-id",
+    f"{JHE_EXTENSION_BASE}/patient-id",
+    f"{JHE_EXTENSION_BASE}/patient-full-name",
+)
+
+
+def apply_jhe_extensions(body, fhir_source):
+    """Stamp ``body`` with the JHE provenance extensions for ``fhir_source``.
+
+    Every stored aux body carries the FhirSource pk, the owning patient's pk, and (when set) the
+    patient's full name, so a reader can attribute an opaque aux body to its source and patient
+    without a join. Any prior copies are dropped first so re-stamping (an update, or a backfill)
+    replaces current values rather than accumulating duplicates. Mutates and returns ``body``.
+    """
+    patient = fhir_source.patient
+    full_name = " ".join(part for part in (patient.name_given, patient.name_family) if part)
+    others = [ext for ext in (body.get("extension") or []) if ext.get("url") not in JHE_AUX_EXTENSION_URLS]
+    extensions = [
+        {"url": f"{JHE_EXTENSION_BASE}/fhir-source-id", "valueInteger": fhir_source.pk},
+        {"url": f"{JHE_EXTENSION_BASE}/patient-id", "valueInteger": patient.pk},
+    ]
+    if full_name:
+        extensions.append({"url": f"{JHE_EXTENSION_BASE}/patient-full-name", "valueString": full_name})
+    body["extension"] = others + extensions
+    return body
+
 
 class FhirAuxResource(models.Model):
     """An *auxiliary* FHIR resource stored as an opaque JSON blob.

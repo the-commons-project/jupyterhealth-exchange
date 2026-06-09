@@ -51,6 +51,7 @@ from core.models import (
     FhirSource,
     Observation,
     Patient,
+    apply_jhe_extensions,
 )
 from core.serializers import FHIRAuxResourceSerializer, FHIRObservationSerializer
 from core.views.fhir_base import FHIRBase
@@ -301,7 +302,7 @@ def _derive_patient_fhir_id(resource_type, body):
 
 
 def _persist_aux(instance, resource_type, body, fhir_source):
-    body = _aux_body(body)
+    body = apply_jhe_extensions(_aux_body(body), fhir_source)
     instance.resource_type = resource_type
     instance.fhir_source = fhir_source
     instance.patient_fhir_id = _derive_patient_fhir_id(resource_type, body)
