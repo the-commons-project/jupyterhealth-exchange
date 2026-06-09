@@ -1,7 +1,12 @@
 import random
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+
+import pytest
+from django.core.management import call_command
+from django.utils import timezone as dj_timezone
 
 from core.management.commands import seed_rich_demo as gen
+from core.models import CodeableConcept, Observation, Organization, Patient, Study
 
 
 def test_cgm_value_stays_in_physiologic_range():
@@ -23,9 +28,6 @@ def test_cgm_value_rises_after_a_meal():
     assert post > pre + 15
 
 
-from datetime import date
-
-
 def test_risk_score_increases_with_age():
     assert gen.risk_score(30) <= gen.risk_score(60) <= gen.risk_score(90)
     assert 0.0 <= gen.risk_score(95) <= 0.85
@@ -41,17 +43,8 @@ def test_generate_wearable_day_returns_all_eight_typed_records():
         assert rec["header"]["acquisition_provenance"]["source_name"] == gen.WEARABLE_SOURCE_NAME
 
 
-import pytest
-from django.core.management import call_command
-from django.utils import timezone as dj_timezone
-
-from core.models import CodeableConcept, Observation, Patient, Study
-
-
 @pytest.fixture
 def planetary_org(db):
-    from core.models import Organization
-
     return Organization.objects.create(name="Planetary Research Institute", type="edu")
 
 
@@ -69,8 +62,10 @@ def test_seed_rich_demo_builds_full_cohort(planetary_org, monkeypatch):
     patients = Patient.objects.filter(studypatient__study=study).distinct()
     assert patients.count() == len(gen.MOCK_PATIENTS)
 
+    # Every patient contributes a full CGM window, not just "some" data.
     cgm = CodeableConcept.objects.get(coding_code=gen.CGM_CODE)
-    assert Observation.objects.filter(codeable_concept=cgm).count() > 0
+    expected_cgm = ((gen.CGM_WINDOW_DAYS * 24 * 60) // gen.CGM_INTERVAL_MINUTES + 1) * len(gen.MOCK_PATIENTS)
+    assert Observation.objects.filter(codeable_concept=cgm).count() == expected_cgm
 
     # All 8 wearable types present.
     for code, _system, _label in gen.WEARABLE_SCOPES:
