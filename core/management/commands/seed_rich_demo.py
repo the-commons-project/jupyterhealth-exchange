@@ -14,7 +14,7 @@ import random
 import uuid
 from datetime import UTC, datetime, time, timedelta
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone as dj_timezone
 from django.utils.crypto import get_random_string
@@ -42,7 +42,7 @@ WEARABLE_SOURCE_NAME = "demo-synthea-omh-ieee-generator"  # credit: dicristea/ou
 SEED = 4242
 
 CGM_CODE = "omh:blood-glucose:4.0"
-CGM_INTERVAL_MINUTES = 5
+CGM_INTERVAL_MINUTES = 15
 CGM_WINDOW_DAYS = 14  # recent dense CGM window (a realistic wear period)
 WEARABLE_MIN_DAYS = 60  # per-patient wearable history is varied in this range...
 WEARABLE_MAX_DAYS = 180  # ...so the cohort has a realistic spread, all ending today
@@ -440,6 +440,13 @@ class Command(BaseCommand):
             )
             return
 
+        demo_emails = [mp["email"] for mp in MOCK_PATIENTS]
+        if JheUser.objects.filter(email__in=demo_emails).exists():
+            raise CommandError(
+                "Rich demo data already present. Re-run a clean rebuild with "
+                "`python manage.py seed --flush-db --with-rich-demo`."
+            )
+
         cgm_source, _ = DataSource.objects.get_or_create(name=CGM_DATA_SOURCE, defaults={"type": "personal_device"})
         wearable_source, _ = DataSource.objects.get_or_create(
             name=WEARABLE_DATA_SOURCE, defaults={"type": "personal_device"}
@@ -474,8 +481,8 @@ class Command(BaseCommand):
         total_cgm = 0
         total_wearable = 0
 
-        with transaction.atomic():
-            for mp in MOCK_PATIENTS:
+        for mp in MOCK_PATIENTS:
+            with transaction.atomic():
                 rng = random.Random(f"{SEED}:{mp['email']}")
                 birth = datetime.strptime(mp["birth_date"], "%Y-%m-%d").date()
                 age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))

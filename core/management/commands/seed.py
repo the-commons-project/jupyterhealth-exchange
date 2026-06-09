@@ -155,6 +155,11 @@ class Command(BaseCommand):
             ("https://w3id.org/openmhealth", "omh:rr-interval:1.0", "RR Interval"),
             ("https://w3id.org/openmhealth", "omh:body-weight:3.0", "Body weight"),
             ("http://hl7.org/fhir/", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
+            ("https://w3id.org/openmhealth", "omh:physical-activity:1.2", "Physical activity"),
+            ("https://w3id.org/openmhealth", "omh:step-count:3.0", "Step count"),
+            ("https://w3id.org/ieee1752", "ieee:sleep-stage-summary:1.0", "Sleep stage summary"),
+            ("https://w3id.org/openmhealth", "omh:sleep-episode:1.1", "Sleep episode"),
+            ("https://w3id.org/openmhealth", "omh:sleep-duration:2.0", "Sleep duration"),
         ]
         # bulk create thing
         for system, code, text in codes:

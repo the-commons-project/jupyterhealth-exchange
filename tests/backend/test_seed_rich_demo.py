@@ -110,6 +110,35 @@ def test_seed_rich_demo_builds_full_cohort(planetary_org, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_seed_rich_demo_is_guarded_against_double_run(planetary_org, monkeypatch):
+    import pytest as _pytest
+    from django.core.management.base import CommandError
+
+    monkeypatch.setattr(gen, "CGM_WINDOW_DAYS", 1)
+    monkeypatch.setattr(gen, "WEARABLE_MIN_DAYS", 1)
+    monkeypatch.setattr(gen, "WEARABLE_MAX_DAYS", 1)
+    call_command("seed_rich_demo")  # first run seeds
+    with _pytest.raises(CommandError):
+        call_command("seed_rich_demo")  # second run must refuse
+
+
+@pytest.mark.django_db
+def test_base_seed_creates_wearable_concepts():
+    from core.management.commands.seed import Command as SeedCommand
+    from core.models import CodeableConcept
+
+    SeedCommand.seed_codeable_concepts()
+    for code in (
+        "omh:physical-activity:1.2",
+        "omh:step-count:3.0",
+        "ieee:sleep-stage-summary:1.0",
+        "omh:sleep-episode:1.1",
+        "omh:sleep-duration:2.0",
+    ):
+        assert CodeableConcept.objects.filter(coding_code=code).exists(), code
+
+
+@pytest.mark.django_db
 def test_with_rich_demo_flag_invokes_generator():
     with patch("core.management.commands.seed.call_command") as mock_call:
         SeedCommand().handle(flush_db=False, with_rich_demo=True)
