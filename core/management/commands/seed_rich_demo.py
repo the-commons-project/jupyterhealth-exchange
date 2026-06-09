@@ -9,6 +9,7 @@ Wearable simulation math references JP's student's generator
 (github.com/dicristea/oura-clinical-workbench, demo_data/omh_ieee_generator).
 """
 
+import math
 import uuid
 from datetime import UTC, datetime
 
@@ -219,4 +220,40 @@ def _wearable_header(coding_code):
             "modality": "sensed",
             "acquisition_provenance": {"source_name": WEARABLE_SOURCE_NAME},
         }
+    }
+
+
+# Minute-of-day for breakfast / lunch / dinner; CGM rises for ~3h after each.
+_MEAL_MINUTES = (7 * 60 + 30, 12 * 60 + 30, 18 * 60 + 30)
+
+
+def cgm_value(dt, risk, rng):
+    """Plausible (not clinical-grade) glucose: baseline + dawn rhythm + meal
+    excursions + noise, clamped to a physiologic range. Higher risk -> higher
+    baseline and bigger excursions."""
+    minutes = dt.hour * 60 + dt.minute
+    baseline = 100 + 40 * risk
+    diurnal = 8 * math.sin((minutes - 300) / 1440 * 2 * math.pi)
+    spike = 0.0
+    for meal in _MEAL_MINUTES:
+        dm = minutes - meal
+        if 0 <= dm <= 180:
+            spike += (45 + 60 * risk) * math.exp(-((dm - 45) ** 2) / (2 * 35**2))
+    value = baseline + diurnal + spike + rng.gauss(0, 6)
+    return max(40, min(300, int(round(value))))
+
+
+def cgm_body(dt, value):
+    return {
+        "header": {
+            "uuid": str(uuid.uuid4()),
+            "source_creation_date_time": _iso(dt),
+            "schema_id": {"namespace": "omh", "name": "blood-glucose", "version": "4.0"},
+            "modality": "sensed",
+            "acquisition_provenance": {"source_name": CGM_SOURCE_NAME},
+        },
+        "body": {
+            "blood_glucose": {"unit": "mg/dL", "value": value},
+            "effective_time_frame": {"date_time": _iso(dt)},
+        },
     }
