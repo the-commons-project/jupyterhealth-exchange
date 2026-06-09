@@ -50,16 +50,16 @@ WEARABLE_MAX_DAYS = 180  # ...so the cohort has a realistic spread, all ending t
 OMH = "https://w3id.org/openmhealth"
 IEEE = "https://w3id.org/ieee1752"
 
-# scope coding_code -> (coding_system, label). Order is the per-day record order.
+# (coding_code, coding_system, label) — order is the per-day record order.
 WEARABLE_SCOPES = [
-    ("ieee:physical-activity:1.0", IEEE, "Physical activity"),
-    ("ieee:sleep-episode:1.0", IEEE, "Sleep episode (IEEE)"),
-    ("ieee:time-in-bed:1.0", IEEE, "Time in bed"),
+    ("omh:physical-activity:1.2", OMH, "Physical activity"),
+    ("omh:step-count:3.0", OMH, "Step count"),
+    ("ieee:sleep-stage-summary:1.0", IEEE, "Sleep stage summary"),
+    ("omh:sleep-episode:1.1", OMH, "Sleep episode"),
+    ("omh:sleep-duration:2.0", OMH, "Sleep duration"),
     ("omh:heart-rate:2.0", OMH, "Heart Rate"),
     ("omh:respiratory-rate:2.0", OMH, "Respiratory rate"),
     ("omh:oxygen-saturation:2.0", OMH, "Oxygen saturation"),
-    ("omh:total-sleep-time:1.0", OMH, "Total sleep time"),
-    ("omh:sleep-episode:1.1", OMH, "Sleep episode"),
 ]
 
 MOCK_PATIENTS = [
@@ -221,21 +221,22 @@ def _dur(seconds):
 
 
 def _interval(start, end):
+    # Use start+end only (no duration) so the oneOf in time-interval-1.x.json is satisfied
+    # unambiguously — the schema's oneOf would fail if all three keys are present.
     return {
         "time_interval": {
             "start_date_time": _iso(start),
             "end_date_time": _iso(end),
-            "duration": _dur((end - start).total_seconds()),
         }
     }
 
 
-def _wearable_header(coding_code):
+def _wearable_header(coding_code, created):
     namespace, name, version = coding_code.split(":", 2)
     return {
         "header": {
             "uuid": str(uuid.uuid4()),
-            "source_creation_date_time": _iso(datetime.now(UTC)),
+            "source_creation_date_time": _iso(created),
             "schema_id": {"namespace": namespace, "name": name, "version": version},
             "modality": "sensed",
             "acquisition_provenance": {"source_name": WEARABLE_SOURCE_NAME},
@@ -303,9 +304,6 @@ def generate_wearable_day(day, day_index, age, risk, rng):
     steps = int(max(1500, 9000 - activity_drag + 700 * math.sin(day_index / 4) + rng.uniform(-1800, 1800)))
     distance_m = round(steps * rng.uniform(0.68, 0.80), 1)
     active_kcal = round(max(120.0, 260 + steps * 0.035 + rng.uniform(-60, 80)), 1)
-    light_act = int(max(20, 95 - 25 * risk + rng.uniform(-20, 20)) * 60)
-    mod_act = int(max(5, 35 - 15 * risk + rng.uniform(-10, 15)) * 60)
-    vig_act = int(max(0, 12 - 10 * risk + rng.uniform(-6, 8)) * 60)
 
     avg_hr = round(55 + 10 * risk + max(age - 50, 0) * 0.12 + rng.uniform(-4, 4), 1)
     resp_rate = round(13 + 2.5 * risk + rng.uniform(-1.0, 1.5), 1)
@@ -313,81 +311,99 @@ def generate_wearable_day(day, day_index, age, risk, rng):
 
     day_start = sleep_end.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start.replace(hour=23, minute=59, second=59)
-    sleep_iv = {"effective_time_frame": _interval(sleep_start, sleep_end)}
+
+    # Creation timestamp for this day's observations: morning of the observation day.
+    created = datetime.combine(day, time(8, 0, tzinfo=UTC))
 
     records = {}
 
-    pa = _wearable_header("ieee:physical-activity:1.0")
+    # omh:physical-activity:1.2 — required: activity_name
+    # Schema allows: activity_name, effective_time_frame, distance, kcal_burned,
+    #   reported_activity_intensity, met_value. No additionalProperties: false.
+    pa = _wearable_header("omh:physical-activity:1.2", created)
     pa["body"] = {
         "activity_name": "Total Daily Physical Activity",
         "effective_time_frame": _interval(day_start, day_end),
-        "base_movement_quantity": _uv(steps, "steps", 0),
         "distance": _uv(distance_m, "m"),
         "kcal_burned": _uv(active_kcal, "kcal"),
-        "duration": _dur(light_act + mod_act + vig_act),
-        "duration_light_activity": _dur(light_act),
-        "duration_moderate_activity": _dur(mod_act),
-        "duration_vigorous_activity": _dur(vig_act),
+        "reported_activity_intensity": "moderate",
+    }
+    records["omh:physical-activity:1.2"] = pa
+
+    # omh:step-count:3.0 — required: step_count, effective_time_frame
+    sc = _wearable_header("omh:step-count:3.0", created)
+    sc["body"] = {
+        "step_count": _uv(steps, "steps", 0),
+        "effective_time_frame": _interval(day_start, day_end),
         "descriptive_statistic": "sum",
         "descriptive_statistic_denominator": "d",
     }
-    records["ieee:physical-activity:1.0"] = pa
+    records["omh:step-count:3.0"] = sc
 
-    ieee_sleep = _wearable_header("ieee:sleep-episode:1.0")
-    ieee_sleep["body"] = {
-        "latency_to_sleep_onset": _dur(latency_sec),
-        "total_sleep_time": _dur(total_sleep_sec),
-        "light_sleep_duration": _dur(light_sec),
-        "deep_sleep_duration": _dur(deep_sec),
-        "rem_sleep_duration": _dur(rem_sec),
-        "wake_after_sleep_onset": _dur(wake_after_sec),
+    # ieee:sleep-stage-summary:1.0 — required: sleep_stage_summary (with total_sleep_time), effective_time_frame
+    sss = _wearable_header("ieee:sleep-stage-summary:1.0", created)
+    sss["body"] = {
+        "sleep_stage_summary": {
+            "total_sleep_time": _dur(total_sleep_sec),
+            "light_sleep_duration": _dur(light_sec),
+            "deep_sleep_duration": _dur(deep_sec),
+            "rem_sleep_duration": _dur(rem_sec),
+            "sleep_efficiency_percentage": _uv(efficiency, "%"),
+        },
+        "effective_time_frame": _interval(sleep_start, sleep_end),
         "is_main_sleep": True,
-        "sleep_efficiency_percentage": _uv(efficiency, "%"),
-        **sleep_iv,
     }
-    records["ieee:sleep-episode:1.0"] = ieee_sleep
+    records["ieee:sleep-stage-summary:1.0"] = sss
 
-    tib = _wearable_header("ieee:time-in-bed:1.0")
-    tib["body"] = {"time_in_bed": _dur(time_in_bed_sec), "is_main_sleep": True, **sleep_iv}
-    records["ieee:time-in-bed:1.0"] = tib
-
-    hr = _wearable_header("omh:heart-rate:2.0")
-    hr["body"] = {
-        "heart_rate": _uv(avg_hr, "beats/min"),
-        "descriptive_statistic": "average",
-        "temporal_relationship_to_sleep": "during",
-        **sleep_iv,
-    }
-    records["omh:heart-rate:2.0"] = hr
-
-    rr = _wearable_header("omh:respiratory-rate:2.0")
-    rr["body"] = {"respiratory_rate": _uv(resp_rate, "breaths/min"), "descriptive_statistic": "average", **sleep_iv}
-    records["omh:respiratory-rate:2.0"] = rr
-
-    o2 = _wearable_header("omh:oxygen-saturation:2.0")
-    o2["body"] = {
-        "oxygen_saturation": _uv(spo2, "%"),
-        "descriptive_statistic": "average",
-        "measurement_method": "pulse oximetry",
-        "system": "peripheral capillary",
-        **sleep_iv,
-    }
-    records["omh:oxygen-saturation:2.0"] = o2
-
-    tst = _wearable_header("omh:total-sleep-time:1.0")
-    tst["body"] = {"total_sleep_time": _dur(total_sleep_sec), **sleep_iv}
-    records["omh:total-sleep-time:1.0"] = tst
-
-    omh_sleep = _wearable_header("omh:sleep-episode:1.1")
+    # omh:sleep-episode:1.1 — required: effective_time_frame (time_interval)
+    omh_sleep = _wearable_header("omh:sleep-episode:1.1", created)
     omh_sleep["body"] = {
+        "effective_time_frame": _interval(sleep_start, sleep_end),
         "latency_to_sleep_onset": _dur(latency_sec),
         "total_sleep_time": _dur(total_sleep_sec),
         "wake_after_sleep_onset": _dur(wake_after_sec),
         "is_main_sleep": True,
         "sleep_maintenance_efficiency_percentage": _uv(efficiency, "%"),
-        **sleep_iv,
     }
     records["omh:sleep-episode:1.1"] = omh_sleep
+
+    # omh:sleep-duration:2.0 — required: sleep_duration, effective_time_frame (time_interval)
+    sd = _wearable_header("omh:sleep-duration:2.0", created)
+    sd["body"] = {
+        "sleep_duration": _dur(total_sleep_sec),
+        "effective_time_frame": _interval(sleep_start, sleep_end),
+    }
+    records["omh:sleep-duration:2.0"] = sd
+
+    # omh:heart-rate:2.0 — required: heart_rate, effective_time_frame
+    hr = _wearable_header("omh:heart-rate:2.0", created)
+    hr["body"] = {
+        "heart_rate": _uv(avg_hr, "beats/min"),
+        "effective_time_frame": _interval(sleep_start, sleep_end),
+        "descriptive_statistic": "average",
+        "temporal_relationship_to_sleep": "during sleep",
+    }
+    records["omh:heart-rate:2.0"] = hr
+
+    # omh:respiratory-rate:2.0 — required: respiratory_rate, effective_time_frame
+    rr = _wearable_header("omh:respiratory-rate:2.0", created)
+    rr["body"] = {
+        "respiratory_rate": _uv(resp_rate, "breaths/min"),
+        "effective_time_frame": _interval(sleep_start, sleep_end),
+        "descriptive_statistic": "average",
+    }
+    records["omh:respiratory-rate:2.0"] = rr
+
+    # omh:oxygen-saturation:2.0 — required: oxygen_saturation, effective_time_frame
+    o2 = _wearable_header("omh:oxygen-saturation:2.0", created)
+    o2["body"] = {
+        "oxygen_saturation": _uv(spo2, "%"),
+        "effective_time_frame": _interval(sleep_start, sleep_end),
+        "descriptive_statistic": "average",
+        "measurement_method": "pulse oximetry",
+        "system": "peripheral capillary",
+    }
+    records["omh:oxygen-saturation:2.0"] = o2
 
     return records
 
@@ -397,7 +413,7 @@ def cgm_body(dt, value):
 
     For synthetic historical data the reading time and the device acquisition
     time are the same, so ``source_creation_date_time`` is ``dt`` (unlike the
-    wearable header, which stamps the script's run time)."""
+    wearable header, which stamps the observation's day)."""
     return {
         "header": {
             "uuid": str(uuid.uuid4()),

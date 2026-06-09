@@ -45,6 +45,31 @@ def test_generate_wearable_day_returns_all_eight_typed_records():
         assert rec["header"]["acquisition_provenance"]["source_name"] == gen.WEARABLE_SOURCE_NAME
 
 
+@pytest.mark.django_db
+def test_generated_wearable_bodies_are_schema_valid():
+    """Each generated wearable body must pass Observation.clean() — the OMH schema oracle."""
+    rng = random.Random("v")
+    records = gen.generate_wearable_day(date(2026, 6, 1), 0, age=55, risk=0.3, rng=rng)
+    for code, system, label in gen.WEARABLE_SCOPES:
+        cc = CodeableConcept.objects.create(coding_code=code, coding_system=system, text=label)
+        obs = Observation(codeable_concept=cc, omh_data=records[code])
+        # clean() raises ValidationError / RuntimeError if header or body is invalid
+        obs.clean()  # must not raise
+
+
+@pytest.mark.django_db
+def test_cgm_body_is_schema_valid():
+    """CGM body must pass Observation.clean() — locks in blood-glucose:4.0 conformance."""
+    dt = datetime(2026, 6, 1, 8, 0, tzinfo=UTC)
+    cc = CodeableConcept.objects.create(
+        coding_code=gen.CGM_CODE,
+        coding_system=gen.OMH,
+        text="Blood glucose",
+    )
+    obs = Observation(codeable_concept=cc, omh_data=gen.cgm_body(dt, 120))
+    obs.clean()  # must not raise
+
+
 @pytest.fixture
 def planetary_org(db):
     return Organization.objects.create(name="Planetary Research Institute", type="edu")
