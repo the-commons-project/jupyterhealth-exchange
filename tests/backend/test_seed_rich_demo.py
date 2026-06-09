@@ -1,11 +1,13 @@
 import random
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
 from django.utils import timezone as dj_timezone
 
 from core.management.commands import seed_rich_demo as gen
+from core.management.commands.seed import Command as SeedCommand
 from core.models import CodeableConcept, Observation, Organization, Patient, Study
 
 
@@ -80,3 +82,17 @@ def test_seed_rich_demo_builds_full_cohort(planetary_org, monkeypatch):
     )
     latest_date = latest.omh_data["header"]["source_creation_date_time"][:10]
     assert latest_date == dj_timezone.now().date().isoformat()
+
+
+@pytest.mark.django_db
+def test_with_rich_demo_flag_invokes_generator():
+    with patch("core.management.commands.seed.call_command") as mock_call:
+        SeedCommand().handle(flush_db=False, with_rich_demo=True)
+    assert any(c.args and c.args[0] == "seed_rich_demo" for c in mock_call.call_args_list)
+
+
+@pytest.mark.django_db
+def test_without_flag_does_not_invoke_generator():
+    with patch("core.management.commands.seed.call_command") as mock_call:
+        SeedCommand().handle(flush_db=False, with_rich_demo=False)
+    assert not any(c.args and c.args[0] == "seed_rich_demo" for c in mock_call.call_args_list)

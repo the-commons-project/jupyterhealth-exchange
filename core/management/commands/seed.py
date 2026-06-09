@@ -46,6 +46,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Flush the entire database before seeding as already seeding won't work with already populated DB.",
         )
+        parser.add_argument(
+            "--with-rich-demo",
+            action="store_true",
+            help="After the base seed, also generate the synthetic CGM + Oura demo cohort.",
+        )
 
     def handle(self, *args, **options):
         self.stdout.write("Seeding RBAC…")
@@ -64,6 +69,10 @@ class Command(BaseCommand):
             self.seed_health_system(root_organization)
             self.seed_oauth_application()
             self.seed_mcp_broker_application()
+
+        if options.get("with_rich_demo"):
+            self.stdout.write("Generating rich demo data (CGM + Oura)…")
+            call_command("seed_rich_demo")
 
         self.stdout.write(self.style.SUCCESS("Seeding complete."))
 
