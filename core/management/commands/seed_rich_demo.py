@@ -230,7 +230,10 @@ _MEAL_MINUTES = (7 * 60 + 30, 12 * 60 + 30, 18 * 60 + 30)
 def cgm_value(dt, risk, rng):
     """Plausible (not clinical-grade) glucose: baseline + dawn rhythm + meal
     excursions + noise, clamped to a physiologic range. Higher risk -> higher
-    baseline and bigger excursions."""
+    baseline and bigger excursions.
+
+    Meal timing is read off ``dt``'s own clock (callers pass UTC datetimes), so
+    the breakfast/lunch/dinner peaks track whatever timezone ``dt`` carries."""
     minutes = dt.hour * 60 + dt.minute
     baseline = 100 + 40 * risk
     diurnal = 8 * math.sin((minutes - 300) / 1440 * 2 * math.pi)
@@ -244,6 +247,11 @@ def cgm_value(dt, risk, rng):
 
 
 def cgm_body(dt, value):
+    """Build the OMH blood-glucose body for a single reading at ``dt``.
+
+    For synthetic historical data the reading time and the device acquisition
+    time are the same, so ``source_creation_date_time`` is ``dt`` (unlike the
+    wearable header, which stamps the script's run time)."""
     return {
         "header": {
             "uuid": str(uuid.uuid4()),
