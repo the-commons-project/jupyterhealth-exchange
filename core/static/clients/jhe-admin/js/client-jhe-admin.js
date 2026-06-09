@@ -1612,16 +1612,15 @@ async function renderObservations(queryParams) {
 // FHIR Resources
 // ────────────────────────────────────────────────────
 
-// Best-effort extraction of the Patient id referenced by a FHIR resource (may be null).
-function fhirPatientId(resource) {
-  if (resource.resourceType === "Patient") return resource.id;
-  for (const key of ["subject", "patient", "beneficiary"]) {
-    const reference = resource[key]?.reference;
-    if (typeof reference === "string" && reference.startsWith("Patient/")) {
-      return reference.split("/")[1];
-    }
-  }
-  return null;
+// The patient's full name, read from the JHE provenance extension the server stamps on every
+// stored aux resource (see _with_jhe_extensions in core/views/fhir.py).
+function fhirPatientName(resource) {
+  const extension = (resource.extension || []).find(
+    (e) =>
+      e.url ===
+      "https://jupyterhealth.org/fhir/StructureDefinition/patient-full-name",
+  );
+  return extension?.valueString || "";
 }
 
 async function renderFhir(queryParams) {
@@ -1728,7 +1727,7 @@ async function renderFhir(queryParams) {
     const resource = entry.resource;
     return {
       id: resource.id,
-      patientId: fhirPatientId(resource),
+      patientName: fhirPatientName(resource),
       fhirData: JSON.stringify(resource, null, 2),
     };
   });

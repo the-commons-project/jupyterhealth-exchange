@@ -1,6 +1,6 @@
 from .codeable_concept import CodeableConcept
 from .data_source import ClientDataSource, DataSource, DataSourceSupportedScope
-from .fhir_aux_resource import FhirAuxResource
+from .fhir_aux_resource import FhirAuxResource, apply_jhe_extensions
 from .fhir_source import FhirSource
 from .jhe_client import JheClient
 from .jhe_setting import JheSetting
@@ -38,4 +38,5 @@ __all__ = [
     "StudyPatient",
     "StudyPatientScopeConsent",
     "StudyScopeRequest",
+    "apply_jhe_extensions",
 ]
