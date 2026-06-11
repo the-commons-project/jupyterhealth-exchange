@@ -46,6 +46,7 @@ class Command(BaseCommand):
             action="store_true",
             help="Flush the entire database before seeding as already seeding won't work with already populated DB.",
         )
+        # Usage: python manage.py seed --flush-db --with-rich-demo
         parser.add_argument(
             "--with-rich-demo",
             action="store_true",

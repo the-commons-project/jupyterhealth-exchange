@@ -435,10 +435,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         organization = Organization.objects.filter(name__icontains=ORG_NAME_FRAGMENT).first()
         if not organization:
-            self.stderr.write(
-                self.style.ERROR(f"Missing Organization containing '{ORG_NAME_FRAGMENT}' — run `seed` first.")
-            )
-            return
+            raise CommandError(f"Missing Organization containing '{ORG_NAME_FRAGMENT}' — run `seed` first.")
 
         demo_emails = [mp["email"] for mp in MOCK_PATIENTS]
         if JheUser.objects.filter(email__in=demo_emails).exists():
@@ -452,15 +449,11 @@ class Command(BaseCommand):
             name=WEARABLE_DATA_SOURCE, defaults={"type": "personal_device"}
         )
 
-        cgm_cc, _ = CodeableConcept.objects.get_or_create(
-            coding_code=CGM_CODE, defaults={"coding_system": OMH, "text": "Blood glucose"}
-        )
-        wearable_cc = {}
-        for code, system, label in WEARABLE_SCOPES:
-            cc, _ = CodeableConcept.objects.get_or_create(
-                coding_code=code, defaults={"coding_system": system, "text": label}
-            )
-            wearable_cc[code] = cc
+        # Concepts are seeded centrally by `seed_codeable_concepts`; this command
+        # always runs after the base seed (the Organization check above), so look
+        # them up rather than re-creating with a divergent pattern.
+        cgm_cc = CodeableConcept.objects.get(coding_code=CGM_CODE)
+        wearable_cc = {code: CodeableConcept.objects.get(coding_code=code) for code, _system, _label in WEARABLE_SCOPES}
 
         study, _ = Study.objects.get_or_create(
             organization=organization,
@@ -476,8 +469,10 @@ class Command(BaseCommand):
                 study=study, scope_code=wearable_cc[code], defaults={"scope_actions": "rs"}
             )
 
-        now = dj_timezone.now()
-        today = dj_timezone.localdate()
+        # Anchor CGM and wearables to the same (local) clock so the latest CGM
+        # reading and the wearable "today" land on the same calendar day.
+        now = dj_timezone.localtime()
+        today = now.date()
         total_cgm = 0
         total_wearable = 0
 
@@ -546,6 +541,8 @@ class Command(BaseCommand):
                         )
                 total_wearable += wearable_days * len(WEARABLE_SCOPES)
 
+                # bulk_create skips Observation.clean(); schema conformance is
+                # covered by the clean()-based tests in test_seed_rich_demo.py.
                 Observation.objects.bulk_create(to_create, batch_size=2000)
 
         self.stdout.write(

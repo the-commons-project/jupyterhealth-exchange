@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.utils import timezone as dj_timezone
 
 from core.management.commands import seed_rich_demo as gen
@@ -72,6 +73,8 @@ def test_cgm_body_is_schema_valid():
 
 @pytest.fixture
 def planetary_org(db):
+    # seed_rich_demo looks up the codeable concepts created by the base seed.
+    SeedCommand.seed_codeable_concepts()
     return Organization.objects.create(name="Planetary Research Institute", type="edu")
 
 
@@ -99,34 +102,34 @@ def test_seed_rich_demo_builds_full_cohort(planetary_org, monkeypatch):
         cc = CodeableConcept.objects.get(coding_code=code)
         assert Observation.objects.filter(codeable_concept=cc).exists(), code
 
-    # Data is anchored to today: the latest CGM reading is on the run date (UTC).
+    # Data is anchored to today: the latest CGM reading is on the run date (local).
     latest = (
         Observation.objects.filter(codeable_concept=cgm)
         .order_by("-omh_data__header__source_creation_date_time")
         .first()
     )
     latest_date = latest.omh_data["header"]["source_creation_date_time"][:10]
-    assert latest_date == dj_timezone.now().date().isoformat()
+    assert latest_date == dj_timezone.localdate().isoformat()
+
+
+@pytest.mark.django_db
+def test_seed_rich_demo_requires_base_seed_org():
+    with pytest.raises(CommandError, match="Missing Organization"):
+        call_command("seed_rich_demo")
 
 
 @pytest.mark.django_db
 def test_seed_rich_demo_is_guarded_against_double_run(planetary_org, monkeypatch):
-    import pytest as _pytest
-    from django.core.management.base import CommandError
-
     monkeypatch.setattr(gen, "CGM_WINDOW_DAYS", 1)
     monkeypatch.setattr(gen, "WEARABLE_MIN_DAYS", 1)
     monkeypatch.setattr(gen, "WEARABLE_MAX_DAYS", 1)
     call_command("seed_rich_demo")  # first run seeds
-    with _pytest.raises(CommandError):
+    with pytest.raises(CommandError):
         call_command("seed_rich_demo")  # second run must refuse
 
 
 @pytest.mark.django_db
 def test_base_seed_creates_wearable_concepts():
-    from core.management.commands.seed import Command as SeedCommand
-    from core.models import CodeableConcept
-
     SeedCommand.seed_codeable_concepts()
     for code in (
         "omh:physical-activity:1.2",
