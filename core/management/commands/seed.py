@@ -46,6 +46,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Flush the entire database before seeding as already seeding won't work with already populated DB.",
         )
+        # Usage: python manage.py seed --flush-db --with-rich-demo
+        parser.add_argument(
+            "--with-rich-demo",
+            action="store_true",
+            help="After the base seed, also generate the synthetic CGM + Oura demo cohort.",
+        )
 
     def handle(self, *args, **options):
         self.stdout.write("Seeding RBAC…")
@@ -64,6 +70,10 @@ class Command(BaseCommand):
             self.seed_health_system(root_organization)
             self.seed_oauth_application()
             self.seed_mcp_broker_application()
+
+        if options.get("with_rich_demo"):
+            self.stdout.write("Generating rich demo data (CGM + Oura)…")
+            call_command("seed_rich_demo")
 
         self.stdout.write(self.style.SUCCESS("Seeding complete."))
 
@@ -156,6 +166,11 @@ class Command(BaseCommand):
                 "Forced expiratory volume 1 second",
             ),
             ("http://hl7.org/fhir/", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
+            ("https://w3id.org/openmhealth", "omh:physical-activity:1.2", "Physical activity"),
+            ("https://w3id.org/openmhealth", "omh:step-count:3.0", "Step count"),
+            ("https://w3id.org/ieee1752", "ieee:sleep-stage-summary:1.0", "Sleep stage summary"),
+            ("https://w3id.org/openmhealth", "omh:sleep-episode:1.1", "Sleep episode"),
+            ("https://w3id.org/openmhealth", "omh:sleep-duration:2.0", "Sleep duration"),
         ]
         # bulk create thing
         for system, code, text in codes:
