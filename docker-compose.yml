@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: jhe-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jheuser
+      POSTGRES_PASSWORD: jhepassword
+      POSTGRES_DB: jhe_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - jhe_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jheuser -d jhe_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jhe-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      SITE_URL: http://localhost:8001
+      OW_API_URL: http://host.docker.internal:8000
+      DEBUG: "True"
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn --bind :8000 --workers 2 jhe.wsgi"
+
+volumes:
+  jhe_db_data:

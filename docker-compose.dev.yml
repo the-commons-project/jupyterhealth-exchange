@@ -1,0 +1,16 @@
+# Dev override: live code reload for the web service.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Mounts the repo into the container and runs Django's autoreloading dev server
+# instead of gunicorn, so backend edits apply on the next request with no rebuild.
+# The base image still bakes code in for production (plain `docker compose up`).
+services:
+  web:
+    # Mount the working tree over /code so host edits are seen live. Dependencies are
+    # installed into the system site-packages (not /code), so they are not shadowed;
+    # a Pipfile change still needs an image rebuild.
+    volumes:
+      - .:/code
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
