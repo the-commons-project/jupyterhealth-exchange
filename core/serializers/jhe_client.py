@@ -39,10 +39,12 @@ class ClientSerializer(serializers.ModelSerializer):
 
         app = super().create(validated_data)
 
+        # A patient client always gets its JheClient created explicitly here (there is no
+        # longer a post_save signal that auto-creates one for every Application).
+        jhe_client, _ = JheClient.objects.get_or_create(application=app)
         if invitation_url is not None:
-            # post_save signal created the JheClient; update invitation_url
-            app.jhe_client.invitation_url = invitation_url
-            app.jhe_client.save()
+            jhe_client.invitation_url = invitation_url
+            jhe_client.save()
 
         return app
 
