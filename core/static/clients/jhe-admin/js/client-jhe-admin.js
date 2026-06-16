@@ -77,6 +77,10 @@ const ROUTES = {
     action: "renderDebug",
     superuserOnly: true,
   },
+  profile: {
+    mainMenu: false,
+    action: "renderProfile",
+  }
 };
 
 // ────────────────────────────────────────────────────
@@ -94,6 +98,7 @@ const actions = {
   renderClients,
   renderDataSources,
   renderDebug,
+  renderProfile,
 };
 let crudModal;
 let store = {};
@@ -215,7 +220,11 @@ async function nav(newRoute, queryParams, appendQueryParams) {
       userProfile = await getUserProfile();
     }
     const navItems = Object.entries(ROUTES)
-      .filter(([, settings]) => !settings.superuserOnly || userProfile.isSuperuser)
+      .filter(
+        ([, settings]) =>
+          settings.mainMenu !== false &&
+          (!settings.superuserOnly || userProfile.isSuperuser),
+      )
       .map(([route, settings]) => ({
         ...settings,
         active: route === newRoute,
@@ -2263,6 +2272,106 @@ async function updateJheSetting(id) {
 async function deleteJheSetting(id) {
   if (await apiRequest("DELETE", `jhe_settings/${id}`)) await navReturnFromCrud();
 }
+
+
+// ────────────────────────────────────────────────────
+// User Profile
+// ────────────────────────────────────────────────────
+
+async function renderProfile(queryParams) {
+  const content = Handlebars.compile(
+    document.getElementById("t-profile").innerHTML
+  );
+
+  const profileResponse = await apiRequest("GET", "users/profile");
+  const profile = await profileResponse.json();
+
+  const practitionerClientsResponse = await apiRequest("GET", "practitioner_clients");
+  const practitionerClientsPaginated = await practitionerClientsResponse.json();
+  let practitionerClientRecord = {};
+
+  if (queryParams.update || queryParams.delete) {
+    const practitionerClientRecordResponse = await apiRequest(
+      "GET",
+      `practitioner_clients/${queryParams.id}`
+    );
+    practitionerClientRecord = await practitionerClientRecordResponse.json();
+  }
+
+  Handlebars.registerPartial(
+    "crudButton",
+    document.getElementById("t-crudButton").innerHTML
+  );
+
+  const renderParams = {
+    ...queryParams,
+    profile: profile,
+    practitionerClients: practitionerClientsPaginated.results,
+    practitionerClientRecord: practitionerClientRecord,
+  };
+
+  return content(renderParams);
+}
+
+async function createPractitionerClient() {
+  const practitionerClientRecord = {
+    label: document.getElementById("practitionerClientLabel").value || null,
+  };
+  if (await apiRequest("POST", `practitioner_clients`, practitionerClientRecord))
+    await navReturnFromCrud();
+}
+
+async function updatePractitionerClient(id) {
+  const practitionerClientRecord = {
+    label: document.getElementById("practitionerClientLabel").value || null,
+  };
+  const response = await apiRequest("PATCH", `practitioner_clients/${id}`, practitionerClientRecord);
+  if (response.ok) await navReturnFromCrud();
+}
+
+async function deletePractitionerClient(id) {
+  if (await apiRequest("DELETE", `practitioner_clients/${id}`)) await navReturnFromCrud();
+}
+
+// Exchange the API key (base64 of client_id:client_secret, used as-is for HTTP Basic auth)
+// for an access token via the client-credentials grant, and echo the full request/response
+// into #testPractitonerApiKeyOutput so the practitioner can see a working example.
+async function testPractitonerApiKey(apiKey) {
+  const output = document.getElementById("testPractitonerApiKeyOutput");
+
+  const requestText =
+    "POST /o/token/\n" +
+    `Authorization: Basic ${apiKey}\n` +
+    "Content-Type: application/x-www-form-urlencoded\n" +
+    "\n" +
+    "grant_type=client_credentials\n";
+
+  let responseText;
+  try {
+    const response = await fetch("/o/token/", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${apiKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+    const raw = await response.text();
+    let responseBody;
+    try {
+      responseBody = JSON.stringify(JSON.parse(raw), null, 2);
+    } catch {
+      responseBody = raw;
+    }
+    responseText = `HTTP ${response.status} ${response.statusText}\n\n${responseBody}`;
+  } catch (error) {
+    responseText = `Error: ${error}`;
+  }
+
+  output.textContent = `${requestText}\n${responseText}`;
+}
+
+
 
 // ────────────────────────────────────────────────────
 // Dev and Debug

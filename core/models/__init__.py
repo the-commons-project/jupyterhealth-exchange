@@ -10,6 +10,7 @@ from .organization import Organization
 from .patient import Patient, PatientIdentifier, PatientOrganization
 from .patient_invitation import PatientInvitation
 from .practitioner import Practitioner, PractitionerOrganization
+from .practitioner_client import PractitionerClient
 from .study import Study, StudyClient, StudyDataSource, StudyPatient, StudyPatientScopeConsent, StudyScopeRequest
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "PatientInvitation",
     "PatientOrganization",
     "Practitioner",
+    "PractitionerClient",
     "PractitionerOrganization",
     "Study",
     "StudyClient",

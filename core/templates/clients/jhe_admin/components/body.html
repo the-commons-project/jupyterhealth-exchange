@@ -43,10 +43,25 @@
             class="dropdown-menu text-small shadow"
             aria-labelledby="dropdownUser2"
           >
-            <!-- li><a class="dropdown-item" href="#">Settings</a></li>
-            <li><a class="dropdown-item" href="#">Profile</a></li>
-            <li><hr class="dropdown-divider" /></li -->
-            <li><a class="dropdown-item" href="#" onclick="signOut()">Log Out</a></li>
+            <li>
+              <button
+                type="button"
+                class="dropdown-item btn btn-link text-start text-decoration-none"
+                onclick="nav('profile')"
+              >
+                Profile
+              </button>
+            </li>
+            <li><hr class="dropdown-divider" /></li>
+            <li>
+              <button
+                type="button"
+                class="dropdown-item btn btn-link text-start text-decoration-none"
+                onclick="signOut()"
+              >
+                Log Out
+              </button>
+            </li>
           </ul>
         </div>
       </div>

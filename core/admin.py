@@ -18,6 +18,7 @@ from core.models import (
     PatientInvitation,
     PatientOrganization,
     Practitioner,
+    PractitionerClient,
     PractitionerOrganization,
     Study,
     StudyClient,
@@ -130,6 +131,13 @@ class ObservationAdmin(admin.ModelAdmin):
 class JheClientAdmin(admin.ModelAdmin):
     list_display = ("application", "invitation_url")
     search_fields = ("application__name",)
+
+
+@admin.register(PractitionerClient)
+class PractitionerClientAdmin(admin.ModelAdmin):
+    list_display = ("id", "practitioner", "application", "label")
+    search_fields = ("label", "application__name", "practitioner__name_family", "practitioner__name_given")
+    raw_id_fields = ("application", "practitioner")
 
 
 @admin.register(JheSetting)

@@ -18,6 +18,7 @@ from core.models import (
     DataSourceSupportedScope,
     FhirAuxResource,
     FhirSource,
+    JheClient,
     JheSetting,
     JheUser,
     Observation,
@@ -259,11 +260,12 @@ class Command(BaseCommand):
                 },
             )
             if created:
-                # post_save signal created the JheClient; set invitation_url + aux_data
-                app.jhe_client.invitation_url = client["invitation_url"]
+                # Create the JheClient explicitly and set invitation_url + aux_data
+                jhe_client, _ = JheClient.objects.get_or_create(application=app)
+                jhe_client.invitation_url = client["invitation_url"]
                 if client.get("aux_data") is not None:
-                    app.jhe_client.aux_data = client["aux_data"]
-                app.jhe_client.save()
+                    jhe_client.aux_data = client["aux_data"]
+                jhe_client.save()
 
             for ds_name in client["data_sources"]:
                 ds = DataSource.objects.get(name=ds_name)

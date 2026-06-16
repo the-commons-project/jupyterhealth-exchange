@@ -26,6 +26,7 @@ from .patient import PatientProfileSerializer as PatientProfileSerializer
 from .patient import PatientSerializer as PatientSerializer
 from .patient_invitation import PatientInvitationSerializer as PatientInvitationSerializer
 from .practitioner import PractitionerSerializer as PractitionerSerializer
+from .practitioner_client import PractitionerClientSerializer as PractitionerClientSerializer
 from .study import StudyClientSerializer as StudyClientSerializer
 from .study import StudyConsentsSerializer as StudyConsentsSerializer
 from .study import StudyDataSourceSerializer as StudyDataSourceSerializer

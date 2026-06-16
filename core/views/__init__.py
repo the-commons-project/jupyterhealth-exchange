@@ -6,6 +6,8 @@ from .patient import PatientViewSet  # noqa
 
 from .practitioner import PractitionerViewSet  # noqa
 
+from .practitioner_client import PractitionerClientViewSet  # noqa
+
 from .study import StudyViewSet  # noqa
 
 from .observation import ObservationViewSet  # noqa
