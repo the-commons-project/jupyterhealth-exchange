@@ -97,6 +97,9 @@ class Command(BaseCommand):
             ("auth.sso.valid_domains", "string", ""),
             ("auth.patient.invitation_expiration_days", "int", 7),
             ("auth.patient.invitation_redemption_window_hours", "int", 12),
+            # OAuth client_ids whose auth-code login uses the email one-time-code
+            # flow (/accounts/login-otp/) instead of the password form.
+            ("auth.patient_access_clients", "json", []),
             # Open Wearables polling pipeline (see ow_poll management command).
             ("module.ow", "bool", False),
             ("ow.sync_in_progress", "string", ""),

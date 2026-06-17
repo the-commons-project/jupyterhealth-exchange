@@ -1,0 +1,2 @@
+{% load i18n %}
+{% blocktranslate %}We've sent a sign-in code to {{ recipient }}.{% endblocktranslate %}

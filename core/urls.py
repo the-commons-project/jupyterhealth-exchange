@@ -53,6 +53,7 @@ urlpatterns = [
     path("clients/ow/complete", common.ow_client_complete, name="ow_client_complete"),
     # Django auth and accounts
     path("accounts/login/", common.LoginView.as_view(), name="login"),
+    path("accounts/login-otp/", common.request_login_otp, name="login-otp"),
     path("accounts/signup/", common.signup, name="signup"),
     path("accounts/logout/", common.logout, name="logout"),
     path("accounts/profile/", common.profile, name="profile"),

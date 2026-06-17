@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OAuth Callback — Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; }
+    pre { background: #0b1021; color: #d6e2ff; padding: 1rem; border-radius: 8px; overflow: auto; font-size: 0.85rem; }
+    .ok { color: #047857; } .err { color: #b91c1c; }
+    .step { margin: 0.4rem 0; }
+    code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 4px; word-break: break-all; }
+    a { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <h1>OAuth Callback</h1>
+  <div id="status"></div>
+  <h3>Token response</h3>
+  <pre id="out">…</pre>
+  <p><a href="/index.html">← Start over</a></p>
+
+  <script>
+    // Must match index.html.
+    const CONFIG = {
+      jheBaseUrl: "http://localhost:8000",
+      clientId: "V294TVykFDREbEPAY5wJiJycWQ8Y0rq7VSOON3Ya",
+      redirectUri: "http://localhost:8001/callback.html",
+    };
+
+    const statusEl = document.getElementById("status");
+    const outEl = document.getElementById("out");
+    const log = (html) => { statusEl.innerHTML += `<div class="step">${html}</div>`; };
+
+    async function run() {
+      const qs = new URLSearchParams(window.location.search);
+
+      // Authorization server returned an error?
+      if (qs.get("error")) {
+        log(`<span class="err">Authorization error: <b>${qs.get("error")}</b> — ${qs.get("error_description") || ""}</span>`);
+        outEl.textContent = qs.toString();
+        return;
+      }
+
+      const code = qs.get("code");
+      const returnedState = qs.get("state");
+      const savedState = sessionStorage.getItem("oauth_state");
+      const codeVerifier = sessionStorage.getItem("pkce_code_verifier");
+
+      if (!code) {
+        log(`<span class="err">No <code>code</code> in the callback URL.</span>`);
+        return;
+      }
+      log(`Received auth code: <code>${code}</code>`);
+
+      // CSRF protection: state must round-trip unchanged.
+      if (!savedState || returnedState !== savedState) {
+        log(`<span class="err">State mismatch — expected <code>${savedState}</code>, got <code>${returnedState}</code>. Aborting.</span>`);
+        return;
+      }
+      log(`State verified <span class="ok">✓</span>`);
+
+      if (!codeVerifier) {
+        log(`<span class="err">Missing PKCE code_verifier in sessionStorage (did you start from index.html?).</span>`);
+        return;
+      }
+
+      // Exchange the code for tokens (public client + PKCE, no client secret).
+      const body = new URLSearchParams({
+        grant_type: "authorization_code",
+        code: code,
+        redirect_uri: CONFIG.redirectUri,
+        client_id: CONFIG.clientId,
+        code_verifier: codeVerifier,
+      });
+
+      log(`Posting to <code>${CONFIG.jheBaseUrl}/o/token/</code> …`);
+      try {
+        const resp = await fetch(`${CONFIG.jheBaseUrl}/o/token/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body,
+        });
+        const text = await resp.text();
+        let pretty = text;
+        try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
+        outEl.textContent = pretty;
+        if (resp.ok) {
+          log(`Token endpoint returned <b>${resp.status}</b> <span class="ok">✓</span>`);
+          // One-time code; clear so a refresh can't replay it.
+          sessionStorage.removeItem("pkce_code_verifier");
+          sessionStorage.removeItem("oauth_state");
+        } else {
+          log(`<span class="err">Token endpoint returned <b>${resp.status}</b>.</span>`);
+        }
+      } catch (e) {
+        log(`<span class="err">Token request failed: ${e}.</span>`);
+        outEl.textContent =
+          "If this is a CORS error, make sure JHE is running with the OAuthCorsMiddleware " +
+          "enabled (it adds Access-Control-Allow-Origin for /o/). See README.md.";
+      }
+    }
+
+    run();
+  </script>
+</body>
+</html>

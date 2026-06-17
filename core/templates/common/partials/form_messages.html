@@ -1,0 +1,13 @@
+{% comment %}
+Renders Django messages (used by allauth flows for "code sent", "incorrect
+code", "expired", rate-limit feedback, etc.) as Bootstrap alerts.
+{% endcomment %}
+{% if messages %}
+<div class="mb-3 text-start">
+  {% for message in messages %}
+  <div class="alert {% if 'error' in message.tags %}alert-danger{% elif 'success' in message.tags %}alert-success{% elif 'warning' in message.tags %}alert-warning{% else %}alert-info{% endif %} py-2 mb-2" role="alert">
+    {{ message }}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
