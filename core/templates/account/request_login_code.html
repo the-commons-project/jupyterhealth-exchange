@@ -1,0 +1,29 @@
+{% extends "common/partials/base_accounts_forms.html" %}
+{% comment %}
+Overrides allauth's account/request_login_code.html. Found before allauth's
+copy because `core` precedes `allauth` in INSTALLED_APPS. Styled to match the
+password login/signup pages (registration/login.html, registration/signup.html).
+{% endcomment %}
+
+{% block title %}Log In{% endblock %}
+
+{% block prompt %}Exchange OTP Log In{% endblock %}
+
+{% block form_fields %}
+
+{% include "common/partials/form_messages.html" %}
+
+<p class="text-muted mb-4">Enter your email and we'll send a code.</p>
+
+<div class="form-floating mb-3">
+  <input name="email" type="email" class="form-control" id="emailInput"
+         placeholder="name@example.com" value="{{ form.email.value|default:'' }}"
+         style="border-radius:.375rem;margin-bottom:0;" autofocus required>
+  <label for="emailInput">Email address</label>
+</div>
+
+{{ redirect_field }}
+
+<button class="w-100 btn btn-lg btn-primary mt-3" type="submit">Send me a code</button>
+
+{% endblock %}

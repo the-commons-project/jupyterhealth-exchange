@@ -1,0 +1,8 @@
+{% load i18n %}{% autoescape off %}
+
+{% blocktranslate %}Enter this JupyterHealth Exchange sign-in code below.{% endblocktranslate %}
+
+{{ code }}
+
+{% blocktranslate %}This code expires shortly. If you didn't request it, you can safely ignore this email.{% endblocktranslate %}
+{% endautoescape %}

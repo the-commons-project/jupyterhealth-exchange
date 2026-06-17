@@ -1,0 +1,5 @@
+{% load i18n %}{% autoescape off %}
+{% blocktranslate %}We received a request to sign in to JupyterHealth Exchange with the email {{ email }}, but we don't have an account on record for it.{% endblocktranslate %}
+
+{% blocktranslate %}If you didn't make this request, you can safely ignore this email.{% endblocktranslate %}
+{% endautoescape %}

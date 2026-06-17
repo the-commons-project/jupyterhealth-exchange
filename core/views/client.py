@@ -23,13 +23,10 @@ class ClientViewSet(ModelViewSet):
         return [permission() for permission in self.permission_classes]
 
     def get_queryset(self):
-        # Exclude the JHE Portal client, and practitioner clients (client-credentials apps
-        # managed via PractitionerClient, not this patient-client admin UI).
-        return (
-            Application.objects.exclude(name="JHE Admin UI")
-            .exclude(authorization_grant_type=Application.GRANT_CLIENT_CREDENTIALS)
-            .order_by("-created")
-        )
+        # This admin UI manages patient clients, which are exactly the Applications wrapped by
+        # a JheClient. Filtering on that relation naturally excludes the JHE Portal client and
+        # practitioner (client-credentials) clients without matching on names or grant types.
+        return Application.objects.filter(jhe_client__isnull=False).order_by("-created")
 
     def perform_create(self, serializer):
         name = self.request.data.get("name")

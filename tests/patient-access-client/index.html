@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OTP OAuth Client — Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; }
+    button { font-size: 1rem; padding: 0.7rem 1.4rem; cursor: pointer; border: 0; border-radius: 6px; background: #2563eb; color: #fff; }
+    button:hover { background: #1d4ed8; }
+    code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    .cfg { font-size: 0.85rem; color: #555; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 0.75rem 1rem; margin-top: 1.5rem; }
+    .cfg div { margin: 0.15rem 0; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>OTP OAuth Client Test</h1>
+  <p>
+    Click below to start the authorization-code (PKCE) flow against JHE. Because
+    this client's <code>client_id</code> is listed in the
+    <code>auth.patient_access_clients</code> setting, JHE routes you to the
+    email one-time-code login instead of the password form.
+  </p>
+
+  <button id="login">Log in with email code</button>
+
+  <div class="cfg" id="cfg"></div>
+
+  <script>
+    // ---- Configuration -----------------------------------------------------
+    // redirectUri must EXACTLY match a redirect_uri registered on the DOT
+    // Application, and clientId must be that Application's client_id (also added
+    // to the auth.patient_access_clients JheSetting). See README.md.
+    const CONFIG = {
+      jheBaseUrl: "http://localhost:8000",
+      clientId: "V294TVykFDREbEPAY5wJiJycWQ8Y0rq7VSOON3Ya",
+      redirectUri: "http://localhost:8001/callback.html",
+      scope: "openid email",
+    };
+
+    document.getElementById("cfg").innerHTML =
+      `<div><b>JHE:</b> ${CONFIG.jheBaseUrl}</div>` +
+      `<div><b>client_id:</b> ${CONFIG.clientId}</div>` +
+      `<div><b>redirect_uri:</b> ${CONFIG.redirectUri}</div>` +
+      `<div><b>scope:</b> ${CONFIG.scope}</div>`;
+
+    // ---- PKCE helpers ------------------------------------------------------
+    function base64url(bytes) {
+      return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+    function randomString(byteLen) {
+      const arr = new Uint8Array(byteLen);
+      crypto.getRandomValues(arr);
+      return base64url(arr);
+    }
+    async function sha256Challenge(verifier) {
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+      return base64url(digest);
+    }
+
+    // ---- Start the flow ----------------------------------------------------
+    document.getElementById("login").addEventListener("click", async () => {
+      const codeVerifier = randomString(32);   // 43-char base64url string
+      const state = randomString(16);
+      const codeChallenge = await sha256Challenge(codeVerifier);
+
+      // Stash for the callback page to complete the token exchange.
+      sessionStorage.setItem("pkce_code_verifier", codeVerifier);
+      sessionStorage.setItem("oauth_state", state);
+
+      const params = new URLSearchParams({
+        response_type: "code",
+        client_id: CONFIG.clientId,
+        redirect_uri: CONFIG.redirectUri,
+        scope: CONFIG.scope,
+        state: state,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+      });
+
+      window.location.href = `${CONFIG.jheBaseUrl}/o/authorize/?${params.toString()}`;
+    });
+  </script>
+</body>
+</html>

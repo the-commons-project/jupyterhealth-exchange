@@ -34,7 +34,7 @@ urlpatterns = [
     path("o/token/", JheTokenView.as_view(), name="token"),
     path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path("accounts/", include("django.contrib.auth.urls")),
-    path("email_auth/", include("allauth.urls")),
+    path("allauth/", include("allauth.urls")),
     path(
         "api/schema/",
         SpectacularAPIView.as_view(),

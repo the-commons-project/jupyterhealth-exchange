@@ -95,10 +95,18 @@ AUTHENTICATION_BACKENDS = [
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 
+# Custom adapter rewords allauth's bundled error messages (e.g. "Incorrect code.").
+ACCOUNT_ADAPTER = "core.user_messages.JheAccountAdapter"
 ACCOUNT_LOGIN_METHODS = ["email"]
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
-ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/email_auth/email/"
+# Email "magic code" login. Used only by OAuth clients listed in the
+# `auth.patient_access_clients` JheSetting; LoginView routes those clients to
+# /accounts/login-otp/ (see core/views/common.py). Enabling this registers the
+# allauth login/code/ + login/code/confirm/ URLs the flow depends on.
+ACCOUNT_LOGIN_BY_CODE_ENABLED = True
+ACCOUNT_LOGIN_BY_CODE_SUPPORTS_RESEND = True
+ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/allauth/email/"
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
 
 REST_FRAMEWORK = {
@@ -135,6 +143,10 @@ REST_FRAMEWORK = {
 
 MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    # Permissive CORS for /o/ so browser-based OAuth clients (e.g. the
+    # tests/patient-access-client demo on another origin) can read the token
+    # response. Outermost so it sets headers on every /o/ response.
+    "core.middleware.OAuthCorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

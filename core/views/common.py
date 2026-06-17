@@ -1,7 +1,10 @@
 import logging
 import secrets
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
+from allauth.account.models import EmailAddress
+from allauth.account.views import RequestLoginCodeView
 from dictor import dictor  # type: ignore
 from django.conf import settings
 from django.contrib import messages
@@ -11,6 +14,7 @@ from django.contrib.auth.views import LoginView as BaseLoginView
 from django.http import HttpRequest, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect, render
 from django.template import TemplateDoesNotExist
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
@@ -69,8 +73,67 @@ def ow_client_complete(request):
 
 
 class LoginView(BaseLoginView):
+    def get(self, request, *args, **kwargs):
+        otp_redirect = _patient_access_otp_redirect(request)
+        if otp_redirect is not None:
+            return otp_redirect
+        return super().get(request, *args, **kwargs)
+
     def post(self, request, *args, **kwargs):
         return super().post(request, *args, **kwargs)
+
+
+def _patient_access_otp_redirect(request):
+    """Route patient-access OAuth clients to the email one-time-code login.
+
+    DOT sends unauthenticated users to /accounts/login/?next=<authorize URL>. When
+    that authorize URL's client_id is listed in the `auth.patient_access_clients`
+    JheSetting, send the user to the allauth email-code flow instead of the
+    password form, preserving `next` so OAuth resumes after login. Returns a
+    redirect response, or None to fall through to the default password form.
+    """
+    if request.user.is_authenticated:
+        return None
+    next_url = request.GET.get("next")
+    if not next_url:
+        return None
+    client_ids = parse_qs(urlparse(next_url).query).get("client_id")
+    if not client_ids:
+        return None
+    patient_access_clients = get_setting("auth.patient_access_clients", []) or []
+    if client_ids[0] not in patient_access_clients:
+        return None
+    return redirect(f"{reverse('login-otp')}?{urlencode({'next': next_url})}")
+
+
+class JheRequestLoginCodeView(RequestLoginCodeView):
+    """allauth's "request a login code" view, mounted at /accounts/login-otp/.
+
+    NextRedirectMixin carries `next` through the confirm step and on to the
+    original OAuth authorize URL after login.
+
+    JHE patients are created outside allauth (e.g. the invitation flow) and so
+    have no allauth EmailAddress row. With ACCOUNT_EMAIL_VERIFICATION="mandatory"
+    that would stall login at the confirm-email stage, because allauth only marks
+    the email verified when entering the code if such a row already exists
+    (verify_email_indirectly is otherwise a no-op). Creating an unverified row
+    here lets the entered code verify the address, completing login. Entering the
+    emailed code is itself proof the user controls the address.
+    """
+
+    def form_valid(self, form):
+        user = getattr(form, "_user", None)
+        email = form.cleaned_data.get("email")
+        if user is not None and email:
+            EmailAddress.objects.get_or_create(
+                user=user,
+                email=email,
+                defaults={"verified": False, "primary": True},
+            )
+        return super().form_valid(form)
+
+
+request_login_otp = JheRequestLoginCodeView.as_view()
 
 
 def logout(request):
