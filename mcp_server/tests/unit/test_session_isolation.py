@@ -203,8 +203,11 @@ async def test_s1_mismatched_token_does_not_forward_init_token(settings, capture
         assert captured_bearers[-1] == "BBB", f"leaked stale token: {captured_bearers}"
         assert "AAA" not in captured_bearers, f"stale init-time token AAA was forwarded: {captured_bearers}"
     else:
-        # Or the request was rejected outright.
-        assert resp.status_code in (401, 403), resp.status_code
+        # Or the request was rejected outright. The mcp streamable-http
+        # transport returns 404 for a session whose credential doesn't match
+        # the one that created it (it won't even confirm the session exists),
+        # so 404 is a valid rejection alongside 401/403.
+        assert resp.status_code in (401, 403, 404), resp.status_code
         assert "AAA" not in captured_bearers, f"stale init-time token AAA was forwarded: {captured_bearers}"
 
 
@@ -225,7 +228,9 @@ async def test_s4_attacker_token_on_victim_session_not_executed_as_victim(settin
     if resp.status_code == 200:
         assert captured_bearers[-1] == "BBB", captured_bearers
     else:
-        assert resp.status_code in (401, 403), resp.status_code
+        # 404: mcp rejects a credential-mismatched session as not-found (it
+        # won't confirm the session exists). A valid rejection, like 401/403.
+        assert resp.status_code in (401, 403, 404), resp.status_code
 
 
 @pytest.mark.asyncio
