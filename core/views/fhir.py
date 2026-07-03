@@ -2,8 +2,7 @@
 
 A single view, ``FHIRResourceView``, serves every supported FHIR resource at
 ``FHIR/<version>/<resource>`` (and ``.../<resource>/<id>``), where ``<version>`` comes
-from core/fhir/fhir_config.json (e.g. ``FHIR/R5/Patient``); the lowercase ``fhir/r5/``
-path is kept as a backward-compatible alias.
+from core/fhir/fhir_config.json (e.g. ``FHIR/R5/Patient``).
 
 Routing is config-driven (see fhir_engine.md). A Django model backs only the JHE-system
 view of each resource; everything else lives in the generic ``FhirAuxResource`` store:

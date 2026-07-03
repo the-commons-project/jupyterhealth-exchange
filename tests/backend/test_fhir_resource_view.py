@@ -383,17 +383,3 @@ def test_update_delete_on_mapped_integer_id_returns_405(api_client, patient):
 
 def test_read_only_mapped_resource_allows_read(api_client, patient):
     assert api_client.get(f"/FHIR/R5/Patient/{patient.id}").status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible lowercase /fhir/r5/ alias
-# ---------------------------------------------------------------------------
-
-
-def test_legacy_lowercase_path_alias_still_works(api_client, patient, fhir_source):
-    cid = api_client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "x"}), **_src(fhir_source)).json()[
-        "id"
-    ]
-    r = api_client.get(f"/fhir/r5/Condition/{cid}", **_src(fhir_source))
-    assert r.status_code == 200, r.text
-    assert r.json()["id"] == str(cid)

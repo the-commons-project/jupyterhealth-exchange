@@ -1,5 +1,6 @@
 # core/utils.py
 import json
+import logging
 import random
 from datetime import timedelta
 from pathlib import Path
@@ -19,6 +20,8 @@ from django_saml2_auth.user import create_new_user, get_user, get_user_id
 from django_saml2_auth.utils import run_hook
 from jsonschema import validators
 from referencing import Registry, Resource
+
+logger = logging.getLogger(__name__)
 
 
 class NoNetwork:
@@ -63,7 +66,22 @@ def generate_observation_value_attachment_data(coding_code):
         coding_code.replace(":", "_").replace(".", "-") + ".json"
     )
     if not data_point.exists():
-        return "placeholder"
+        # No example on disk: return a structurally valid OMH data point (a dict with a
+        # schema-valid header derived from the code and an empty body) rather than a bare string,
+        # so a caller's Observation.clean() surfaces a clear body-schema ValidationError instead of
+        # an opaque "'str' object has no attribute 'get'" AttributeError.
+        logger.warning("No OMH example data point for %s; using an empty placeholder body.", coding_code)
+        namespace, _, remainder = coding_code.partition(":")
+        name, _, version = remainder.rpartition(":")
+        return {
+            "header": {
+                "uuid": str(uuid4()),
+                "schema_id": {"namespace": namespace, "name": name, "version": version},
+                "source_creation_date_time": timezone.localtime(timezone.now()).replace(microsecond=0).isoformat(),
+                "modality": "sensed",
+            },
+            "body": {},
+        }
 
     placeholder = json.loads(data_point.read_text())
 
