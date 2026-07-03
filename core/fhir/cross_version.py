@@ -301,3 +301,59 @@ def transform_to_r5(resource_type, r4_body):
     """Convert an R4 FHIR resource (camelCased dict) to R5. Raises :class:`XVerError` if no map
     exists for ``resource_type``."""
     return _Engine().transform(resource_type, r4_body)
+
+
+# ---------------------------------------------------------------------------
+# Data-loss detection
+# ---------------------------------------------------------------------------
+
+
+def _collect_scalars(node, out):
+    if isinstance(node, dict):
+        for value in node.values():
+            _collect_scalars(value, out)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_scalars(value, out)
+    elif node is not None:
+        out.add(str(node))
+
+
+def _subtree_survives(node, surviving):
+    if isinstance(node, dict):
+        return any(_subtree_survives(v, surviving) for v in node.values())
+    if isinstance(node, list):
+        return any(_subtree_survives(v, surviving) for v in node)
+    return node is None or str(node) in surviving
+
+
+def dropped_field_paths(r4_body, r5_body):
+    """Best-effort list of R4 element paths whose data did not survive the conversion.
+
+    Works by comparing scalar **leaf values**: an R4 leaf whose value appears nowhere in
+    ``r5_body`` is reported as dropped, and a fully-dropped subtree is collapsed to its highest
+    path (a lost ``activity.detail`` reports ``activity`` once, not each leaf). Because the match
+    is on value, a genuine R4 -> R5 *rename* that preserves the value is **not** reported -- only
+    real data loss is. This is a heuristic (a dropped value that happens to duplicate a surviving
+    one elsewhere is missed); ``resourceType`` is ignored as structural. See ``fhir-r4-import.md``.
+    """
+    surviving = set()
+    _collect_scalars(r5_body, surviving)
+    paths = []
+
+    def walk(node, path):
+        if not _subtree_survives(node, surviving):
+            paths.append(path)
+            return
+        if isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, f"{path}.{key}" if path else key)
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f"{path}[{index}]")
+
+    for key, value in r4_body.items():
+        if key == "resourceType":
+            continue
+        walk(value, key)
+    return paths

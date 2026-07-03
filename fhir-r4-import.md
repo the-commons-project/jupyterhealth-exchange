@@ -17,7 +17,7 @@ mounted in [core/urls.py](core/urls.py):
 | Method & path                     | Body                          | Behaviour                                                              |
 | --------------------------------- | ----------------------------- | --------------------------------------------------------------------- |
 | `POST /fhir-import/R4/<resource>` | one R4 resource               | convert → **normal create routing**                                   |
-| `POST /fhir-import/R4`            | an R4 `Bundle` of resources   | convert & create each entry; returns a `batch-response` Bundle        |
+| `POST /fhir-import/R4`            | an R4 `Bundle` of resources   | convert & create each entry                                           |
 
 It is **create-only** — `GET`/`PUT`/`PATCH`/`DELETE` return `405`.
 
@@ -27,13 +27,39 @@ path **reuses everything downstream unchanged**:
 - **mapped-vs-aux routing** — an OMH-coded `Observation` writes the `Observation` model; every
   other resource (and every non-OMH `Observation`) lands in `FhirAuxResource`
   (see [fhir-engine doc](../jupyterhealth-software-documentation-tcp/jhe/fhir/fhir-engine.md));
-- **`X-JHE-FHIR-Source-ID` header** — required, exactly as for a normal write (missing → `400`);
+- **`X-JHE-FHIR-Source-ID` header** — required, exactly as for a normal write;
 - **R5 validation** against `fhir.resources`, and **JHE provenance stamping** on the aux row.
 
-**Bundle semantics:** entries are processed **independently (batch semantics)** even if the request
-Bundle declares `type: transaction` — the conversion is not atomic. Each response entry carries
-either `201 Created` (with the created resource) or an `OperationOutcome` describing that entry's
-failure; the overall response is `200`.
+### Response: always a Bundle with per-entry outcomes
+
+Because import is a **lossy conversion, not a pure create**, *both* endpoints always return a
+`200` `batch-response` **Bundle** (a single-resource POST yields a one-entry Bundle). Every entry
+carries an `OperationOutcome` at `response.outcome`:
+
+- **success, no loss** → `response.status: "201 Created"` + the created resource + an
+  `information` outcome (`"Converted R4 -> R5 with no detected field loss."`);
+- **success, with loss** → `201 Created` + the created resource + one `warning` issue **per
+  dropped R4 path** (see [Data-loss reporting](#data-loss-reporting));
+- **failure** (unsupported type, invalid R5, a required field dropped, …) → an error status and an
+  `error` outcome, no `resource`.
+
+The `X-JHE-FHIR-Source-ID` header gates the **whole request** (one header for the batch), so a
+missing / unknown / forbidden source is a request-level `400` / `403`, not a per-entry outcome.
+
+Entries are processed **independently (batch semantics)** even if the request Bundle declares
+`type: transaction` — the conversion is not atomic.
+
+### Data-loss reporting
+
+The lossy nature of the conversion (fields with no R5 home are dropped — see
+[Limitations](#known-limitations)) is surfaced rather than silent. After converting a resource,
+[`dropped_field_paths`](core/fhir/cross_version.py) diffs the R4 input against the R5 output by
+**scalar leaf value**: any R4 leaf whose value appears nowhere in the output is reported (a
+fully-dropped subtree collapses to its highest path). Because it matches on *value*, a genuine
+R4 → R5 **rename that preserves the data is not flagged** — only real loss is. Each dropped path
+becomes a `warning` issue in the entry's outcome (`expression: ["<Resource>.<path>"]`) **and** a
+server-side `logger.warning`. It is a heuristic: a dropped value that happens to duplicate a
+surviving value elsewhere is missed.
 
 ## Architecture
 
@@ -116,9 +142,12 @@ tree). Key mechanics:
 
 ## Known limitations
 
-These are the deliberate lossy edges (all consistent with "best-effort, R5-validated"):
+These are the deliberate lossy edges (all consistent with "best-effort, R5-validated"). Note that
+field loss is **reported, not silent** — see [Data-loss reporting](#data-loss-reporting):
 
-- **Dropped fields.** R4 elements with no R5 mapping are dropped by the HL7 maps themselves.
+- **Dropped fields.** R4 elements with no R5 mapping are dropped by the HL7 maps themselves; the
+  import surfaces them as `warning` outcomes and a server log. (If a *required* R5 field is what
+  was dropped, the resource fails R5 validation and becomes an `error` entry instead.)
 - **Unbundled value-set ConceptMaps** → codes pass through untranslated (see §5). If a code is
   invalid in R5, the create fails validation.
 - **R5-introspection assumption.** Element types come from the R5 model. Where an element's shape or
@@ -136,9 +165,12 @@ These are the deliberate lossy edges (all consistent with "best-effort, R5-valid
 
 - **Engine shape** (no DB): choice elements, repeating backbone elements, repeating *primitive*
   elements (lists must not collapse), and R5 validity for `Observation` / `Patient` / `Condition`.
-- **Endpoint**: single-resource create → stored as aux with provenance; required source header;
-  unsupported resource → `404`; `GET` → `405`; Bundle `batch-response` with per-entry success and
-  error outcomes.
+- **Data-loss detection** (no DB): `dropped_field_paths` flags genuine loss but not value-preserving
+  renames, and collapses a fully-dropped subtree to its root path.
+- **Endpoint**: single-resource POST returns a one-entry Bundle and stores the aux row with
+  provenance; a dropped optional field (`CarePlan.activity.detail`) yields a `warning` outcome with
+  the resource still created; request-level source header → `400`; unsupported type → error entry;
+  `GET` → `405`; Bundle with per-entry success + error outcomes, each carrying an `OperationOutcome`.
 
 A crash-smoke over all 27 configured aux resource types confirms every type converts without error.
 
