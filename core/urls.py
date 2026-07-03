@@ -7,22 +7,22 @@ from core.fhir.config import FHIR_VERSION
 from . import views
 from .views import common, mychart, ow
 from .views.fhir import FHIRResourceView
+from .views.fhir_import import FHIRImportView
 
 
-def fhir_urls(prefix, suffix):
+def fhir_urls(prefix):
     """Routes (batch / collection / instance) for a FHIR base path `prefix`.
 
     `prefix` ends in a slash (e.g. "FHIR/R5/"). The bundle-batch base is registered both
     with and without the trailing slash so POST /FHIR/R5 and POST /FHIR/R5/ both work
-    (APPEND_SLASH only 301-redirects, which drops the POST body). `suffix` keeps the URL
-    names unique across the canonical and legacy mounts.
+    (APPEND_SLASH only 301-redirects, which drops the POST body).
     """
     batch = views.FHIRBase.as_view({"post": "create"})
     return [
-        path(prefix, batch, name=f"fhir-batch{suffix}"),
-        path(prefix.rstrip("/"), batch, name=f"fhir-batch-no-slash{suffix}"),
-        path(f"{prefix}<str:resource>", FHIRResourceView.as_view(), name=f"fhir-resource{suffix}"),
-        path(f"{prefix}<str:resource>/<str:id>", FHIRResourceView.as_view(), name=f"fhir-resource-instance{suffix}"),
+        path(prefix, batch, name="fhir-batch"),
+        path(prefix.rstrip("/"), batch, name="fhir-batch-no-slash"),
+        path(f"{prefix}<str:resource>", FHIRResourceView.as_view(), name="fhir-resource"),
+        path(f"{prefix}<str:resource>/<str:id>", FHIRResourceView.as_view(), name="fhir-resource-instance"),
     ]
 
 
@@ -104,8 +104,13 @@ urlpatterns = [
     path("api/v1/", include(api_router.urls)),
     # FHIR API. One unified resource endpoint; the resource type in the URL is resolved
     # against core/fhir/fhir_config.json (mapped vs auxiliary). The bundle batch lives at
-    # the base. The canonical base is FHIR/<version>/ (version from the config); the
-    # lowercase fhir/r5/ path is kept as a backward-compatible alias.
-    *fhir_urls(f"FHIR/{FHIR_VERSION}/", suffix=""),
-    *fhir_urls("fhir/r5/", suffix="-legacy"),
+    # the base (registered with and without a trailing slash). The base is FHIR/<version>/
+    # (version from the config).
+    *fhir_urls(f"FHIR/{FHIR_VERSION}/"),
+    # R4 ingestion: convert an R4 body (or Bundle) to R5, then reuse the normal create routing.
+    # The base (with and without trailing slash) takes a Bundle; the collection path takes one
+    # resource. See core/views/fhir_import.py and fhir-r4-import.md.
+    path("fhir-import/R4/", FHIRImportView.as_view(), name="fhir-import-bundle"),
+    path("fhir-import/R4", FHIRImportView.as_view(), name="fhir-import-bundle-no-slash"),
+    path("fhir-import/R4/<str:resource>", FHIRImportView.as_view(), name="fhir-import-resource"),
 ]

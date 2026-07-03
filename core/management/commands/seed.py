@@ -174,7 +174,7 @@ class Command(BaseCommand):
                 "omh:forced-expiratory-volume-1-second:1.0",
                 "Forced expiratory volume 1 second",
             ),
-            ("http://hl7.org/fhir/", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
+            ("http://hl7.org/fhir/resource-types", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
             ("https://w3id.org/openmhealth", "omh:physical-activity:1.2", "Physical activity"),
             ("https://w3id.org/openmhealth", "omh:step-count:3.0", "Step count"),
             ("https://w3id.org/ieee1752", "ieee:sleep-stage-summary:1.0", "Sleep stage summary"),
