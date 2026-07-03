@@ -393,7 +393,7 @@ class Command(BaseCommand):
         planetary_research_institute_study_patients = [sp_peter_bp_hr, sp_peter_bp, sp_pamela_bp_hr, sp_pamela_bp]
         for consent in StudyPatientScopeConsent.objects.filter(
             consented=True, study_patient__in=planetary_research_institute_study_patients
-        ).exclude(scope_code__coding_system="http://hl7.org/fhir/"):
+        ).exclude(scope_code__coding_system__startswith="http://hl7.org/fhir/"):
             scope_code = consent.scope_code
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
@@ -575,7 +575,7 @@ class Command(BaseCommand):
         med_study_patients = [sp_percy_bt, sp_paul_o2, sp_pat_bg, sp_pat_o2]
         for consent in StudyPatientScopeConsent.objects.filter(
             consented=True, study_patient__in=med_study_patients
-        ).exclude(scope_code__coding_system="http://hl7.org/fhir/"):
+        ).exclude(scope_code__coding_system__startswith="http://hl7.org/fhir/"):
             scope_code = consent.scope_code
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
