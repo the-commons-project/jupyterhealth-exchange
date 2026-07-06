@@ -149,6 +149,41 @@ Entities are based on the [HL7 FHIR model](https://build.fhir.org/), a widely us
 9. Upload Observations using the FHIR API and access token.
 10. View the Observations from the Web UI.
 
+## Working with APIs
+
+### Bruno API Collection
+
+A [Bruno](https://www.usebruno.com/) API collection lives at `opencollection/JHE/` with ready-made requests for all Admin and FHIR endpoints. Every request uses environment variables, so there are no hardcoded IDs.
+
+**Setup:**
+
+1. Install [Bruno](https://www.usebruno.com/downloads).
+2. Seed the database and mint an access token:
+   ```bash
+   python manage.py seed
+   python manage.py create_bruno_app --email admin@example.com
+   ```
+   `create_bruno_app` creates an OAuth app, generates a 1-year access token, and makes the user a manager of every organization. Copy the printed token.
+3. In Bruno: **Open Collection** → select `opencollection/JHE/`.
+4. Create an environment and set these variables (get the IDs from the Web UI or your seeded data):
+
+   | Variable | Meaning |
+   |----------|---------|
+   | `BASE_URL` | Server root, e.g. `http://localhost:8000` |
+   | `ACCESS_TOKEN` | Token printed by `create_bruno_app` |
+   | `ORG_ID` | An organization id |
+   | `PATIENT_ID` | A patient id |
+   | `STUDY_ID` | A study id |
+   | `USER_ID` | A user id |
+   | `DATA_SOURCE_ID` | A data source id |
+   | `CLIENT_APP_ID` | An OAuth client (JheClient) id |
+
+5. Select the environment, then send any request.
+
+> The token expires after 1 year. Re-run `create_bruno_app` for a new one.
+
+The collection is guarded by `tests/backend/test_bruno_collection.py`, which checks every request maps to a working endpoint. Run it with the backend test suite.
+
 ## Contributing
 
 See [doc](https://jupyterhealth.github.io/software-documentation/) for test requirements, coding standards, and PR checklist.
