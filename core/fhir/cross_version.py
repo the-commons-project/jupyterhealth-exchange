@@ -12,7 +12,7 @@ target element, and a ``dependent`` resolves each positional argument against th
 the called group's input ``mode``.
 
 Everything is best-effort: a rule that raises is logged and skipped rather than failing the whole
-conversion, and the result is validated as R5 downstream. See ``fhir-r4-import.md`` (repo root).
+conversion, and the result is validated as R5 downstream.
 """
 
 import logging
@@ -101,6 +101,12 @@ class _Engine:
             if raw is None:
                 return
             model, tname = child_type(context.model, json_key)
+            if model is None and tname is None and source.get("type"):
+                # R5 introspection found no such field: the element was renamed between R4 and R5
+                # (e.g. R4 medication[x] -> R5 medication). Fall back to the map's explicit source
+                # ``type`` so the value is still typed (and can dispatch to a datatype group).
+                tname = source["type"]
+                model = model_for(tname)
             items = raw if isinstance(raw, list) else [raw]
             bindings = [_Var(item, model, tname) for item in items]
 
@@ -182,10 +188,20 @@ class _Engine:
         if name == "DefaultMappingGroupAnonymousAlias":
             if first is None or first.model is None:
                 return  # primitive argument: value already copied by the create short-circuit.
-            type_name = first.model.__name__
-            # Datatypes resolve to their type-default group; backbone elements (typeMode absent)
-            # resolve by a group whose name matches the type (ObservationComponent, ...).
-            group = self.maps.default_group_for(type_name) or self.maps.group_for(type_name)
+            src_type = first.model.__name__
+            second = tvars.get(params[1].get("valueId")) if len(params) > 1 else None
+            tgt_type = second.model.__name__ if second is not None and second.model is not None else None
+            group = None
+            if tgt_type and tgt_type != src_type:
+                # A type-changing element (e.g. R4 Reference -> R5 CodeableReference) dispatches to
+                # the HL7 conversion group for that (source, target) pair, which nests correctly
+                # (Reference2CodeableReference -> .reference; CodeableConcept2CodeableReference ->
+                # .concept). Falls back to the same-type default if there is no conversion group.
+                group = self.maps.conversion_group_for(src_type, tgt_type)
+            if group is None:
+                # Datatypes resolve to their type-default group; backbone elements (typeMode
+                # absent) resolve by a group whose name matches the type (ObservationComponent, ...).
+                group = self.maps.default_group_for(src_type) or self.maps.group_for(src_type)
         else:
             group = self.maps.group_for(name)
         if group is None:
@@ -335,7 +351,7 @@ def dropped_field_paths(r4_body, r5_body):
     path (a lost ``activity.detail`` reports ``activity`` once, not each leaf). Because the match
     is on value, a genuine R4 -> R5 *rename* that preserves the value is **not** reported -- only
     real data loss is. This is a heuristic (a dropped value that happens to duplicate a surviving
-    one elsewhere is missed); ``resourceType`` is ignored as structural. See ``fhir-r4-import.md``.
+    one elsewhere is missed); ``resourceType`` is ignored as structural.
     """
     surviving = set()
     _collect_scalars(r5_body, surviving)

@@ -109,7 +109,7 @@ urlpatterns = [
     *fhir_urls(f"FHIR/{FHIR_VERSION}/"),
     # R4 ingestion: convert an R4 body (or Bundle) to R5, then reuse the normal create routing.
     # The base (with and without trailing slash) takes a Bundle; the collection path takes one
-    # resource. See core/views/fhir_import.py and fhir-r4-import.md.
+    # resource. See core/views/fhir_import.py.
     path("fhir-import/R4/", FHIRImportView.as_view(), name="fhir-import-bundle"),
     path("fhir-import/R4", FHIRImportView.as_view(), name="fhir-import-bundle-no-slash"),
     path("fhir-import/R4/<str:resource>", FHIRImportView.as_view(), name="fhir-import-resource"),

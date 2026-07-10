@@ -1,9 +1,9 @@
-"""Tests for R4 ingestion: the cross-version transform engine (core/fhir/xver) and the
+"""Tests for R4 ingestion: the cross-version transform engine (core/fhir/cross_version) and the
 /fhir-import/R4 endpoint (core/views/fhir_import.py).
 
 The engine converts an R4 body to R5 by interpreting the bundled HL7 ``*4to5`` FML StructureMaps;
 the endpoint then reuses the normal create routing (mapped-vs-aux, R5 validation, source header,
-provenance). See fhir-r4-import.md (repo root).
+provenance).
 """
 
 import uuid
@@ -95,6 +95,56 @@ def test_engine_condition_valid_r5():
 def test_engine_unknown_resource_raises():
     with pytest.raises(XVerError):
         transform_to_r5("NotAResource", {"resourceType": "NotAResource"})
+
+
+def test_engine_medicationrequest_codeablereference_and_patch():
+    # R4 medication[x] / reasonCode / reasonReference all became R5 CodeableReference, and the
+    # official map omits dosageInstruction. Exercises: source-type-hint fallback, (source,target)
+    # pair dispatch into the HL7 conversion groups, and the local patch.
+    r4 = {
+        "resourceType": "MedicationRequest",
+        "status": "active",
+        "intent": "order",
+        "medicationReference": {"reference": "Medication/x"},
+        "subject": {"reference": "Patient/p1"},
+        "reasonCode": [{"text": "headache"}],
+        "reasonReference": [{"reference": "Condition/c1"}],
+        "dosageInstruction": [{"text": "1 tab daily"}],
+    }
+    out = transform_to_r5("MedicationRequest", r4)
+    validate_fhir_resource("MedicationRequest", out)  # raises on invalid R5 -- was the blocker
+
+    # medicationReference -> medication.reference (a nested Reference), not a flat Reference
+    assert out["medication"] == {"reference": {"reference": "Medication/x"}}
+    # reasonCode -> reason[].concept ; reasonReference -> reason[].reference
+    assert {"concept": {"text": "headache"}} in out["reason"]
+    assert {"reference": {"reference": "Condition/c1"}} in out["reason"]
+    # patched-in rule: dosageInstruction survives
+    assert out["dosageInstruction"][0]["text"] == "1 tab daily"
+
+
+def test_engine_medication_codeableconcept_nests_under_concept():
+    r4 = {
+        "resourceType": "MedicationRequest",
+        "status": "active",
+        "intent": "order",
+        "medicationCodeableConcept": {"coding": [{"system": "http://snomed.info/sct", "code": "111"}]},
+        "subject": {"reference": "Patient/p1"},
+    }
+    out = transform_to_r5("MedicationRequest", r4)
+    validate_fhir_resource("MedicationRequest", out)
+    assert out["medication"] == {"concept": {"coding": [{"system": "http://snomed.info/sct", "code": "111"}]}}
+
+
+def test_patches_are_merged_over_official_map():
+    from core.fhir.cross_version_maps import get_maps
+
+    group = get_maps().group_for("MedicationRequest")
+    rules = {rule["name"]: rule for rule in group["rule"]}
+    # dosageInstruction rule was added by the patch (absent upstream)
+    assert "dosageInstruction" in rules
+    # reasonCode rule was overridden to call the CodeableReference conversion group
+    assert rules["reasonCode"]["dependent"][0]["name"] == "CodeableConcept2CodeableReference"
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +243,23 @@ def test_import_unsupported_resource_reports_error_entry(api_client, fhir_source
     assert entry["response"]["status"].startswith("404")
     assert entry["response"]["outcome"]["issue"][0]["severity"] == "error"
     assert "resource" not in entry
+
+
+def test_import_error_entry_still_reports_dropped_fields(api_client, patient, fhir_source):
+    # R4 Coverage.payor has no R5 home (dropped) and its loss makes the R5 Coverage invalid. The
+    # error entry must carry both the error AND the drop warning, so the cause is discoverable.
+    r4 = {
+        "resourceType": "Coverage",
+        "status": "active",
+        "beneficiary": {"reference": f"Patient/{patient.id}"},
+        "payor": [{"reference": "Organization/1"}],
+    }
+    r = api_client.post("/fhir-import/R4/Coverage", r4, **_src(fhir_source))
+    assert r.status_code == 200, r.text
+    issues = r.json()["entry"][0]["response"]["outcome"]["issue"]
+    severities = [i["severity"] for i in issues]
+    assert "error" in severities
+    assert any(i["severity"] == "warning" and i["expression"] == ["Coverage.payor"] for i in issues)
 
 
 def test_import_get_not_allowed(api_client, fhir_source):
