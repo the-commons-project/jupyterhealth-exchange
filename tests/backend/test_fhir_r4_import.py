@@ -6,6 +6,7 @@ the endpoint then reuses the normal create routing (mapped-vs-aux, R5 validation
 provenance).
 """
 
+import json
 import uuid
 
 import pytest
@@ -13,6 +14,41 @@ import pytest
 from core.fhir.cross_version import XVerError, dropped_field_paths, transform_to_r5
 from core.fhir.fhir_validation import validate_fhir_resource
 from core.models import FhirAuxResource, FhirSource
+
+# Smallest R4 body that still validates as R5 for each type, so a CodeableReference case can add
+# just the element under test.
+_PATIENT_REF = {"reference": "Patient/p1"}
+_MINIMAL_R4 = {
+    "Procedure": {"resourceType": "Procedure", "status": "completed", "subject": _PATIENT_REF},
+    "ServiceRequest": {
+        "resourceType": "ServiceRequest",
+        "status": "active",
+        "intent": "order",
+        "subject": _PATIENT_REF,
+    },
+    "Goal": {
+        "resourceType": "Goal",
+        "lifecycleStatus": "active",
+        "description": {"text": "g"},
+        "subject": _PATIENT_REF,
+    },
+    "Immunization": {
+        "resourceType": "Immunization",
+        "status": "completed",
+        "vaccineCode": {"text": "v"},
+        "patient": _PATIENT_REF,
+        "occurrenceDateTime": "2024-01-01",
+    },
+    "FamilyMemberHistory": {
+        "resourceType": "FamilyMemberHistory",
+        "status": "completed",
+        "patient": _PATIENT_REF,
+        "relationship": {"text": "mother"},
+    },
+    "Encounter": {"resourceType": "Encounter", "status": "finished"},
+    "CarePlan": {"resourceType": "CarePlan", "status": "active", "intent": "plan", "subject": _PATIENT_REF},
+    "Device": {"resourceType": "Device"},
+}
 
 
 @pytest.fixture
@@ -98,9 +134,9 @@ def test_engine_unknown_resource_raises():
 
 
 def test_engine_medicationrequest_codeablereference_and_patch():
-    # R4 medication[x] / reasonCode / reasonReference all became R5 CodeableReference. Exercises:
-    # source-type-hint fallback, (source,target) pair dispatch into the HL7 conversion groups, the
-    # local patch, and dosageInstruction (supplied by the map since the 2026-03 pack).
+    # R4 medication[x] / reasonCode / reasonReference all became R5 CodeableReference. Exercises R4
+    # source typing and (source, target) pair dispatch into the HL7 conversion groups -- all from
+    # the stock maps, with no local patch.
     r4 = {
         "resourceType": "MedicationRequest",
         "status": "active",
@@ -123,9 +159,8 @@ def test_engine_medicationrequest_codeablereference_and_patch():
 
 
 def test_engine_reason_carries_coding_not_just_text():
-    # The patch types its reasonCode/reasonReference sources, so the source-type fallback can type
-    # the value's *children* too. Without that only the primitive `.text` survived and `.coding`
-    # was silently dropped.
+    # Typing the source from R4 types its *children* too. When sources were typed from R5 the
+    # untypedness was contagious and only the primitive `.text` survived -- `.coding` was dropped.
     r4 = {
         "resourceType": "MedicationRequest",
         "status": "active",
@@ -187,20 +222,82 @@ def test_engine_medication_codeableconcept_nests_under_concept():
     assert out["medication"] == {"concept": {"coding": [{"system": "http://snomed.info/sct", "code": "111"}]}}
 
 
-def test_patches_are_merged_over_official_map():
-    from core.fhir.cross_version_maps import get_maps
+@pytest.mark.parametrize(
+    "resource, r4_extra, element, expected",
+    [
+        # R4 pairs that R5 merged into one CodeableReference: the CodeableConcept arm nests under
+        # .concept, the Reference arm under .reference. None of these rules is typed in the map --
+        # the engine gets the source type from the R4 model, as a conforming FML engine must.
+        ("Procedure", {"reasonCode": [{"text": "r"}]}, "reason", [{"concept": {"text": "r"}}]),
+        (
+            "Procedure",
+            {"usedReference": [{"reference": "Device/d"}]},
+            "used",
+            [{"reference": {"reference": "Device/d"}}],
+        ),
+        ("ServiceRequest", {"reasonCode": [{"text": "r"}]}, "reason", [{"concept": {"text": "r"}}]),
+        ("ServiceRequest", {"locationCode": [{"text": "l"}]}, "location", [{"concept": {"text": "l"}}]),
+        ("Goal", {"outcomeCode": [{"text": "o"}]}, "outcome", [{"concept": {"text": "o"}}]),
+        ("Immunization", {"reasonCode": [{"text": "r"}]}, "reason", [{"concept": {"text": "r"}}]),
+        ("FamilyMemberHistory", {"reasonCode": [{"text": "r"}]}, "reason", [{"concept": {"text": "r"}}]),
+        # ...and standalone elements R5 simply retyped. These kept their *name*, which is what makes
+        # them the sharp case: typing the source from R5 "succeeds" with the wrong (R5) type.
+        ("Encounter", {"serviceType": {"text": "s"}}, "serviceType", [{"concept": {"text": "s"}}]),
+        (
+            "CarePlan",
+            {"addresses": [{"reference": "Condition/c"}]},
+            "addresses",
+            [{"reference": {"reference": "Condition/c"}}],
+        ),
+        (
+            "Device",
+            {"definition": {"reference": "DeviceDefinition/d"}},
+            "definition",
+            {"reference": {"reference": "DeviceDefinition/d"}},
+        ),
+    ],
+)
+def test_codeablereference_converts_from_stock_maps(resource, r4_extra, element, expected):
+    r4 = {**_MINIMAL_R4[resource], **r4_extra}
+    out = transform_to_r5(resource, r4)
+    validate_fhir_resource(resource, out)
+    assert out.get(element) == expected
 
-    group = get_maps().group_for("MedicationRequest")
-    rules = {rule["name"]: rule for rule in group["rule"]}
-    # reasonCode/reasonReference are overridden in place to call the CodeableReference conversion
-    # groups by name (the official rules go through the anonymous default group, which cannot type
-    # them) -- an override, not an append: the official rule of the same name is replaced.
-    assert rules["reasonCode"]["dependent"][0]["name"] == "CodeableConcept2CodeableReference"
-    assert rules["reasonReference"]["dependent"][0]["name"] == "Reference2CodeableReference"
-    assert len([r for r in group["rule"] if r["name"] == "reasonCode"]) == 1
-    # everything else in the official group is left alone (dosageInstruction is now upstream's)
-    assert "dosageInstruction" in rules
-    assert not rules["dosageInstruction"].get("dependent")
+
+def test_patch_mechanism_merges_rules_over_official_map(tmp_path, monkeypatch):
+    # No patches ship any more (the R4 type index made them unnecessary), but the merge mechanism
+    # remains for future upstream gaps, so keep it covered: a patch rule sharing an official rule's
+    # name must REPLACE it, not append a second rule that would emit the element twice.
+    from django.test import override_settings
+
+    from core.fhir import cross_version_maps
+
+    patch = {
+        "resourceType": "StructureMap",
+        "group": [
+            {
+                "name": "Observation",
+                "rule": [
+                    {
+                        "name": "code",  # an official rule name -> override
+                        "source": [{"context": "src", "element": "code", "variable": "vvv"}],
+                        "target": [{"context": "tgt", "element": "bodyStructure", "variable": "vvv"}],
+                    }
+                ],
+            }
+        ],
+    }
+    (tmp_path / "StructureMap-Test-patch.json").write_text(json.dumps(patch))
+
+    cross_version_maps.get_maps.cache_clear()
+    try:
+        with override_settings(FHIR_XVER_PATCHES_DIR=str(tmp_path)):
+            group = cross_version_maps.get_maps().group_for("Observation")
+            code_rules = [r for r in group["rule"] if r["name"] == "code"]
+            assert len(code_rules) == 1  # replaced, not appended
+            assert code_rules[0]["target"][0]["element"] == "bodyStructure"
+    finally:
+        cross_version_maps.get_maps.cache_clear()
 
 
 # ---------------------------------------------------------------------------

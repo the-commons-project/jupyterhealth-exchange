@@ -19,7 +19,7 @@ import logging
 import re
 
 from .cross_version_maps import get_maps
-from .cross_version_type_index import child_type, has_field, is_list, model_for
+from .cross_version_type_index import R4, R5, child_type, has_field, is_list, model_for
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +55,9 @@ class _Engine:
         group = self.maps.group_for(resource_type)
         if group is None:
             raise XVerError(f"No R4->R5 StructureMap for resource type {resource_type!r}")
-        model = model_for(resource_type)
-        src = _Var(dict(r4_body), model, resource_type)
-        tgt = _Var({}, model, resource_type)
+        # Each side is typed against its own release: the body is R4, the result is R5.
+        src = _Var(dict(r4_body), model_for(resource_type, R4), resource_type)
+        tgt = _Var({}, model_for(resource_type, R5), resource_type)
         self._run_group(group, [src, tgt], depth=0)
         result = _prune(tgt.value)
         result["resourceType"] = resource_type
@@ -102,13 +102,14 @@ class _Engine:
             raw = context.value.get(json_key)
             if raw is None:
                 return
-            model, tname = child_type(context.model, json_key)
+            # The source body is R4, so type it against the R4 models -- never the R5 ones, which
+            # would mistype every element that changed between the releases.
+            model, tname = child_type(context.model, json_key, R4)
             if model is None and tname is None and source.get("type"):
-                # R5 introspection found no such field: the element was renamed between R4 and R5
-                # (e.g. R4 medication[x] -> R5 medication). Fall back to the map's explicit source
-                # ``type`` so the value is still typed (and can dispatch to a datatype group).
+                # No such R4 field. The rule's ``type`` discriminates a choice element, so fall back
+                # to it (this also covers a body whose choice key we could not resolve).
                 tname = source["type"]
-                model = model_for(tname)
+                model = model_for(tname, R4)
             items = raw if isinstance(raw, list) else [raw]
             bindings = [_Var(item, model, tname) for item in items]
 
@@ -305,9 +306,9 @@ def _choice_key(container, element, type_hint):
     """Flatten a choice element to its FHIR-JSON key: ``effective`` + ``dateTime`` ->
     ``effectiveDateTime``.
 
-    A ``type`` on a *non-choice* element is a plain type assertion, not a choice discriminator
-    (``reasonCode : CodeableConcept`` is still keyed ``reasonCode``), so prefer whichever key the
-    source actually carries.
+    A rule's ``type`` is a *condition*, so it only implies a flattened key when the element really is
+    a choice. Where a rule types a non-choice element the key is unchanged, so prefer whichever key
+    the source actually carries.
     """
     if not (element and type_hint):
         return element
