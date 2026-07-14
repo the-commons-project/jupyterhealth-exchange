@@ -3,14 +3,14 @@
   "id": "MedicationRequest4to5-jhe-patch",
   "url": "https://jupyterhealth.org/fhir/StructureMap/MedicationRequest4to5-patch",
   "name": "MedicationRequest4to5JhePatch",
-  "description": "JHE-local corrections merged (rule-by-rule) over the official MedicationRequest4to5 map: map R4 reasonCode/reasonReference to the R5 `reason` CodeableReference via the HL7 conversion groups, and add the dosageInstruction rule that the official map omits.",
+  "description": "JHE-local corrections merged (rule-by-rule) over the official MedicationRequest4to5 map: map R4 reasonCode/reasonReference to the R5 `reason` CodeableReference via the HL7 conversion groups. The official rules target `reason` through the anonymous default group and carry no source `type`, so the engine cannot type them; naming the conversion group explicitly sidesteps type inference, and the added `type` lets the source-type fallback type the value's children (without it only `.text` survives, and `.coding` is dropped).",
   "group": [
     {
       "name": "MedicationRequest",
       "rule": [
         {
           "name": "reasonCode",
-          "source": [{"context": "src", "element": "reasonCode", "variable": "vvv"}],
+          "source": [{"context": "src", "element": "reasonCode", "variable": "vvv", "type": "CodeableConcept"}],
           "target": [{"context": "tgt", "element": "reason", "variable": "vvv", "transform": "create"}],
           "dependent": [
             {"name": "CodeableConcept2CodeableReference", "parameter": [{"valueId": "vvv"}, {"valueId": "vvv"}]}
@@ -18,18 +18,10 @@
         },
         {
           "name": "reasonReference",
-          "source": [{"context": "src", "element": "reasonReference", "variable": "vvv"}],
+          "source": [{"context": "src", "element": "reasonReference", "variable": "vvv", "type": "Reference"}],
           "target": [{"context": "tgt", "element": "reason", "variable": "vvv", "transform": "create"}],
           "dependent": [
             {"name": "Reference2CodeableReference", "parameter": [{"valueId": "vvv"}, {"valueId": "vvv"}]}
-          ]
-        },
-        {
-          "name": "dosageInstruction",
-          "source": [{"context": "src", "element": "dosageInstruction", "variable": "vvv"}],
-          "target": [{"context": "tgt", "element": "dosageInstruction", "variable": "vvv", "transform": "create"}],
-          "dependent": [
-            {"name": "DefaultMappingGroupAnonymousAlias", "parameter": [{"valueId": "vvv"}, {"valueId": "vvv"}]}
           ]
         }
       ]
