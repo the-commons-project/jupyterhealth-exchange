@@ -98,9 +98,9 @@ def test_engine_unknown_resource_raises():
 
 
 def test_engine_medicationrequest_codeablereference_and_patch():
-    # R4 medication[x] / reasonCode / reasonReference all became R5 CodeableReference, and the
-    # official map omits dosageInstruction. Exercises: source-type-hint fallback, (source,target)
-    # pair dispatch into the HL7 conversion groups, and the local patch.
+    # R4 medication[x] / reasonCode / reasonReference all became R5 CodeableReference. Exercises:
+    # source-type-hint fallback, (source,target) pair dispatch into the HL7 conversion groups, the
+    # local patch, and dosageInstruction (supplied by the map since the 2026-03 pack).
     r4 = {
         "resourceType": "MedicationRequest",
         "status": "active",
@@ -119,8 +119,59 @@ def test_engine_medicationrequest_codeablereference_and_patch():
     # reasonCode -> reason[].concept ; reasonReference -> reason[].reference
     assert {"concept": {"text": "headache"}} in out["reason"]
     assert {"reference": {"reference": "Condition/c1"}} in out["reason"]
-    # patched-in rule: dosageInstruction survives
     assert out["dosageInstruction"][0]["text"] == "1 tab daily"
+
+
+def test_engine_reason_carries_coding_not_just_text():
+    # The patch types its reasonCode/reasonReference sources, so the source-type fallback can type
+    # the value's *children* too. Without that only the primitive `.text` survived and `.coding`
+    # was silently dropped.
+    r4 = {
+        "resourceType": "MedicationRequest",
+        "status": "active",
+        "intent": "order",
+        "subject": {"reference": "Patient/p1"},
+        "medicationReference": {"reference": "Medication/x"},  # required in R5
+        "reasonCode": [{"text": "headache", "coding": [{"system": "http://snomed.info/sct", "code": "25064002"}]}],
+    }
+    out = transform_to_r5("MedicationRequest", r4)
+    validate_fhir_resource("MedicationRequest", out)
+    concept = out["reason"][0]["concept"]
+    assert concept["coding"] == [{"system": "http://snomed.info/sct", "code": "25064002"}]
+    assert concept["text"] == "headache"
+
+
+def test_engine_implicit_datatype_dispatch():
+    # The current pack emits no DefaultMappingGroupAnonymousAlias dependent: a bare
+    # `src.x -> tgt.x` implies datatype dispatch, which the engine synthesises. Without that, every
+    # complex element would convert to an empty object and be pruned away.
+    r4 = {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {"coding": [{"system": "http://loinc.org", "code": "85354-9"}]},
+        "component": [
+            {
+                "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6"}]},
+                "valueQuantity": {"value": 120, "unit": "mmHg"},
+                # referenceRange on a *component* gained a rule in the 2026-03 pack
+                "referenceRange": [{"low": {"value": 90, "unit": "mmHg"}}],
+            }
+        ],
+    }
+    out = transform_to_r5("Observation", r4)
+    validate_fhir_resource("Observation", out)
+    component = out["component"][0]
+    assert component["code"]["coding"] == [{"system": "http://loinc.org", "code": "8480-6"}]
+    assert component["referenceRange"][0]["low"] == {"value": 90, "unit": "mmHg"}
+
+
+def test_engine_parenthesised_condition():
+    # Newer maps parenthesise rule conditions (`where (s = 'allergy')`); AllergyIntolerance.type is
+    # mapped only through such a rule, so a parser that cannot read them drops the field.
+    r4 = {"resourceType": "AllergyIntolerance", "type": "allergy", "patient": {"reference": "Patient/p1"}}
+    out = transform_to_r5("AllergyIntolerance", r4)
+    validate_fhir_resource("AllergyIntolerance", out)
+    assert out["type"]["coding"][0]["code"] == "allergy"
 
 
 def test_engine_medication_codeableconcept_nests_under_concept():
@@ -141,10 +192,15 @@ def test_patches_are_merged_over_official_map():
 
     group = get_maps().group_for("MedicationRequest")
     rules = {rule["name"]: rule for rule in group["rule"]}
-    # dosageInstruction rule was added by the patch (absent upstream)
-    assert "dosageInstruction" in rules
-    # reasonCode rule was overridden to call the CodeableReference conversion group
+    # reasonCode/reasonReference are overridden in place to call the CodeableReference conversion
+    # groups by name (the official rules go through the anonymous default group, which cannot type
+    # them) -- an override, not an append: the official rule of the same name is replaced.
     assert rules["reasonCode"]["dependent"][0]["name"] == "CodeableConcept2CodeableReference"
+    assert rules["reasonReference"]["dependent"][0]["name"] == "Reference2CodeableReference"
+    assert len([r for r in group["rule"] if r["name"] == "reasonCode"]) == 1
+    # everything else in the official group is left alone (dosageInstruction is now upstream's)
+    assert "dosageInstruction" in rules
+    assert not rules["dosageInstruction"].get("dependent")
 
 
 # ---------------------------------------------------------------------------
