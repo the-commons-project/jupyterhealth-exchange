@@ -111,6 +111,47 @@ def mapped_criteria(resource_type):
     return get_mapping_criteria(_MAPPED_RESOURCES.get(resource_type, {}))
 
 
+# The search-parameter value types a ``__search`` entry may declare (see core/fhir/search.py).
+VALID_SEARCH_TYPES = frozenset({"token", "identifier", "code", "string", "reference", "date", "const"})
+
+
+def _as_path_list(value):
+    """Normalize a ``__search``/``__sortDate`` path (a string, a list, or ``None``) to a list."""
+    if value is None:
+        return []
+    return list(value) if isinstance(value, list) else [value]
+
+
+def mapped_search_params(resource_type):
+    """The ``__search`` param definitions for a *mapped* resource (param name -> spec dict).
+
+    Each spec is ``{"type": <token|string|date|const>, "path": <django-field | [fields]>}`` (a
+    ``const`` spec carries ``"value"`` instead of ``"path"``). These are applied as Django ORM
+    filters on top of the model's authorized ``fhir_search`` queryset. Returns ``{}`` when none.
+    """
+    return _MAPPED_RESOURCES.get(resource_type, {}).get("__search", {})
+
+
+def aux_search_params(resource_type):
+    """The ``__search`` param definitions for an *auxiliary* resource (param name -> spec dict).
+
+    Each spec is ``{"type": <token|identifier|code|string|reference|date>, "path": <fhirpath |
+    [fhirpaths]>}`` where the path is a dotted route into the stored FHIR body (camelCase). These
+    drive the JSONB query builder (raw Postgres jsonpath / ``#>>`` filters). Returns ``{}`` when none.
+    """
+    return _AUX_RESOURCES.get(resource_type, {}).get("__search", {})
+
+
+def mapped_sort_date(resource_type):
+    """Django field(s) the ``date`` sort key resolves to for a mapped resource (``COALESCE`` order)."""
+    return _as_path_list(_MAPPED_RESOURCES.get(resource_type, {}).get("__sortDate"))
+
+
+def aux_sort_date(resource_type):
+    """FHIRPath(s) the ``date`` sort key resolves to for an auxiliary resource (``COALESCE`` order)."""
+    return _as_path_list(_AUX_RESOURCES.get(resource_type, {}).get("__sortDate"))
+
+
 def mapped_model_name(resource_type):
     """The Django model name backing a mapped resource (the prefix of its path tokens).
 
@@ -147,8 +188,10 @@ def validate_config():
         # Mapped resources declare meta.__interaction (located recursively in the mapping).
         interactions = get_mapping_interactions({k: v for k, v in entry.items() if k != "resourceType"})
         _validate_interaction(entry.get("resourceType"), interactions, "mapped_resources", errors)
+        _validate_search(entry.get("resourceType"), entry.get("__search"), "mapped_resources", errors)
     for entry in aux_entries:
         _validate_interaction(entry.get("resourceType"), entry.get("__interaction"), "aux_resources", errors)
+        _validate_search(entry.get("resourceType"), entry.get("__search"), "aux_resources", errors)
 
     for resource_type, mapping in _MAPPED_RESOURCES.items():
         # Rule 3: a mapped resource exposing every interaction would never fall back to the
@@ -165,6 +208,27 @@ def validate_config():
         errors.extend(_validate_fhir_fields(resource_type, mapping))
 
     return errors
+
+
+def _validate_search(resource_type, search, section, errors):
+    resource_type = resource_type or "<missing resourceType>"
+    if search is None:
+        return
+    if not isinstance(search, dict):
+        errors.append(f"{section} '{resource_type}': __search must be an object of param -> spec.")
+        return
+    for param, spec in search.items():
+        if not isinstance(spec, dict) or spec.get("type") not in VALID_SEARCH_TYPES:
+            errors.append(
+                f"{section} '{resource_type}': __search '{param}' must declare a 'type' in "
+                f"{sorted(VALID_SEARCH_TYPES)}."
+            )
+            continue
+        if spec["type"] == "const":
+            if "value" not in spec:
+                errors.append(f"{section} '{resource_type}': __search '{param}' (const) must declare a 'value'.")
+        elif not spec.get("path"):
+            errors.append(f"{section} '{resource_type}': __search '{param}' must declare a non-empty 'path'.")
 
 
 def _validate_interaction(resource_type, interactions, section, errors):

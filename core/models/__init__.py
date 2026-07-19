@@ -1,6 +1,13 @@
 from .codeable_concept import CodeableConcept
 from .data_source import ClientDataSource, DataSource, DataSourceSupportedScope
-from .fhir_aux_resource import FhirAuxResource, apply_jhe_extensions
+from .fhir_aux_resource import (
+    JHE_FHIR_SOURCE_BASE,
+    JHE_NATIVE_SOURCE,
+    FhirAuxResource,
+    apply_jhe_extensions,
+    fhir_source_uri,
+    parse_fhir_source_id,
+)
 from .fhir_source import FhirSource
 from .jhe_client import JheClient
 from .jhe_setting import JheSetting
@@ -18,8 +25,12 @@ __all__ = [
     "CodeableConcept",
     "DataSource",
     "DataSourceSupportedScope",
+    "JHE_FHIR_SOURCE_BASE",
+    "JHE_NATIVE_SOURCE",
     "FhirAuxResource",
     "FhirSource",
+    "fhir_source_uri",
+    "parse_fhir_source_id",
     "JheClient",
     "JheSetting",
     "JheUser",
