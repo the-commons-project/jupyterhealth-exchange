@@ -6,10 +6,14 @@
       "id": "DataSource.id",
       "meta": {
         "lastUpdated": "DataSource.last_updated",
+        "source": "'https://jupyterhealth.org/jhe'",
         "__interaction": [
           "read",
           "search"
         ]
+      },
+      "__search": {
+        "type": {"type": "const", "value": "data-source"}
       },
       "name": "DataSource.name",
       "type": {
@@ -27,6 +31,7 @@
       "membership": "'enumerated'",
       "meta": {
         "lastUpdated": "Study.last_updated",
+        "source": "'https://jupyterhealth.org/jhe'",
         "__interaction": [
           "read",
           "search"
@@ -46,16 +51,27 @@
       "resourceType": "Observation",
       "meta": {
         "lastUpdated": "Observation.last_updated",
+        "source": "'https://jupyterhealth.org/jhe'",
         "__criteria": "code=https://w3id.org/openmhealth|",
         "__interaction": [
           "*"
         ]
       },
+      "__search": {
+        "status": {"type": "const", "value": "final"},
+        "date": {"type": "date", "path": ["effective_date_time", "effective_period_start"]}
+      },
+      "__sortDate": ["effective_date_time", "effective_period_start"],
       "id": "Observation.id",
       "identifier": "Observation.identifiers",
       "status": "'final'",
       "code": {
         "coding": "Observation.codeable_concepts"
+      },
+      "effectiveDateTime": "Observation.effective_date_time",
+      "effectivePeriod": {
+        "start": "Observation.effective_period_start",
+        "end": "Observation.effective_period_end"
       },
       "subject": {
         "reference": "'Patient/' + Observation.subject_patient",
@@ -74,10 +90,14 @@
       "id": "Organization.id",
       "meta": {
         "lastUpdated": "Organization.last_updated",
+        "source": "'https://jupyterhealth.org/jhe'",
         "__interaction": [
           "read",
           "search"
         ]
+      },
+      "__search": {
+        "name": {"type": "string", "path": "name"}
       },
       "name": "Organization.name",
       "type": {
@@ -95,10 +115,17 @@
       "identifier": "Patient.identifiers",
       "meta": {
         "lastUpdated": "Patient.last_updated",
+        "source": "'https://jupyterhealth.org/jhe'",
         "__interaction": [
           "read",
           "search"
         ]
+      },
+      "__search": {
+        "birthdate": {"type": "date", "path": "birth_date"},
+        "family": {"type": "string", "path": "name_family"},
+        "given": {"type": "string", "path": "name_given"},
+        "name": {"type": "string", "path": ["name_family", "name_given"]}
       },
       "name": [
         {
@@ -127,10 +154,15 @@
       "id": "Practitioner.id",
       "meta": {
         "lastUpdated": "Practitioner.last_updated",
+        "source": "'https://jupyterhealth.org/jhe'",
         "__interaction": [
           "read",
           "search"
         ]
+      },
+      "__search": {
+        "identifier": {"type": "token", "path": "identifier"},
+        "name": {"type": "string", "path": ["name_family", "name_given"]}
       },
       "name": [
         {
@@ -147,7 +179,11 @@
       "resourceType": "AllergyIntolerance",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "clinical-status": {"type": "token", "path": "clinicalStatus.coding"}
+      },
+      "__sortDate": ["recordedDate"]
     },
     {
       "resourceType": "CarePlan",
@@ -157,13 +193,24 @@
       "__refPaths": [
         "subject.reference",
         "encounter.reference"
-      ]
+      ],
+      "__search": {
+        "category": {"type": "token", "path": "category.coding"},
+        "status": {"type": "code", "path": "status"},
+        "date": {"type": "date", "path": ["period.start"]}
+      },
+      "__sortDate": ["period.start"]
     },
     {
       "resourceType": "CareTeam",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "role": {"type": "token", "path": "participant.role.coding"},
+        "status": {"type": "code", "path": "status"}
+      },
+      "__sortDate": ["period.start"]
     },
     {
       "resourceType": "Condition",
@@ -173,7 +220,18 @@
       "__refPaths": [
         "subject.reference",
         "encounter.reference"
-      ]
+      ],
+      "__search": {
+        "abatement-date": {"type": "date", "path": ["abatementDateTime", "abatementPeriod.start"]},
+        "asserted-date": {"type": "date", "path": ["assertedDate"]},
+        "category": {"type": "token", "path": "category.coding"},
+        "clinical-status": {"type": "token", "path": "clinicalStatus.coding"},
+        "code": {"type": "token", "path": "code.coding"},
+        "encounter": {"type": "reference", "path": "encounter.reference"},
+        "onset-date": {"type": "date", "path": ["onsetDateTime", "onsetPeriod.start"]},
+        "recorded-date": {"type": "date", "path": ["recordedDate"]}
+      },
+      "__sortDate": ["recordedDate"]
     },
     {
       "resourceType": "Coverage",
@@ -185,7 +243,11 @@
       "resourceType": "Device",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "status": {"type": "code", "path": "status"},
+        "type": {"type": "token", "path": "type.coding"}
+      }
     },
     {
       "resourceType": "DiagnosticReport",
@@ -195,13 +257,28 @@
       "__refPaths": [
         "subject.reference",
         "encounter.reference"
-      ]
+      ],
+      "__search": {
+        "category": {"type": "token", "path": "category.coding"},
+        "code": {"type": "token", "path": "code.coding"},
+        "status": {"type": "code", "path": "status"},
+        "date": {"type": "date", "path": ["effectiveDateTime", "effectivePeriod.start"]}
+      },
+      "__sortDate": ["effectiveDateTime", "effectivePeriod.start"]
     },
     {
       "resourceType": "DocumentReference",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "category": {"type": "token", "path": "category.coding"},
+        "type": {"type": "token", "path": "type.coding"},
+        "status": {"type": "code", "path": "status"},
+        "date": {"type": "date", "path": ["date"]},
+        "period": {"type": "date", "path": ["context.period.start", "context.period.end"]}
+      },
+      "__sortDate": ["date"]
     },
     {
       "resourceType": "Encounter",
@@ -210,19 +287,38 @@
       ],
       "__refPaths": [
         "subject.reference"
-      ]
+      ],
+      "__search": {
+        "class": {"type": "token", "path": "class.coding"},
+        "identifier": {"type": "identifier", "path": "identifier"},
+        "discharge-disposition": {"type": "token", "path": "admission.dischargeDisposition.coding"},
+        "location": {"type": "reference", "path": "location.location.reference"},
+        "status": {"type": "code", "path": "status"},
+        "type": {"type": "token", "path": "type.coding"},
+        "date": {"type": "date", "path": ["period.start"]}
+      },
+      "__sortDate": ["period.start"]
     },
     {
       "resourceType": "FamilyMemberHistory",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "code": {"type": "token", "path": "condition.code.coding"}
+      }
     },
     {
       "resourceType": "Goal",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "description": {"type": "string", "path": "description.text"},
+        "lifecycle-status": {"type": "code", "path": "lifecycleStatus"},
+        "target-date": {"type": "date", "path": ["target.dueDate"]}
+      },
+      "__sortDate": ["target.dueDate"]
     },
     {
       "resourceType": "Group",
@@ -238,13 +334,25 @@
       "__refPaths": [
         "patient.reference",
         "encounter.reference"
-      ]
+      ],
+      "__search": {
+        "status": {"type": "code", "path": "status"},
+        "date": {"type": "date", "path": ["occurrenceDateTime"]}
+      },
+      "__sortDate": ["occurrenceDateTime"]
     },
     {
       "resourceType": "Location",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "name": {"type": "string", "path": "name"},
+        "address": {"type": "string", "path": ["address.text", "address.line", "address.city", "address.state", "address.postalCode"]},
+        "address-city": {"type": "string", "path": "address.city"},
+        "address-state": {"type": "string", "path": "address.state"},
+        "address-postalcode": {"type": "string", "path": "address.postalCode"}
+      }
     },
     {
       "resourceType": "Medication",
@@ -256,7 +364,11 @@
       "resourceType": "MedicationDispense",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "status": {"type": "code", "path": "status"},
+        "type": {"type": "token", "path": "type.coding"}
+      }
     },
     {
       "resourceType": "MedicationRequest",
@@ -266,7 +378,14 @@
       "__refPaths": [
         "subject.reference",
         "encounter.reference"
-      ]
+      ],
+      "__search": {
+        "intent": {"type": "code", "path": "intent"},
+        "status": {"type": "code", "path": "status"},
+        "encounter": {"type": "reference", "path": "encounter.reference"},
+        "authoredon": {"type": "date", "path": ["authoredOn"]}
+      },
+      "__sortDate": ["authoredOn"]
     },
     {
       "resourceType": "Observation",
@@ -276,31 +395,58 @@
       "__refPaths": [
         "subject.reference",
         "encounter.reference"
-      ]
+      ],
+      "__search": {
+        "category": {"type": "token", "path": "category.coding"},
+        "code": {"type": "token", "path": "code.coding"},
+        "status": {"type": "code", "path": "status"},
+        "date": {"type": "date", "path": ["effectiveDateTime", "effectivePeriod.start"]}
+      },
+      "__sortDate": ["effectiveDateTime", "effectivePeriod.start"]
     },
     {
       "resourceType": "Organization",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "name": {"type": "string", "path": "name"},
+        "address": {"type": "string", "path": ["address.text", "address.line", "address.city", "address.state", "address.postalCode"]}
+      }
     },
     {
       "resourceType": "Patient",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "birthdate": {"type": "date", "path": ["birthDate"]},
+        "death-date": {"type": "date", "path": ["deceasedDateTime"]},
+        "family": {"type": "string", "path": "name.family"},
+        "given": {"type": "string", "path": "name.given"},
+        "name": {"type": "string", "path": ["name.family", "name.given", "name.text"]},
+        "identifier": {"type": "identifier", "path": "identifier"}
+      }
     },
     {
       "resourceType": "Practitioner",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "name": {"type": "string", "path": ["name.family", "name.given", "name.text"]},
+        "identifier": {"type": "identifier", "path": "identifier"}
+      }
     },
     {
       "resourceType": "PractitionerRole",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "practitioner": {"type": "reference", "path": "practitioner.reference"},
+        "specialty": {"type": "token", "path": "specialty.coding"}
+      }
     },
     {
       "resourceType": "Procedure",
@@ -310,7 +456,13 @@
       "__refPaths": [
         "subject.reference",
         "encounter.reference"
-      ]
+      ],
+      "__search": {
+        "code": {"type": "token", "path": "code.coding"},
+        "status": {"type": "code", "path": "status"},
+        "date": {"type": "date", "path": ["performedDateTime", "performedPeriod.start"]}
+      },
+      "__sortDate": ["performedDateTime", "performedPeriod.start"]
     },
     {
       "resourceType": "Provenance",
@@ -322,19 +474,35 @@
       "resourceType": "QuestionnaireResponse",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "questionnaire": {"type": "reference", "path": "questionnaire"},
+        "status": {"type": "code", "path": "status"},
+        "authored": {"type": "date", "path": ["authored"]}
+      },
+      "__sortDate": ["authored"]
     },
     {
       "resourceType": "RelatedPerson",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "name": {"type": "string", "path": ["name.family", "name.given", "name.text"]}
+      }
     },
     {
       "resourceType": "ServiceRequest",
       "__interaction": [
         "*"
-      ]
+      ],
+      "__search": {
+        "category": {"type": "token", "path": "category.coding"},
+        "code": {"type": "token", "path": "code.coding"},
+        "status": {"type": "code", "path": "status"},
+        "authored": {"type": "date", "path": ["authoredOn"]}
+      },
+      "__sortDate": ["authoredOn"]
     },
     {
       "resourceType": "Specimen",

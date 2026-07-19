@@ -93,7 +93,8 @@ class FHIRBase(viewsets.GenericViewSet):
         # Route a bundled Observation the same way the single-resource endpoint does: an OMH
         # Observation (code system https://w3id.org/openmhealth) is persisted onto the Django
         # Observation model; any other Observation is stored in FhirAuxResource, linked to the
-        # FhirSource named by the X-JHE-FHIR-Source-ID header (and its patient).
+        # FhirSource named by the X-JHE-FHIR-Source-ID header (authoritative) or the entry's own
+        # meta.source (and its patient).
         from core.fhir.config import mapped_criteria
         from core.fhir.engine import matches_criteria
         from core.views.fhir import create_aux_resource, resolve_fhir_source_context
@@ -104,7 +105,7 @@ class FHIRBase(viewsets.GenericViewSet):
         if criteria is None or matches_criteria(camelized, criteria):
             return Observation.fhir_create(resource, user)
 
-        _, fhir_source = resolve_fhir_source_context(request, user)
+        _, fhir_source = resolve_fhir_source_context(request, user, camelized)
         return create_aux_resource("Observation", camelized, fhir_source)
 
     @staticmethod
