@@ -7,13 +7,17 @@ from core/fhir/fhir_config.json (e.g. ``FHIR/R5/Patient``).
 Routing is config-driven (see fhir_engine.md). A Django model backs only the JHE-system
 view of each resource; everything else lives in the generic ``FhirAuxResource`` store:
 
-  * **search** of a mapped type returns the UNION of the Django-mapped rows and the
-    FhirAuxResource rows of that type.
+  * **search** hits exactly ONE store, chosen by the ``_source`` search param (there is no
+    cross-store union): absent or the JHE-native URI -> the Django-mapped rows; a
+    ``<fhir-source-base>/<id>`` URI -> that source's aux rows; ``_source:below=<fhir-source-base>/``
+    -> every imported aux row. See ``_resolve_source_target``.
   * **read / update / delete** are routed by id shape -- a UUID id targets FhirAuxResource,
     an integer id targets the mapped Django model.
   * **create** is routed by the resource's ``__interaction`` allow-list and, where present,
     its ``__criteria``: only an OMH Observation writes to the Django model; every other
-    write lands in FhirAuxResource (linked to a FhirSource named by the X-JHE-FHIR-Source-ID header).
+    write lands in FhirAuxResource, linked to the FhirSource named by the ``X-JHE-FHIR-Source-ID``
+    header (authoritative when present) or else the body's ``meta.source`` URI. A bundle-level
+    ``meta.source`` is never consulted; the ``_source`` header is write-only (ignored on reads).
 
 The FHIR bundle batch endpoint (POST at the base, e.g. ``FHIR/R5/``) remains served by FHIRBase.
 """
@@ -47,13 +51,17 @@ from core.fhir.config import (
 )
 from core.fhir.engine import build_fhir_resource, matches_criteria
 from core.fhir.fhir_validation import validate_fhir_resource
-from core.fhir.pagination import ConcatenatedResults, FHIRBundlePagination
+from core.fhir.pagination import FHIRBundlePagination
+from core.fhir.search import apply_search_params, summary_count_requested
 from core.models import (
+    JHE_FHIR_SOURCE_BASE,
+    JHE_NATIVE_SOURCE,
     FhirAuxResource,
     FhirSource,
     Observation,
     Patient,
     apply_jhe_extensions,
+    parse_fhir_source_id,
 )
 from core.serializers import FHIRAuxResourceSerializer, FHIRObservationSerializer
 from core.views.fhir_base import FHIRBase
@@ -240,29 +248,29 @@ class AuxResourceHandler:
 
     # -- source / patient context --
 
-    def _write_context(self):
-        # Writes must name a source: (patient, fhir_source). Raises 400 if the header is
-        # missing, 403/400 if the source is unknown or the user may not use it.
-        return resolve_fhir_source_context(self.request, self.user)
+    def _write_context(self, resource=None):
+        # Writes must name a source -- the header (authoritative) or the body's meta.source:
+        # (patient, fhir_source). Raises 400 if neither is present, 403/400 if the source is
+        # unknown or the user may not use it.
+        return resolve_fhir_source_context(self.request, self.user, resource)
 
     def _read_scope(self):
         # Reads go through the normalized FhirAuxResource.fhir_search (patient-vs-practitioner +
-        # org-membership authorization), exactly like the mapped handler. The header wins: when
-        # present it scopes the read to that source's patient (resolving the source also
-        # authorizes the caller) and the canonical query params are ignored. When absent, the
-        # canonical patient / patient.organization / patient._has:Group:member filters apply, so
-        # e.g. ?patient._has:Group:member:_id=<study> returns the aux rows of that resource type
-        # for the study's patients the practitioner can access.
-        if self.request.headers.get(FHIR_SOURCE_ID_HEADER):
-            patient, _ = resolve_fhir_source_context(self.request, self.user)
-            return {"patient_id": patient.id}
+        # org-membership authorization), exactly like the mapped handler. The source header is
+        # write-only -- it is ignored here; table + single-source selection is done by the view from
+        # the _source param (see FHIRResourceView._resolve_source_target). What remains is the
+        # canonical patient / patient.organization / patient._has:Group:member location filters, so
+        # e.g. ?patient._has:Group:member:_id=<study> returns the aux rows of that resource type for
+        # the study's patients the practitioner can access.
         return _canonical_search_kwargs(self.request)
 
     def serialize(self, instance):
         return FHIRAuxResourceSerializer().to_representation(instance)
 
-    def search(self):
-        return FhirAuxResource.fhir_search(self.user.id, self.resource_type, **self._read_scope())
+    def search(self, fhir_source_id=None):
+        return FhirAuxResource.fhir_search(
+            self.user.id, self.resource_type, fhir_source_id=fhir_source_id, **self._read_scope()
+        )
 
     def read(self, fhir_id):
         instance = FhirAuxResource.fhir_search(
@@ -277,13 +285,14 @@ class AuxResourceHandler:
         # validating and storing so fhir_data round-trips as valid FHIR.
         data = _camelized(data)
         validate_fhir_resource(self.resource_type, data)
-        _, fhir_source = self._write_context()
+        _, fhir_source = self._write_context(data)
         return self.serialize(create_aux_resource(self.resource_type, data, fhir_source))
 
     def update(self, fhir_id, data, partial=False):
-        patient, fhir_source = self._write_context()
+        camel = _camelized(data)
+        patient, fhir_source = self._write_context(camel)
         instance = self._write_instance(fhir_id, patient)
-        body = _aux_body(_camelized(data))
+        body = _aux_body(camel)
         if partial:
             merged = dict(instance.fhir_data or {})
             merged.update(body)
@@ -303,16 +312,33 @@ class AuxResourceHandler:
             raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
 
 
-def resolve_fhir_source_context(request, user):
-    """Resolve ``(patient, fhir_source)`` from the ``X-JHE-FHIR-Source-ID`` header.
+def _source_id_from_body(resource):
+    """The FhirSource pk named by a resource body's ``meta.source`` URI, or None.
 
-    The patient is taken from the user's own access token (patient users) or from the source's
-    patient (non-patient users). Missing header -> 400; unknown source -> 400; a source the user
-    may not use -> 403.
+    Only the resource's *own* ``meta.source`` is read; a bundle-level ``meta.source`` never
+    propagates to its entries (FHIR defines no such inheritance), so callers pass the entry
+    resource, not the enclosing Bundle.
     """
-    source_id = request.headers.get(FHIR_SOURCE_ID_HEADER)
+    if not isinstance(resource, dict):
+        return None
+    return parse_fhir_source_id((resource.get("meta") or {}).get("source"))
+
+
+def resolve_fhir_source_context(request, user, resource=None):
+    """Resolve ``(patient, fhir_source)`` for a write.
+
+    The source is named by the ``X-JHE-FHIR-Source-ID`` header (**authoritative** when present)
+    or, failing that, by the resource body's ``meta.source`` URI (``<fhir-source-base>/<id>``).
+    A bundle-level ``meta.source`` is never consulted. The patient is taken from the user's own
+    access token (patient users) or from the source's patient (non-patient users). Naming no
+    source at all -> 400; unknown source -> 400; a source the user may not use -> 403.
+    """
+    source_id = request.headers.get(FHIR_SOURCE_ID_HEADER) or _source_id_from_body(resource)
     if not source_id:
-        raise DRFValidationError(f"Header '{FHIR_SOURCE_ID_HEADER}' is required to write this resource.")
+        raise DRFValidationError(
+            f"A FhirSource is required to write this resource: send the '{FHIR_SOURCE_ID_HEADER}' "
+            f"header or set the resource's meta.source to '{JHE_FHIR_SOURCE_BASE}/<id>'."
+        )
     try:
         fhir_source = FhirSource.objects.select_related("patient").get(pk=source_id)
     except (FhirSource.DoesNotExist, ValueError, TypeError):
@@ -510,25 +536,76 @@ class FHIRResourceView(APIView):
             self._refuse(resource, "delete")
         raise MethodNotAllowed("DELETE", detail=f"Delete of a {resource} record is not supported.")
 
-    # -- search: union of mapped rows + aux rows --
+    # -- search: exactly one backing store, chosen by _source --
+
+    def _resolve_source_target(self, resource):
+        """Pick the single backing store for a search from the ``_source`` param.
+
+        Returns ``("mapped", None)``, ``("aux", fhir_source_id_or_None)``, or ``("empty", None)``:
+
+          * ``_source:below=<fhir-source-base>/`` (or without the trailing slash) -> every imported
+            aux row (``aux``, no source filter). Any other ``:below`` prefix -> ``empty``.
+          * ``_source`` absent -> the mapped rows for a mapped type, else the aux rows (a pure-aux
+            type has no mapped store).
+          * ``_source`` == the JHE-native URI -> the mapped rows.
+          * ``_source`` == ``<fhir-source-base>/<id>`` -> that one source's aux rows.
+          * any other ``_source`` (an external URI, a typo) -> ``empty`` (matches nothing, since
+            every stored ``meta.source`` is either the JHE-native URI or a ``<base>/<id>`` URI).
+
+        The ``X-JHE-FHIR-Source-ID`` header plays no part here -- it is write-only.
+        """
+        below = self.request.GET.get("_source:below")
+        if below is not None:
+            return ("aux", None) if below.rstrip("/") == JHE_FHIR_SOURCE_BASE else ("empty", None)
+        source = self.request.GET.get("_source")
+        if source is None:
+            return ("mapped", None) if is_mapped_resource(resource) else ("aux", None)
+        if source == JHE_NATIVE_SOURCE:
+            return ("mapped", None)
+        fhir_source_id = parse_fhir_source_id(source)
+        return ("aux", fhir_source_id) if fhir_source_id is not None else ("empty", None)
+
+    def _search_source(self, resource):
+        """Resolve a search to a single ``(queryset, serialize_fn, store)`` per ``_resolve_source_target``.
+
+        ``store`` is ``"mapped"``, ``"aux"`` or ``"empty"``. A store the type does not expose (a
+        mapped target on a pure-aux type, an unrecognized ``_source``, or a store whose ``search``
+        interaction is not allowed) yields an empty queryset with store ``"empty"`` -- its
+        ``serialize_fn`` is never called and no resource-specific filters are applied.
+        """
+        target, fhir_source_id = self._resolve_source_target(resource)
+        if target == "mapped" and is_mapped_resource(resource) and "search" in mapped_interactions(resource):
+            handler = self._mapped_handler(resource)
+            return handler.search(), handler.serialize, "mapped"
+        if target == "aux" and is_aux_resource(resource) and "search" in aux_interactions(resource):
+            handler = self._aux_handler(resource)
+            return handler.search(fhir_source_id=fhir_source_id), handler.serialize, "aux"
+        return FhirAuxResource.objects.none(), (lambda obj: obj), "empty"
 
     def _search_bundle(self, resource):
-        # Union of the mapped Django rows and the FhirAuxResource rows, mapped first. Each source
-        # is a (queryset, serialize_fn) pair so the paginator slices it at the DB level.
-        sources = []
-        if is_mapped_resource(resource) and "search" in mapped_interactions(resource):
-            handler = self._mapped_handler(resource)
-            sources.append((apply_common_search_filters(handler.search(), self.request), handler.serialize))
-        if is_aux_resource(resource) and "search" in aux_interactions(resource):
-            # Reads don't require the source header: the aux handler scopes to the source's
-            # patient when it is present, else to everything the user can access.
-            handler = self._aux_handler(resource)
-            sources.append((apply_common_search_filters(handler.search(), self.request), handler.serialize))
-
+        queryset, serialize, store = self._search_source(resource)
+        queryset = apply_common_search_filters(queryset, self.request)
+        if store != "empty":
+            queryset = apply_search_params(queryset, resource, self.request, store)
+        if summary_count_requested(self.request):
+            return self._count_bundle(queryset)
         paginator = FHIRBundlePagination()
-        page = paginator.paginate_queryset(ConcatenatedResults(sources), self.request, view=self)
-        entries = [{"resource": serialize(obj)} for serialize, obj in page]
+        page = paginator.paginate_queryset(queryset, self.request, view=self)
+        entries = [{"resource": serialize(obj)} for obj in page]
         return paginator.get_paginated_response(entries)
+
+    def _count_bundle(self, queryset):
+        # _summary=count: the searchset total only, no entries (FHIR count summary).
+        return Response(
+            {
+                "resourceType": "Bundle",
+                "type": "searchset",
+                "total": queryset.count(),
+                "entry": [],
+                "link": [{"relation": "self", "url": self.request.build_absolute_uri()}],
+                "meta": {},
+            }
+        )
 
     # -- error rendering --
 

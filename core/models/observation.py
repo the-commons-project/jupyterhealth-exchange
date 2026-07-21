@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from fhir.resources.observation import Observation as FHIRObservation
 from jsonschema import ValidationError
 
+from core.fhir.effective_time_frame import extract_effective_time_frame
 from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
 from core.utils import validate_with_registry
 
@@ -33,6 +34,15 @@ class Observation(models.Model):
     omh_data = models.JSONField(null=True)
     last_updated = models.DateTimeField(auto_now=True)
     ow_key = models.TextField(null=True, blank=True, db_index=True)
+
+    # Timing elevated out of the omh_data blob so it can be queried at the DB level and rendered
+    # into FHIR R5 Observation.effective[x]. An OMH single point in time populates
+    # effective_date_time (-> effectiveDateTime); every OMH time_interval form populates the two
+    # period bounds (-> effectivePeriod). See core/fhir/effective_time_frame.py. omh_data remains
+    # the source of truth; these are a derived, indexed projection kept in sync on save().
+    effective_date_time = models.DateTimeField(null=True, blank=True, db_index=True)
+    effective_period_start = models.DateTimeField(null=True, blank=True, db_index=True)
+    effective_period_end = models.DateTimeField(null=True, blank=True, db_index=True)
 
     # https://build.fhir.org/valueset-observation-status.html
     OBSERVATION_STATUSES = {
@@ -331,8 +341,16 @@ class Observation(models.Model):
             # (save -> clean) still raises here; the FHIR view maps it to a 422.
             raise DjangoValidationError({"omh_data": error.message}) from error
 
+    def _sync_effective_time_frame(self):
+        # Keep the elevated timing columns in step with omh_data on every write.
+        dt, start, end = extract_effective_time_frame(self.omh_data or {})
+        self.effective_date_time = dt
+        self.effective_period_start = start
+        self.effective_period_end = end
+
     def save(self, *args, **kwargs):
         self.clean()
+        self._sync_effective_time_frame()
         super().save(*args, **kwargs)
 
 

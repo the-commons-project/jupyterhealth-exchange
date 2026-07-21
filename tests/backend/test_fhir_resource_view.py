@@ -2,8 +2,9 @@
 
 Covers the reworked routing: a Django model backs only the JHE-system view of a resource and
 everything else lands in FhirAuxResource (UUID id, linked to a FhirSource named by the
-X-JHE-FHIR-Source-ID header); search is a union of mapped + aux rows; writes for read/search-only
-mapped types fall through to aux; only OMH Observations write to the Django model.
+X-JHE-FHIR-Source-ID header or the body's meta.source); a search hits exactly one store, chosen by
+the _source param (no union); writes for read/search-only mapped types fall through to aux; only
+OMH Observations write to the Django model.
 """
 
 import base64
@@ -13,7 +14,15 @@ import uuid
 import pytest
 from rest_framework.test import APIClient
 
-from core.models import FhirAuxResource, FhirSource, Observation, Organization
+from core.models import (
+    JHE_FHIR_SOURCE_BASE,
+    JHE_NATIVE_SOURCE,
+    FhirAuxResource,
+    FhirSource,
+    Observation,
+    Organization,
+    fhir_source_uri,
+)
 from core.utils import generate_observation_value_attachment_data
 
 from .utils import Code, add_observations
@@ -80,8 +89,8 @@ def test_aux_write_requires_source_header_400(api_client, patient, fhir_source):
 
 
 def test_aux_read_without_header_shows_all_accessible(api_client, patient, fhir_source):
-    # Create (header required), then read without a header -> still visible (practitioner's
-    # org patient), and reading with the header scopes to that source's patient too.
+    # Create (a source is required), then read -> visible (practitioner's org patient). The source
+    # header is write-only, so passing it on a read changes nothing (it is ignored, not resolved).
     api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source))
     assert api_client.get("/FHIR/R5/Condition").json()["total"] == 1
     assert api_client.get("/FHIR/R5/Condition", **_src(fhir_source)).json()["total"] == 1
@@ -338,35 +347,94 @@ def test_organization_create_goes_to_aux(api_client, patient, fhir_source):
 
 
 # ---------------------------------------------------------------------------
-# Search is a union of mapped Django rows + aux rows
+# meta.source provenance stamping
+# ---------------------------------------------------------------------------
+
+_EXT_BASE = "https://jupyterhealth.org/fhir/StructureDefinition"
+
+
+def test_aux_create_stamps_meta_source(api_client, patient, fhir_source):
+    created = api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source)).json()
+    aux = FhirAuxResource.objects.get(pk=created["id"])
+    # meta.source names the FhirSource, on both the stored body and the response; the patient
+    # attribution extension is carried alongside it.
+    assert aux.fhir_data["meta"]["source"] == fhir_source_uri(fhir_source.id)
+    assert created["meta"]["source"] == fhir_source_uri(fhir_source.id)
+    assert f"{_EXT_BASE}/patient-id" in {e["url"] for e in aux.fhir_data.get("extension", [])}
+
+
+def test_aux_create_via_meta_source_no_header(api_client, patient, fhir_source):
+    # The preferred ingest path: no header, the body's meta.source names the FhirSource.
+    body = _condition(patient.id, meta={"source": fhir_source_uri(fhir_source.id)})
+    r = api_client.post("/FHIR/R5/Condition", body)
+    assert r.status_code == 201, r.text
+    assert FhirAuxResource.objects.get(pk=r.json()["id"]).fhir_source_id == fhir_source.id
+
+
+def test_aux_write_header_wins_over_meta_source(api_client, patient, device, fhir_source):
+    # Header and body name different sources -> the header is authoritative.
+    other = FhirSource.objects.create(
+        patient=patient, data_source=device, label="other", fhir_base_url="https://other/fhir"
+    )
+    body = _condition(patient.id, meta={"source": fhir_source_uri(other.id)})
+    r = api_client.post("/FHIR/R5/Condition", body, **_src(fhir_source))
+    assert r.status_code == 201, r.text
+    aux = FhirAuxResource.objects.get(pk=r.json()["id"])
+    assert aux.fhir_source_id == fhir_source.id  # the header, not the body's meta.source
+    assert aux.fhir_data["meta"]["source"] == fhir_source_uri(fhir_source.id)
+
+
+# ---------------------------------------------------------------------------
+# Search hits exactly one store, chosen by _source (no union)
 # ---------------------------------------------------------------------------
 
 
-def test_search_unions_mapped_and_aux(api_client, patient, organization, fhir_source):
-    # Mapped: the practitioner's own organization. Aux: an Organization stored in FhirAuxResource.
+def test_search_default_returns_mapped_only(api_client, patient, organization, fhir_source):
+    # A mapped type with no _source returns the mapped Django rows only -- the aux Organization
+    # is NOT unioned in.
     api_client.post("/FHIR/R5/Organization", {"resourceType": "Organization", "name": "Aux Org"}, **_src(fhir_source))
-    # The source header is required to include the aux portion of a mapped+aux search.
-    r = api_client.get("/FHIR/R5/Organization", **_src(fhir_source))
-    assert r.status_code == 200, r.text
-    bundle = r.json()
-    assert bundle["total"] >= 2
+    names = {e["resource"].get("name") for e in api_client.get("/FHIR/R5/Organization").json()["entry"]}
+    assert organization.name in names
+    assert "Aux Org" not in names
+
+
+def test_search_source_jhe_returns_mapped_only(api_client, patient, organization, fhir_source):
+    api_client.post("/FHIR/R5/Organization", {"resourceType": "Organization", "name": "Aux Org"}, **_src(fhir_source))
+    bundle = api_client.get("/FHIR/R5/Organization", {"_source": JHE_NATIVE_SOURCE}).json()
     names = {e["resource"].get("name") for e in bundle["entry"]}
-    assert "Aux Org" in names  # the aux row
-    assert organization.name in names  # the mapped row
-    assert {e["resource"]["resourceType"] for e in bundle["entry"]} == {"Organization"}
+    assert organization.name in names
+    assert "Aux Org" not in names
 
 
-def test_union_search_without_header_includes_mapped_and_accessible_aux(api_client, hr_study, patient, fhir_source):
-    # Without a source header a read returns the union of mapped studies and every accessible
-    # aux Group (here the one just stored, for an org patient of the practitioner).
-    aux_id = api_client.post(
-        "/FHIR/R5/Group", {"resourceType": "Group", "type": "person", "membership": "enumerated"}, **_src(fhir_source)
-    ).json()["id"]
-    bundle = api_client.get("/FHIR/R5/Group").json()
-    ids = {e["resource"]["id"] for e in bundle["entry"]}
-    assert str(hr_study.id) in ids  # mapped study
-    assert aux_id in ids  # accessible aux Group
-    assert {e["resource"]["resourceType"] for e in bundle["entry"]} == {"Group"}
+def test_search_source_one_fhir_source_returns_that_aux_only(api_client, patient, organization, fhir_source):
+    # _source=<base>/<id> targets that one source's aux rows; the mapped Organization is excluded.
+    api_client.post("/FHIR/R5/Organization", {"resourceType": "Organization", "name": "Aux Org"}, **_src(fhir_source))
+    bundle = api_client.get("/FHIR/R5/Organization", {"_source": fhir_source_uri(fhir_source.id)}).json()
+    assert {e["resource"].get("name") for e in bundle["entry"]} == {"Aux Org"}
+
+
+def test_search_source_below_returns_all_imported(api_client, patient, device, fhir_source):
+    # Two sources, one Condition each; :below on the fhir-source base returns both.
+    other = FhirSource.objects.create(patient=patient, data_source=device, label="o2", fhir_base_url="https://o2/fhir")
+    api_client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "a"}), **_src(fhir_source))
+    api_client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "b"}), **_src(other))
+    bundle = api_client.get("/FHIR/R5/Condition", {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/"}).json()
+    assert bundle["total"] == 2
+
+
+def test_search_unrecognized_source_returns_empty(api_client, patient, fhir_source):
+    api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source))
+    bundle = api_client.get("/FHIR/R5/Condition", {"_source": "https://external.example/fhir"}).json()
+    assert bundle["total"] == 0
+
+
+def test_read_search_ignores_source_header(api_client, patient, fhir_source):
+    # The source header is write-only: a read never resolves it, so even a bogus value is ignored
+    # (a resolved bogus source would 400) and all accessible rows are returned.
+    api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source))
+    r = api_client.get("/FHIR/R5/Condition", HTTP_X_JHE_FHIR_SOURCE_ID="999999")
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -383,3 +451,187 @@ def test_update_delete_on_mapped_integer_id_returns_405(api_client, patient):
 
 def test_read_only_mapped_resource_allows_read(api_client, patient):
     assert api_client.get(f"/FHIR/R5/Patient/{patient.id}").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# US Core search parameters -- auxiliary store (JSONB query builder)
+# ---------------------------------------------------------------------------
+
+_CATEGORY_PROBLEM = {
+    "coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-category", "code": "problem-list-item"}]
+}
+_CATEGORY_ENCOUNTER = {
+    "coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-category", "code": "encounter-diagnosis"}]
+}
+
+
+def _post_condition(api_client, fhir_source, patient, **extra):
+    r = api_client.post("/FHIR/R5/Condition", _condition(patient.id, **extra), **_src(fhir_source))
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def _ids(bundle):
+    return {entry["resource"]["id"] for entry in bundle.get("entry", [])}
+
+
+def test_aux_token_filter_clinical_status(api_client, patient, fhir_source):
+    active = _post_condition(api_client, fhir_source, patient)  # fixture clinicalStatus is 'active'
+    inactive_status = {"coding": [{"system": _CLINICAL_STATUS["coding"][0]["system"], "code": "inactive"}]}
+    _post_condition(api_client, fhir_source, patient, clinicalStatus=inactive_status)
+    bundle = api_client.get("/FHIR/R5/Condition", {"clinical-status": "active"}).json()
+    assert _ids(bundle) == {active}
+
+
+def test_aux_token_filter_with_system(api_client, patient, fhir_source):
+    problem = _post_condition(api_client, fhir_source, patient, category=[_CATEGORY_PROBLEM])
+    _post_condition(api_client, fhir_source, patient, category=[_CATEGORY_ENCOUNTER])
+    system = _CATEGORY_PROBLEM["coding"][0]["system"]
+    # system|code matches; a wrong system does not.
+    assert _ids(api_client.get("/FHIR/R5/Condition", {"category": f"{system}|problem-list-item"}).json()) == {problem}
+    assert api_client.get("/FHIR/R5/Condition", {"category": "http://wrong|problem-list-item"}).json()["total"] == 0
+
+
+def test_aux_token_comma_is_or_and_repeat_is_and(api_client, patient, fhir_source):
+    problem = _post_condition(api_client, fhir_source, patient, category=[_CATEGORY_PROBLEM])
+    encounter = _post_condition(api_client, fhir_source, patient, category=[_CATEGORY_ENCOUNTER])
+    # Comma within one param ORs the values.
+    both = api_client.get("/FHIR/R5/Condition", {"category": "problem-list-item,encounter-diagnosis"}).json()
+    assert _ids(both) == {problem, encounter}
+    # Repeated params AND: no single Condition has both categories, so the result is empty.
+    r = api_client.get("/FHIR/R5/Condition?category=problem-list-item&category=encounter-diagnosis")
+    assert r.json()["total"] == 0
+
+
+def test_aux_reference_filter_encounter(api_client, patient, fhir_source):
+    matched = _post_condition(api_client, fhir_source, patient, encounter={"reference": "Encounter/enc-1"})
+    _post_condition(api_client, fhir_source, patient, encounter={"reference": "Encounter/enc-2"})
+    # Full reference and bare id both resolve.
+    assert _ids(api_client.get("/FHIR/R5/Condition", {"encounter": "Encounter/enc-1"}).json()) == {matched}
+    assert _ids(api_client.get("/FHIR/R5/Condition", {"encounter": "enc-1"}).json()) == {matched}
+
+
+def test_aux_date_filter_comparators(api_client, patient, fhir_source):
+    a = _post_condition(api_client, fhir_source, patient, recordedDate="2020-01-01")
+    b = _post_condition(api_client, fhir_source, patient, recordedDate="2021-06-15")
+    c = _post_condition(api_client, fhir_source, patient, recordedDate="2022-12-31")
+    assert _ids(api_client.get("/FHIR/R5/Condition", {"recorded-date": "ge2021-01-01"}).json()) == {b, c}
+    assert _ids(api_client.get("/FHIR/R5/Condition", {"recorded-date": "le2021-12-31"}).json()) == {a, b}
+    assert _ids(api_client.get("/FHIR/R5/Condition", {"recorded-date": "2021-06-15"}).json()) == {b}
+    # A range is expressed as two AND-ed comparators.
+    ranged = api_client.get("/FHIR/R5/Condition?recorded-date=ge2021-01-01&recorded-date=le2021-12-31").json()
+    assert _ids(ranged) == {b}
+
+
+def test_aux_sort_by_date(api_client, patient, fhir_source):
+    a = _post_condition(api_client, fhir_source, patient, recordedDate="2021-06-15")
+    b = _post_condition(api_client, fhir_source, patient, recordedDate="2020-01-01")
+    c = _post_condition(api_client, fhir_source, patient, recordedDate="2022-12-31")
+    order = [e["resource"]["id"] for e in api_client.get("/FHIR/R5/Condition", {"_sort": "date"}).json()["entry"]]
+    assert order == [b, a, c]
+    order_desc = [e["resource"]["id"] for e in api_client.get("/FHIR/R5/Condition", {"_sort": "-date"}).json()["entry"]]
+    assert order_desc == [c, a, b]
+
+
+def test_aux_summary_count(api_client, patient, fhir_source):
+    for _ in range(3):
+        _post_condition(api_client, fhir_source, patient)
+    bundle = api_client.get("/FHIR/R5/Condition", {"_summary": "count"}).json()
+    assert bundle["type"] == "searchset"
+    assert bundle["total"] == 3
+    assert bundle["entry"] == []
+
+
+def test_aux_string_filter_starts_with(api_client, patient, fhir_source):
+    # Location is a pure-aux resource with a string 'name' search param.
+    def post_location(name):
+        r = api_client.post("/FHIR/R5/Location", {"resourceType": "Location", "name": name}, **_src(fhir_source))
+        assert r.status_code == 201, r.text
+        return r.json()["id"]
+
+    north = post_location("North Clinic")
+    post_location("South Clinic")
+    # Case-insensitive starts-with.
+    assert _ids(api_client.get("/FHIR/R5/Location", {"name": "north"}).json()) == {north}
+    # A non-prefix substring does not match.
+    assert api_client.get("/FHIR/R5/Location", {"name": "Clinic"}).json()["total"] == 0
+
+
+def test_aux_code_param_filters_scalar_code(api_client, patient, fhir_source):
+    # CarePlan.status is a plain FHIR code (a scalar), exercised by the 'status' code-type param.
+    def post_careplan(status):
+        body = {
+            "resourceType": "CarePlan",
+            "status": status,
+            "intent": "plan",
+            "subject": {"reference": f"Patient/{patient.id}"},
+        }
+        r = api_client.post("/FHIR/R5/CarePlan", body, **_src(fhir_source))
+        assert r.status_code == 201, r.text
+        return r.json()["id"]
+
+    active = post_careplan("active")
+    post_careplan("completed")
+    assert _ids(api_client.get("/FHIR/R5/CarePlan", {"status": "active"}).json()) == {active}
+
+
+def test_aux_identifier_param_matches_value_and_system(api_client, patient, fhir_source):
+    def post_patient(system, value):
+        body = {"resourceType": "Patient", "identifier": [{"system": system, "value": value}]}
+        r = api_client.post("/FHIR/R5/Patient", body, **_src(fhir_source))
+        assert r.status_code == 201, r.text
+        return r.json()["id"]
+
+    mrn = post_patient("http://hospital.example/mrn", "A123")
+    post_patient("http://hospital.example/mrn", "B456")
+    src = {"_source": fhir_source_uri(fhir_source.id)}  # Patient is mapped; _source targets aux rows
+    assert _ids(api_client.get("/FHIR/R5/Patient", {**src, "identifier": "A123"}).json()) == {mrn}
+    assert _ids(
+        api_client.get("/FHIR/R5/Patient", {**src, "identifier": "http://hospital.example/mrn|A123"}).json()
+    ) == {mrn}
+    assert api_client.get("/FHIR/R5/Patient", {**src, "identifier": "http://wrong|A123"}).json()["total"] == 0
+
+
+def test_aux_search_combines_with_source_filter(api_client, patient, device, fhir_source):
+    other = FhirSource.objects.create(
+        patient=patient, data_source=device, label="Other", fhir_base_url="https://other.example/fhir"
+    )
+    here = _post_condition(api_client, fhir_source, patient, recordedDate="2021-01-01")
+    api_client.post("/FHIR/R5/Condition", _condition(patient.id, recordedDate="2021-01-01"), **_src(other))
+    # _source selects one source's rows; the JSONB filter narrows within it.
+    bundle = api_client.get(
+        "/FHIR/R5/Condition", {"_source": fhir_source_uri(fhir_source.id), "recorded-date": "2021-01-01"}
+    ).json()
+    assert _ids(bundle) == {here}
+
+
+# ---------------------------------------------------------------------------
+# US Core search parameters -- mapped store (Django ORM)
+# ---------------------------------------------------------------------------
+
+
+def test_mapped_patient_string_and_date_filters(api_client, patient):
+    patient.name_family = "Smith"
+    patient.name_given = "Jane"
+    patient.birth_date = "1990-05-15"
+    patient.save()
+    # family / given are case-insensitive starts-with; name matches either.
+    assert str(patient.id) in {
+        e["resource"]["id"] for e in api_client.get("/FHIR/R5/Patient", {"family": "smi"}).json()["entry"]
+    }
+    assert api_client.get("/FHIR/R5/Patient", {"family": "xyz"}).json()["total"] == 0
+    assert api_client.get("/FHIR/R5/Patient", {"name": "jan"}).json()["total"] == 1
+    # birthdate is a date param.
+    assert api_client.get("/FHIR/R5/Patient", {"birthdate": "1990-05-15"}).json()["total"] == 1
+    assert api_client.get("/FHIR/R5/Patient", {"birthdate": "ge1991-01-01"}).json()["total"] == 0
+
+
+def test_mapped_observation_status_const_and_date(api_client, patient, hr_study):
+    add_observations(patient=patient, code=Code.HeartRate, n=2)
+    Observation.objects.filter(subject_patient=patient).update(effective_date_time="2021-06-15T00:00:00Z")
+    # status is rendered as the constant 'final': the matching value returns rows, others none.
+    assert api_client.get("/FHIR/R5/Observation", {"status": "final"}).json()["total"] == 2
+    assert api_client.get("/FHIR/R5/Observation", {"status": "amended"}).json()["total"] == 0
+    # date filters on effective[x].
+    assert api_client.get("/FHIR/R5/Observation", {"date": "ge2021-01-01"}).json()["total"] == 2
+    assert api_client.get("/FHIR/R5/Observation", {"date": "ge2022-01-01"}).json()["total"] == 0

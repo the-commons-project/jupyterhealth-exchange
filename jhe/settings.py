@@ -47,9 +47,8 @@ SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 OAUTH2_CALLBACK_PATH = "/auth/callback"
 PRACTITIONER_DEFAULT_ORGS = os.getenv("PRACTITIONER_DEFAULT_ORGS", "")
 
-# Open Wearables integration
-OW_API_URL = os.getenv("OW_API_URL", "").rstrip("/")
-OW_API_KEY = os.getenv("OW_API_KEY", "")
+# Open Wearables connection config (OW_API_URL / OW_API_KEY) lives in JheSettings
+# (ow.api_url / ow.api_key), read at runtime via get_setting().
 
 # OW MinIO (S3-compatible) - for syncing raw payload data
 OW_S3_ENDPOINT_URL = os.getenv("OW_S3_ENDPOINT_URL", "")
@@ -242,7 +241,11 @@ OAUTH2_PROVIDER = {
 }
 OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"
 
-TRUSTED_TOKEN_IDP = os.getenv("TRUSTED_TOKEN_IDP")
+# SMART on FHIR token exchange (/o/token-exchange) is configured at runtime via
+# JheSettings, not env vars — see the `auth.sof.*` keys seeded in
+# core/management/commands/seed.py and https://jupyterhealth.github.io/software-documentation/jhe/provider-ehr-launch :
+#   auth.sof.trusted_issuers  (json array) — trusted EHR OIDC issuers (id_token `iss`)
+#   auth.sof.trusted_audience (string)     — the SMART app's client_id at the EHR (id_token `aud`)
 
 X_FRAME_OPTIONS = os.getenv("X_FRAME_OPTIONS", "SAMEORIGIN")
 
