@@ -1,5 +1,6 @@
 from .codeable_concept import CodeableConcept
 from .data_source import ClientDataSource, DataSource, DataSourceSupportedScope
+from .ehr_brand import EhrBrand, EhrBrandLocation
 from .fhir_aux_resource import FhirAuxResource, apply_jhe_extensions
 from .fhir_source import FhirSource
 from .jhe_client import JheClient
@@ -18,6 +19,8 @@ __all__ = [
     "CodeableConcept",
     "DataSource",
     "DataSourceSupportedScope",
+    "EhrBrand",
+    "EhrBrandLocation",
     "FhirAuxResource",
     "FhirSource",
     "JheClient",
