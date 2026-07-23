@@ -105,9 +105,12 @@ class _Engine:
             # The source body is R4, so type it against the R4 models -- never the R5 ones, which
             # would mistype every element that changed between the releases.
             model, tname = child_type(context.model, json_key, R4)
-            if model is None and tname is None and source.get("type"):
-                # No such R4 field. The rule's ``type`` discriminates a choice element, so fall back
-                # to it (this also covers a body whose choice key we could not resolve).
+            if model is None and source.get("type"):
+                # Primitive element: prefer the rule's declared FHIR type over the introspected
+                # name. child_type reports fhir.resources' Python annotation (``bool``/``str``),
+                # which loses the FHIR type needed to rebuild a choice key on the target
+                # (``boolean``/``dateTime``/``code``) -- e.g. ``deceasedBoolean`` would otherwise
+                # become ``deceasedBool``. Also covers a choice element with no matching R4 field.
                 tname = source["type"]
                 model = model_for(tname, R4)
             items = raw if isinstance(raw, list) else [raw]

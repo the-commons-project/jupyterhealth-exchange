@@ -5,7 +5,7 @@ from rest_framework.routers import DefaultRouter
 from core.fhir.config import FHIR_VERSION
 
 from . import views
-from .views import common, mychart, ow
+from .views import common, ow, patient_access
 from .views.fhir import FHIRResourceView
 from .views.fhir_import import FHIRImportView
 
@@ -84,10 +84,11 @@ urlpatterns = [
     path("clients/ow/launch", common.ow_launch, name="ow-launch"),
     path("clients/ow/complete", common.ow_complete, name="ow-complete"),
     path("clients/ow/manage", common.ow_manage, name="ow-manage"),
-    # MyChart patient EHR-records client (issue #489)
-    path("clients/mychart/", mychart.mychart_connect, name="mychart-connect"),
-    path("clients/mychart/callback", mychart.mychart_callback, name="mychart-callback"),
-    path("api/v1/mychart/identifier", mychart.save_patient_identifier, name="mychart-identifier"),
+    # Patient Access patient EHR-records client (issue #489)
+    path("clients/patient-access/", patient_access.patient_access_connect, name="patient-access-connect"),
+    path("clients/patient-access/callback", patient_access.patient_access_callback, name="patient-access-callback"),
+    path("api/v1/patient-access/brands", patient_access.brands_search, name="patient-access-brands"),
+    path("api/v1/patient-access/identifier", patient_access.save_patient_identifier, name="patient-access-identifier"),
     # OW API proxy endpoints
     path("api/v1/ow/users", ow.create_ow_user, name="ow-create-user"),
     path("api/v1/ow/oauth/oura/authorize", ow.get_oura_auth_url, name="ow-oura-authorize"),
