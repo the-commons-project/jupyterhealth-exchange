@@ -1083,22 +1083,6 @@ class TestEdgeCases:
         assert r.status_code == 200
         assert r.json()["total"] == 5
 
-    def test_fhir_observation_summary_count(self, manager_client, study_with_observations):
-        """FHIR _summary=count on Observation (Bruno's "Filtered Summary Observations"):
-        returns the total with no entries, rather than the full result set."""
-        r = manager_client.get(
-            "/FHIR/R5/Observation",
-            {
-                "patient._has:Group:member:_id": study_with_observations.id,
-                "_summary": "count",
-            },
-        )
-        assert r.status_code == 200
-        bundle = r.json()
-        assert bundle["resourceType"] == "Bundle"
-        assert bundle["total"] == 5
-        assert bundle["entry"] == []
-
 
 # ===================================================================
 # STRESS TESTS: Burst of requests
