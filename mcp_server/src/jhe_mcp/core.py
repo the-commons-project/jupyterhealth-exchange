@@ -14,6 +14,7 @@ from jhe_mcp.auth.token_verifier import JheTokenVerifier
 from jhe_mcp.config import Settings
 from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, short_name
 from jhe_mcp.tools import observation_counts, observation_views
+from jhe_mcp.tools import patients as patient_tools
 from jhe_mcp.tools import study as study_tools
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ only returns data that user is authorized to see.
 
 Tools by purpose:
 - Studies: get_study_count, list_studies, get_study_metadata, list_study_patients
-- Patients: get_patient_demographics, get_patient_date_range
+- Patients: search_patients, get_patient_demographics, get_patient_date_range
 - Observations: count_patient_observations, count_study_observations,
   summarize_patient_observations, get_patient_observations
 - OMH schemas: get_omh_schema(name); also browsable as resources at omh://schema/<name>
@@ -49,6 +50,10 @@ Key behaviors:
   with limit/page and use total/has_more to know when you've read everything.
 
 Efficient workflows — do NOT dump or page through records just to count or find dates:
+- Find a patient: search_patients(name=..., birthdate=...) — prefix match on
+  names — then use the returned patient_id with the other tools.
+- Need newest readings first? get_patient_observations already returns
+  newest-first; pass order="oldest" for chronological order.
 - Counts: use count_patient_observations / count_study_observations
   (count_study_observations(by_patient=true) returns {patient_id: count} in one call).
 - First/last data for a patient: get_patient_date_range(patient_id) ->
@@ -169,6 +174,37 @@ def build_server(
             return auth_msg
         d = await study_tools.get_patient_demographics(patient_id=patient_id, base_url=base_url)
         return d.model_dump() if d else None
+
+    @mcp.tool()
+    async def search_patients(
+        name: str | None = None,
+        family: str | None = None,
+        given: str | None = None,
+        birthdate: str | None = None,
+        limit: int = 50,
+        page: int = 1,
+    ) -> dict | str:
+        """Find patients by name and/or birth date; returns a page of matches.
+
+        String params are case-insensitive PREFIX matches ("smi" matches
+        Smith); `name` matches family or given. `birthdate` is YYYY-MM-DD with
+        an optional ge/le/gt/lt prefix (bare = exact day). At least one
+        criterion is required. Returns {total, page, page_size, returned,
+        has_more, patients}; each patient has patient_id, given_name,
+        family_name, birth_date, phone, email. Only patients the caller is
+        authorized to see are returned.
+        """
+        if auth_msg := await _before():
+            return auth_msg
+        return await patient_tools.search_patients(
+            name=name,
+            family=family,
+            given=given,
+            birthdate=birthdate,
+            limit=limit,
+            page=page,
+            base_url=base_url,
+        )
 
     @mcp.tool()
     async def get_patient_observations(
