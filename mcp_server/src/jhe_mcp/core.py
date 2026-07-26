@@ -177,6 +177,7 @@ def build_server(
         start: str | None = None,
         end: str | None = None,
         verbosity: str = "slim",
+        order: str = "newest",
         limit: int = 50,
         page: int = 1,
     ) -> dict | str:
@@ -185,7 +186,9 @@ def build_server(
         Returns {total, page, page_size, returned, has_more, observations}.
         verbosity='slim' (default) returns compact records (type, time,
         value/unit) and omits the raw OMH body; verbosity='full' includes it.
-        Filter by OMH data type short name (e.g. 'blood-glucose') and ISO dates.
+        order='newest' (default) returns most recent first; 'oldest' returns
+        oldest first. Filter by OMH data type short name (e.g. 'blood-glucose')
+        and ISO dates.
         """
         if auth_msg := await _before():
             return auth_msg
@@ -195,6 +198,7 @@ def build_server(
             start=start,
             end=end,
             verbosity=verbosity,
+            order=order,
             limit=limit,
             page=page,
             base_url=base_url,
