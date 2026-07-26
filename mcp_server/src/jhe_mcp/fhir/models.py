@@ -170,3 +170,33 @@ class SlimObservation(BaseModel):
             value=value,
             unit=unit,
         )
+
+
+class PatientSearchResult(BaseModel):
+    patient_id: str
+    given_name: str | None = None
+    family_name: str | None = None
+    birth_date: str | None = None
+    phone: str | None = None
+    email: str | None = None
+
+    @classmethod
+    def from_fhir_entry(cls, entry: dict[str, Any]) -> PatientSearchResult:
+        r = entry.get("resource") or entry
+        name = (r.get("name") or [{}])[0]
+        given = (name.get("given") or [None])[0]
+
+        def _telecom(system: str) -> str | None:
+            for item in r.get("telecom") or []:
+                if item.get("system") == system and item.get("value"):
+                    return item["value"]
+            return None
+
+        return cls(
+            patient_id=str(r["id"]),
+            given_name=given,
+            family_name=name.get("family"),
+            birth_date=r.get("birthDate"),
+            phone=_telecom("phone"),
+            email=_telecom("email"),
+        )
