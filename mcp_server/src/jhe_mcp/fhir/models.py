@@ -99,6 +99,12 @@ class Observation(BaseModel):
             if effective_at is None:
                 interval = tf.get("time_interval") or {}
                 effective_at = interval.get("start_date_time") or interval.get("end_date_time")
+        if effective_at is None:
+            # OMH shapes this parser doesn't compute (e.g. date + part_of_day)
+            # are still projected onto the FHIR effective[x] elements by the
+            # server — fall back to those so the record stays placeable in time
+            # (and isn't skipped as a date-range boundary).
+            effective_at = r.get("effectiveDateTime") or (r.get("effectivePeriod") or {}).get("start")
         return cls(
             observation_id=str(r["id"]),
             patient_id=patient_id,
@@ -182,7 +188,13 @@ class PatientSearchResult(BaseModel):
 
     @classmethod
     def from_fhir_entry(cls, entry: dict[str, Any]) -> PatientSearchResult:
+        from jhe_mcp.fhir.client import JheClientError
+
         r = entry.get("resource") or entry
+        if not isinstance(r, dict) or "id" not in r:
+            # Labeled like bundle_total's guard: a malformed upstream entry must
+            # not surface as an anonymous KeyError.
+            raise JheClientError(0, f"Expected a Patient entry with an id, got: {str(entry)[:200]}")
         name = (r.get("name") or [{}])[0]
         given = (name.get("given") or [None])[0]
 

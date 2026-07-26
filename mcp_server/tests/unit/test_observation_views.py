@@ -87,10 +87,12 @@ async def test_summarize_groups_by_type_with_date_range(auth, fake_client):
         ],
     }
     summary = await summarize_patient_observations(patient_id="40006", base_url="http://jhe")
-    assert summary["Blood glucose"]["count"] == 2
-    assert summary["Blood glucose"]["earliest"] == "2026-04-10T08:00:00Z"
-    assert summary["Blood glucose"]["latest"] == "2026-04-15T08:00:00Z"
-    assert summary["Heart rate"]["count"] == 1
+    assert summary["truncated"] is False
+    types = summary["types"]
+    assert types["Blood glucose"]["count"] == 2
+    assert types["Blood glucose"]["earliest"] == "2026-04-10T08:00:00Z"
+    assert types["Blood glucose"]["latest"] == "2026-04-15T08:00:00Z"
+    assert types["Heart rate"]["count"] == 1
 
 
 @pytest.mark.asyncio
@@ -144,10 +146,22 @@ async def test_summarize_passes_date_window_to_server(auth, fake_client):
     summary = await summarize_patient_observations(
         patient_id="40006", start="2026-04-01", end="2026-04-30", base_url="http://jhe"
     )
-    assert summary["Blood glucose"]["count"] == 1
-    assert summary["Heart rate"]["count"] == 1
+    assert summary["types"]["Blood glucose"]["count"] == 1
+    assert summary["types"]["Heart rate"]["count"] == 1
     sent = fake_client.fhir_get.await_args.kwargs["params"]
     assert sent["date"] == ["ge2026-04-01", "le2026-04-30"]
+
+
+@pytest.mark.asyncio
+async def test_summarize_surfaces_truncation(auth, fake_client, monkeypatch):
+    # A bounded fetch that could not cover everything must not present its
+    # partial counts as complete.
+    async def fake_collect(client, params):
+        return [], True
+
+    monkeypatch.setattr("jhe_mcp.tools.observation_views.collect_observations", fake_collect)
+    summary = await summarize_patient_observations(patient_id="40006", base_url="http://jhe")
+    assert summary == {"truncated": True, "types": {}}
 
 
 def _undated_entry(obs_id: str) -> dict:
@@ -170,8 +184,11 @@ def _sorted_responses(total: int, asc_entries: list[dict], desc_entries: list[di
     def _get(path, params=None, **kwargs):
         assert params.get("_summary") is None  # count comes from the sorted fetch, not a third call
         if params.get("_sort") == "date":
+            assert "date" not in params  # ascending probe stays unfiltered so total counts undated rows
             return {"total": total, "entry": asc_entries}
         if params.get("_sort") == "-date":
+            # The descending probe excludes undated rows server-side (NULLS FIRST).
+            assert params.get("date") == ["ge0001-01-01"]
             return {"total": total, "entry": desc_entries}
         raise AssertionError(f"unexpected params: {params}")
 

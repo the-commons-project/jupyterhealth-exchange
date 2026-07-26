@@ -79,7 +79,7 @@ The MCP server exposes the following tools to LLM clients. Every tool runs as th
 - **Observations:** `count_patient_observations`, `count_study_observations`, `summarize_patient_observations`, `get_patient_observations`
 - **OMH schemas:** `get_omh_schema` (schemas are also browsable as resources at `omh://schema/<name>`)
 
-The observation and patient-search tools rely on JHE's FHIR search support (`date`, `_summary=count`, `_sort`, and the Patient search params introduced in #667); a JHE without it silently ignores unknown search params, so date windows and ordering would not be applied.
+The observation and patient-search tools rely on JHE's FHIR search support (`date`, `_summary=count`, `_sort`, and the Patient search params introduced in #667); a JHE without it silently ignores unknown search params, so date windows and ordering would not be applied. **Deploy order matters:** roll out the JHE backend with #667 before (never after) deploying this server — against a stale backend the ignored `_sort` silently corrupts `get_patient_date_range`, it doesn't just widen date windows.
 
 ---
 

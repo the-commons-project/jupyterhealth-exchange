@@ -44,8 +44,8 @@ Tools by purpose:
 Key behaviors:
 - Dates are OPTIONAL on observation tools. Pass start/end as YYYY-MM-DD (inclusive)
   to filter by the observation's effective time; omit them to include everything.
-  Date bounds are compared in UTC on the server, so a reading near midnight in a
-  non-UTC timezone can fall on the neighboring day.
+  Date bounds are compared in the server's timezone (UTC by default), so a
+  reading near midnight in another timezone can fall on the neighboring day.
 - get_patient_observations returns {total, page, page_size, returned, has_more,
   observations}. It defaults to compact "slim" records (type, time, value, unit) and
   omits the raw OMH body. Pass verbosity="full" only when you need raw bodies. Page
@@ -61,7 +61,7 @@ Efficient workflows — do NOT dump or page through records just to count or fin
 - First/last data for a patient: get_patient_date_range(patient_id) ->
   {earliest, latest, count}. Never page to the end to find min/max dates.
 - "Show me everything" for a patient: start with summarize_patient_observations
-  (per-type {count, earliest, latest}) for the overview, then page
+  ({truncated, types: {type: {count, earliest, latest}}}) for the overview, then page
   get_patient_observations (slim); fetch verbosity="full" only for specific records.
 - Need a data type's schema: get_omh_schema("blood-glucose"), etc.
 """
@@ -189,12 +189,14 @@ def build_server(
         """Find patients by name and/or birth date; returns a page of matches.
 
         String params are case-insensitive PREFIX matches ("smi" matches
-        Smith); `name` matches family or given. `birthdate` is YYYY-MM-DD with
-        an optional ge/le/gt/lt prefix (bare = exact day). At least one
+        Smith); a comma ORs values ("smith,jones"), so don't pass "Last, First"
+        as one value. `name` matches family or given. `birthdate` is YYYY-MM-DD
+        with an optional ge/le/gt/lt prefix (bare = exact day). At least one
         criterion is required. Returns {total, page, page_size, returned,
         has_more, patients}; each patient has patient_id, given_name,
-        family_name, birth_date, phone, email. Only patients the caller is
-        authorized to see are returned.
+        family_name, birth_date, phone, email. limit is capped at 1000;
+        requesting a page past the end returns an error — follow has_more.
+        Only patients the caller is authorized to see are returned.
         """
         if auth_msg := await _before():
             return auth_msg
@@ -226,7 +228,8 @@ def build_server(
         value/unit) and omits the raw OMH body; verbosity='full' includes it.
         order='newest' (default) returns most recent first; 'oldest' returns
         oldest first. Filter by OMH data type short name (e.g. 'blood-glucose')
-        and ISO dates.
+        and ISO dates. limit is capped at 1000; requesting a page past the end
+        returns an error — follow has_more instead.
         """
         if auth_msg := await _before():
             return auth_msg
@@ -285,9 +288,11 @@ def build_server(
         start: str | None = None,
         end: str | None = None,
     ) -> dict | str:
-        """Compact per-data-type digest for a patient: {type: {count, earliest, latest}}.
+        """Compact digest for a patient: {truncated, types: {type: {count, earliest, latest}}}.
 
         Use this for 'show me everything' overviews instead of dumping records.
+        truncated=true means the underlying fetch hit its bound and the counts
+        are lower bounds — narrow the date window for exact numbers.
         """
         if auth_msg := await _before():
             return auth_msg

@@ -70,6 +70,18 @@ def test_build_patient_params_rejects_bad_birthdate():
         build_patient_params(birthdate="Jan 1 1980")
     with pytest.raises(ValueError, match="birthdate"):
         build_patient_params(birthdate="xx1980-01-01")
+    # fromisoformat alone accepts these; the server rejects or misreads them.
+    with pytest.raises(ValueError, match="birthdate"):
+        build_patient_params(birthdate="19800101")
+    with pytest.raises(ValueError, match="birthdate"):
+        build_patient_params(birthdate="ge2026-W14-2")
+
+
+def test_patient_search_result_rejects_entry_without_id():
+    from jhe_mcp.fhir.client import JheClientError
+
+    with pytest.raises(JheClientError, match="Patient entry"):
+        PatientSearchResult.from_fhir_entry({"resource": {"resourceType": "Patient"}})
 
 
 def test_patient_search_result_from_fhir_entry():

@@ -3,33 +3,26 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from typing import Any
 
-from jhe_mcp.fhir.client import JheClient, JheClientError
+from jhe_mcp.fhir.client import JheClient
 from jhe_mcp.fhir.models import Observation
+from jhe_mcp.fhir.paging import MAX_PAGE_SIZE, bundle_total
 from jhe_mcp.omh_registry import all_short_names, lookup_code
 
 logger = logging.getLogger(__name__)
 
-MAX_PAGE_SIZE = 1000
 # Upper bound on pages walked by iter_all_observations, so a backend that
 # reports an enormous (or wrong) `total` can't make us page indefinitely / OOM.
 # MAX_PAGE_SIZE * MAX_PAGES is the most records a single call will pull.
 MAX_PAGES = 50
 
-
-def bundle_total(bundle: Any) -> int:
-    """Return a FHIR search Bundle's ``total``, rejecting non-Bundle responses.
-
-    JHE returns 200 with a search Bundle for FHIR queries. If the body is
-    something else (an error envelope, a non-dict), reading ``total`` would
-    otherwise default to 0 and silently report "no results" for what is
-    actually a failure — so raise instead.
-    """
-    if not isinstance(bundle, dict) or "total" not in bundle:
-        raise JheClientError(0, f"Expected a FHIR search Bundle with 'total', got: {str(bundle)[:200]}")
-    return int(bundle["total"])
+# Strictly dashed YYYY-MM-DD: date.fromisoformat alone also accepts compact
+# (20260401) and week-date (2026-W14-2) forms that the server's parser rejects
+# or reads as a different day — those must fail HERE with the clear message.
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def _require_iso_date(value: str | None, label: str) -> None:
@@ -41,6 +34,8 @@ def _require_iso_date(value: str | None, label: str) -> None:
     if value is None:
         return
     try:
+        if not _ISO_DATE_RE.fullmatch(value):
+            raise ValueError
         date.fromisoformat(value)
     except ValueError:
         raise ValueError(f"{label} must be an ISO date (YYYY-MM-DD); got {value!r}") from None
@@ -107,28 +102,30 @@ async def fetch_observation_page(
     return total, entries, has_more
 
 
-async def iter_all_observations(client: JheClient, params: dict[str, Any]) -> list[dict]:
+async def iter_all_observations(client: JheClient, params: dict[str, Any]) -> tuple[list[dict], bool]:
     """Page through every matching entry (raw bundle entries), bounded by ``MAX_PAGES``.
 
-    Any date window is already inside ``params`` and applied server-side, so
-    this walks only the (possibly windowed) match set.
+    Returns ``(entries, truncated)``: ``truncated`` is True when the bound was
+    hit and the result is incomplete — callers must surface that rather than
+    presenting a partial set as complete. Any date window is already inside
+    ``params`` and applied server-side.
     """
     out: list[dict] = []
     for page in range(1, MAX_PAGES + 1):
         total, entries, has_more = await fetch_observation_page(client, params, page=page, page_size=MAX_PAGE_SIZE)
         out.extend(entries)
         if not has_more or not entries:
-            return out
+            return out, False
     logger.warning(
         "iter_all_observations hit MAX_PAGES=%d (%d records) for params=%s; result truncated",
         MAX_PAGES,
         len(out),
         params,
     )
-    return out
+    return out, True
 
 
-async def collect_observations(client: JheClient, params: dict[str, Any]) -> list[Observation]:
-    """Fetch all matching observations as parsed models (server applies any filters)."""
-    entries = await iter_all_observations(client, params)
-    return [Observation.from_fhir_entry(e) for e in entries]
+async def collect_observations(client: JheClient, params: dict[str, Any]) -> tuple[list[Observation], bool]:
+    """Fetch all matching observations as parsed models; ``(observations, truncated)``."""
+    entries, truncated = await iter_all_observations(client, params)
+    return [Observation.from_fhir_entry(e) for e in entries], truncated

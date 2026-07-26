@@ -9,14 +9,18 @@ from jhe_mcp.fhir.observation_query import (
     collect_observations,
     fetch_observation_page,
 )
+from jhe_mcp.fhir.paging import clamp_paging, page_envelope
 
 _ORDER_TO_SORT = {"newest": "-date", "oldest": "date"}
 
-# Entries fetched per date-range boundary. The server's descending date sort
-# places records with no effective time first (SQL NULLS FIRST), so a single
-# record could be an undated one; probing a few lets us skip past them to the
-# first record that actually carries a timestamp.
+# Entries fetched per date-range boundary, letting the pick skip records whose
+# effective time is unparseable client-side.
 _BOUNDARY_PROBE = 5
+# The descending boundary probe adds this filter so records with NO effective
+# time (which the server's DESC sort places first — SQL NULLS FIRST) are
+# excluded server-side; without it, a cluster of undated records would make
+# `latest` come back None despite dated data existing.
+_ANY_DATE_FILTER = ["ge0001-01-01"]
 
 
 def _first_effective_at(entries: list[dict]) -> str | None:
@@ -33,20 +37,21 @@ async def summarize_patient_observations(
     start: str | None = None,
     end: str | None = None,
     base_url: str,
-) -> dict[str, dict[str, Any]]:
-    """Per-data-type digest for a patient: {type: {count, earliest, latest}}.
+) -> dict[str, Any]:
+    """Per-data-type digest for a patient: {truncated, types: {type: {count, earliest, latest}}}.
 
     Aggregation is client-side (the server has no group-by, and the summary must
     include data types outside the OMH registry), but any date window bounds the
-    fetch server-side.
+    fetch server-side. ``truncated`` is True when the bounded fetch could not
+    cover every record, meaning the per-type counts are lower bounds.
     """
     params = build_observation_params(patient_id=patient_id, start=start, end=end)
     async with JheClient(base_url) as client:
-        observations = await collect_observations(client, params)
-    summary: dict[str, dict[str, Any]] = {}
+        observations, truncated = await collect_observations(client, params)
+    types: dict[str, dict[str, Any]] = {}
     for obs in observations:
         key = obs.code_display or obs.code or "unknown"
-        bucket = summary.setdefault(key, {"count": 0, "earliest": None, "latest": None})
+        bucket = types.setdefault(key, {"count": 0, "earliest": None, "latest": None})
         bucket["count"] += 1
         at = obs.effective_at
         if at:
@@ -54,7 +59,7 @@ async def summarize_patient_observations(
                 bucket["earliest"] = at
             if bucket["latest"] is None or at > bucket["latest"]:
                 bucket["latest"] = at
-    return summary
+    return {"truncated": truncated, "types": types}
 
 
 async def get_patient_date_range(
@@ -65,10 +70,10 @@ async def get_patient_date_range(
     """Earliest/latest observation timestamp and total count for a patient.
 
     Two cheap server-side queries: a few records sorted ascending by effective
-    date (whose bundle also carries the total), then a few sorted descending.
-    Undated records are skipped when picking each boundary, so
-    ``earliest``/``latest`` are ISO-8601 strings from the oldest/newest records
-    that actually carry a timestamp (``None`` when no probed record does).
+    date (whose bundle also carries the total), then the newest dated record
+    (the descending probe filters out undated records server-side). ``count``
+    includes undated records; ``earliest``/``latest`` are ISO-8601 strings from
+    dated records only (``None`` when there are none).
     """
     params = build_observation_params(patient_id=patient_id)
     async with JheClient(base_url) as client:
@@ -78,7 +83,11 @@ async def get_patient_date_range(
         if total == 0:
             return {"earliest": None, "latest": None, "count": 0}
         _, last_entries, _ = await fetch_observation_page(
-            client, params, page=1, page_size=_BOUNDARY_PROBE, sort="-date"
+            client,
+            {**params, "date": _ANY_DATE_FILTER},
+            page=1,
+            page_size=_BOUNDARY_PROBE,
+            sort="-date",
         )
     return {
         "earliest": _first_effective_at(first_entries),
@@ -103,6 +112,7 @@ async def get_patient_observations(
 
     verbosity="slim" (default) omits the raw OMH body; "full" includes it.
     Date windows and ordering are applied server-side (FHIR ``date`` + ``_sort``).
+    ``limit`` is clamped to 1..MAX_PAGE_SIZE (the server's page cap).
     """
     if verbosity not in ("slim", "full"):
         raise ValueError(f"verbosity must be 'slim' or 'full', got {verbosity!r}")
@@ -110,22 +120,12 @@ async def get_patient_observations(
     if sort is None:
         raise ValueError(f"order must be 'newest' or 'oldest', got {order!r}")
     params = build_observation_params(patient_id=patient_id, data_type=data_type, start=start, end=end)
-    page_size = max(1, min(int(limit), 1000))
-    page = max(1, int(page))
+    page_size, page = clamp_paging(limit, page)
     async with JheClient(base_url) as client:
-        total, entries, has_more = await fetch_observation_page(
-            client, params, page=page, page_size=page_size, sort=sort
-        )
+        total, entries, _ = await fetch_observation_page(client, params, page=page, page_size=page_size, sort=sort)
     observations = [Observation.from_fhir_entry(e) for e in entries]
     if verbosity == "slim":
         payload = [SlimObservation.from_observation(o).model_dump() for o in observations]
     else:
         payload = [o.model_dump() for o in observations]
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "returned": len(payload),
-        "has_more": has_more,
-        "observations": payload,
-    }
+    return page_envelope(total=total, page=page, page_size=page_size, items_key="observations", items=payload)

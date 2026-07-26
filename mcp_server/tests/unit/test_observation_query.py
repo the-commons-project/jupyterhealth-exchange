@@ -34,6 +34,12 @@ def test_build_params_rejects_non_iso_window():
         build_observation_params(patient_id="7", start="last week")
     with pytest.raises(ValueError, match="end must be an ISO date"):
         build_observation_params(patient_id="7", end="04/30/2026")
+    # fromisoformat alone would accept these; the server would reject or
+    # misread them, so they must fail client-side with the clear message.
+    with pytest.raises(ValueError, match="start must be an ISO date"):
+        build_observation_params(patient_id="7", start="20260401")
+    with pytest.raises(ValueError, match="end must be an ISO date"):
+        build_observation_params(patient_id="7", end="2026-W14-2")
 
 
 def test_build_params_study_scope():
@@ -95,8 +101,9 @@ async def test_iter_all_follows_pages():
         {"total": 1500, "entry": [{"resource": {"id": str(i)}} for i in range(1000)]},
         {"total": 1500, "entry": [{"resource": {"id": str(i)}} for i in range(500)]},
     ]
-    entries = await iter_all_observations(client, {"patient": "7"})
+    entries, truncated = await iter_all_observations(client, {"patient": "7"})
     assert len(entries) == 1500
+    assert truncated is False
     assert client.fhir_get.await_count == 2
 
 
@@ -106,8 +113,9 @@ async def test_collect_observations_parses_entries_no_client_side_filtering():
     # inside params (built by build_observation_params), applied by the server.
     client = AsyncMock()
     client.fhir_get.return_value = {"total": 1, "entry": [{"resource": {"id": "o1"}}]}
-    observations = await collect_observations(client, {"patient": "7", "date": ["ge2026-04-01"]})
+    observations, truncated = await collect_observations(client, {"patient": "7", "date": ["ge2026-04-01"]})
     assert [o.observation_id for o in observations] == ["o1"]
+    assert truncated is False
     sent = client.fhir_get.await_args.kwargs["params"]
     assert sent["date"] == ["ge2026-04-01"]
 
@@ -142,6 +150,7 @@ async def test_iter_all_observations_caps_at_max_pages():
     client = AsyncMock()
     huge = oq.MAX_PAGE_SIZE * (oq.MAX_PAGES + 5)
     client.fhir_get.return_value = {"total": huge, "entry": [{} for _ in range(oq.MAX_PAGE_SIZE)]}
-    out = await iter_all_observations(client, {"patient": "7"})
+    out, truncated = await iter_all_observations(client, {"patient": "7"})
     assert client.fhir_get.await_count == oq.MAX_PAGES
     assert len(out) == oq.MAX_PAGE_SIZE * oq.MAX_PAGES
+    assert truncated is True  # callers surface this instead of presenting a partial set as complete

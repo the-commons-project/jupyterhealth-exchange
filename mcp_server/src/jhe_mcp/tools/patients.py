@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
 from jhe_mcp.fhir.client import JheClient
 from jhe_mcp.fhir.models import PatientSearchResult
-from jhe_mcp.fhir.observation_query import MAX_PAGE_SIZE, bundle_total
+from jhe_mcp.fhir.paging import bundle_total, clamp_paging, page_envelope
 
 _DATE_PREFIXES = ("ge", "le", "gt", "lt")
+# Strictly dashed YYYY-MM-DD (see observation_query._require_iso_date for why
+# date.fromisoformat alone is too lenient).
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def build_patient_params(
@@ -28,6 +32,9 @@ def build_patient_params(
     # Strip before the truthiness checks so whitespace-only values can't slip
     # past the at-least-one-criterion guard (the server skips blank filters,
     # which would turn "  " into an unfiltered list of every visible patient).
+    # NOTE this guard prevents *accidental* unfiltered listings only — a broad
+    # criterion (birthdate="le9999-12-31") legitimately matches everyone the
+    # caller may see. The security boundary is JHE's server-side authorization.
     name = name.strip() if name else None
     family = family.strip() if family else None
     given = given.strip() if given else None
@@ -42,6 +49,8 @@ def build_patient_params(
     if birthdate:
         value = birthdate[2:] if birthdate[:2] in _DATE_PREFIXES else birthdate
         try:
+            if not _ISO_DATE_RE.fullmatch(value):
+                raise ValueError
             date.fromisoformat(value)
         except ValueError:
             raise ValueError(
@@ -68,18 +77,10 @@ async def search_patients(
     ``limit`` is clamped to 1..MAX_PAGE_SIZE (the server's page-size cap).
     """
     params = build_patient_params(name=name, family=family, given=given, birthdate=birthdate)
-    page_size = max(1, min(int(limit), MAX_PAGE_SIZE))
-    page = max(1, int(page))
+    page_size, page = clamp_paging(limit, page)
     async with JheClient(base_url) as client:
         bundle = await client.fhir_get("Patient", params={**params, "_count": page_size, "_page": page})
     total = bundle_total(bundle)
     entries = bundle.get("entry", []) or []
     patients = [PatientSearchResult.from_fhir_entry(e).model_dump() for e in entries]
-    return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "returned": len(patients),
-        "has_more": page * page_size < total,
-        "patients": patients,
-    }
+    return page_envelope(total=total, page=page, page_size=page_size, items_key="patients", items=patients)
