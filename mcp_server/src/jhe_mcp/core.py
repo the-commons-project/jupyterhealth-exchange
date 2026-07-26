@@ -44,6 +44,8 @@ Tools by purpose:
 Key behaviors:
 - Dates are OPTIONAL on observation tools. Pass start/end as YYYY-MM-DD (inclusive)
   to filter by the observation's effective time; omit them to include everything.
+  Date bounds are compared in UTC on the server, so a reading near midnight in a
+  non-UTC timezone can fall on the neighboring day.
 - get_patient_observations returns {total, page, page_size, returned, has_more,
   observations}. It defaults to compact "slim" records (type, time, value, unit) and
   omits the raw OMH body. Pass verbosity="full" only when you need raw bodies. Page
