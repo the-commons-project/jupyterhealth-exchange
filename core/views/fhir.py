@@ -32,12 +32,15 @@ from django.db.utils import IntegrityError
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import status as http_status
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound
 from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.fhir.capability import build_capability_statement
 from core.fhir.config import (
     aux_interactions,
     get_config_errors,
@@ -640,3 +643,10 @@ def _camelized(data):
     import humps
 
     return humps.camelize(data)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def capability_statement(request):
+    """GET /FHIR/R5/metadata -- the public capabilities interaction (no auth, per FHIR)."""
+    return Response(build_capability_statement(request))
