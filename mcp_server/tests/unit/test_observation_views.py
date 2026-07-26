@@ -150,19 +150,61 @@ async def test_summarize_passes_date_window_to_server(auth, fake_client):
     assert sent["date"] == ["ge2026-04-01", "le2026-04-30"]
 
 
+def _undated_entry(obs_id: str) -> dict:
+    # An OMH body with no effective_time_frame: effective_at parses to None.
+    payload = {"body": {"blood_glucose": {"unit": "mg/dL", "value": 90}}}
+    return {
+        "resource": {
+            "resourceType": "Observation",
+            "id": obs_id,
+            "code": {"coding": [{"system": "https://w3id.org/openmhealth", "code": "omh:blood-glucose:4.0"}]},
+            "subject": {"reference": "Patient/40006"},
+            "valueAttachment": {"data": base64.b64encode(json.dumps(payload).encode()).decode()},
+        }
+    }
+
+
+def _sorted_responses(total: int, asc_entries: list[dict], desc_entries: list[dict]):
+    # Route the mocked fhir_get by the emitted _sort so the test doesn't couple
+    # to the order the tool issues its requests in.
+    def _get(path, params=None, **kwargs):
+        assert params.get("_summary") is None  # count comes from the sorted fetch, not a third call
+        if params.get("_sort") == "date":
+            return {"total": total, "entry": asc_entries}
+        if params.get("_sort") == "-date":
+            return {"total": total, "entry": desc_entries}
+        raise AssertionError(f"unexpected params: {params}")
+
+    return _get
+
+
 @pytest.mark.asyncio
-async def test_get_patient_date_range_uses_sort_not_full_fetch(auth, fake_client):
-    fake_client.fhir_get.side_effect = [
-        {"total": 3},  # _summary=count
-        {"total": 3, "entry": [_entry("o2", "omh:blood-glucose:4.0", "Blood glucose", "2023-01-05T08:00:00Z", 95)]},
-        {"total": 3, "entry": [_entry("o3", "omh:heart-rate:2.0", "Heart rate", "2024-03-15T23:16:00Z", 70)]},
-    ]
+async def test_get_patient_date_range_uses_sorted_probes(auth, fake_client):
+    fake_client.fhir_get.side_effect = _sorted_responses(
+        3,
+        asc_entries=[_entry("o2", "omh:blood-glucose:4.0", "Blood glucose", "2023-01-05T08:00:00Z", 95)],
+        desc_entries=[_entry("o3", "omh:heart-rate:2.0", "Heart rate", "2024-03-15T23:16:00Z", 70)],
+    )
     result = await get_patient_date_range(patient_id="40006", base_url="http://jhe")
     assert result == {"earliest": "2023-01-05T08:00:00Z", "latest": "2024-03-15T23:16:00Z", "count": 3}
-    calls = [c.kwargs["params"] for c in fake_client.fhir_get.await_args_list]
-    assert calls[0]["_summary"] == "count"
-    assert calls[1]["_sort"] == "date" and calls[1]["_count"] == 1
-    assert calls[2]["_sort"] == "-date" and calls[2]["_count"] == 1
+    assert fake_client.fhir_get.await_count == 2  # ascending probe (carries total) + descending probe
+
+
+@pytest.mark.asyncio
+async def test_get_patient_date_range_skips_undated_boundary(auth, fake_client):
+    # The server's descending date sort places undated records first (NULLS
+    # FIRST); the probe must skip them to the newest record with a timestamp.
+    fake_client.fhir_get.side_effect = _sorted_responses(
+        3,
+        asc_entries=[_entry("o1", "omh:blood-glucose:4.0", "Blood glucose", "2023-01-05T08:00:00Z", 90)],
+        desc_entries=[
+            _undated_entry("o9"),
+            _entry("o3", "omh:blood-glucose:4.0", "Blood glucose", "2024-03-15T23:16:00Z", 99),
+        ],
+    )
+    result = await get_patient_date_range(patient_id="40006", base_url="http://jhe")
+    assert result["latest"] == "2024-03-15T23:16:00Z"
+    assert result["earliest"] == "2023-01-05T08:00:00Z"
 
 
 @pytest.mark.asyncio
@@ -170,4 +212,15 @@ async def test_get_patient_date_range_empty(auth, fake_client):
     fake_client.fhir_get.return_value = {"total": 0}
     result = await get_patient_date_range(patient_id="40099", base_url="http://jhe")
     assert result == {"earliest": None, "latest": None, "count": 0}
-    assert fake_client.fhir_get.await_count == 1  # zero count short-circuits the sort calls
+    assert fake_client.fhir_get.await_count == 1  # zero total short-circuits the descending probe
+
+
+@pytest.mark.asyncio
+async def test_get_patient_observations_order_and_window_combined(auth, fake_client):
+    fake_client.fhir_get.return_value = {"total": 0}
+    await get_patient_observations(
+        patient_id="40006", start="2026-04-01", end="2026-04-30", order="oldest", base_url="http://jhe"
+    )
+    sent = fake_client.fhir_get.await_args.kwargs["params"]
+    assert sent["date"] == ["ge2026-04-01", "le2026-04-30"]
+    assert sent["_sort"] == "date"

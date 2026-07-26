@@ -7,11 +7,24 @@ from jhe_mcp.fhir.models import Observation, SlimObservation
 from jhe_mcp.fhir.observation_query import (
     build_observation_params,
     collect_observations,
-    count_observations,
     fetch_observation_page,
 )
 
 _ORDER_TO_SORT = {"newest": "-date", "oldest": "date"}
+
+# Entries fetched per date-range boundary. The server's descending date sort
+# places records with no effective time first (SQL NULLS FIRST), so a single
+# record could be an undated one; probing a few lets us skip past them to the
+# first record that actually carries a timestamp.
+_BOUNDARY_PROBE = 5
+
+
+def _first_effective_at(entries: list[dict]) -> str | None:
+    for entry in entries:
+        at = Observation.from_fhir_entry(entry).effective_at
+        if at:
+            return at
+    return None
 
 
 async def summarize_patient_observations(
@@ -51,21 +64,27 @@ async def get_patient_date_range(
 ) -> dict[str, Any]:
     """Earliest/latest observation timestamp and total count for a patient.
 
-    Three cheap server-side queries: ``_summary=count`` for the total, then a
-    single record sorted ascending / descending by effective date. No paging.
-    ``earliest``/``latest`` are ISO-8601 strings (``None`` when there are no
-    records or the boundary record has no parseable effective time).
+    Two cheap server-side queries: a few records sorted ascending by effective
+    date (whose bundle also carries the total), then a few sorted descending.
+    Undated records are skipped when picking each boundary, so
+    ``earliest``/``latest`` are ISO-8601 strings from the oldest/newest records
+    that actually carry a timestamp (``None`` when no probed record does).
     """
     params = build_observation_params(patient_id=patient_id)
     async with JheClient(base_url) as client:
-        count = await count_observations(client, params)
-        if count == 0:
+        total, first_entries, _ = await fetch_observation_page(
+            client, params, page=1, page_size=_BOUNDARY_PROBE, sort="date"
+        )
+        if total == 0:
             return {"earliest": None, "latest": None, "count": 0}
-        _, first_entries, _ = await fetch_observation_page(client, params, page=1, page_size=1, sort="date")
-        _, last_entries, _ = await fetch_observation_page(client, params, page=1, page_size=1, sort="-date")
-    earliest = Observation.from_fhir_entry(first_entries[0]).effective_at if first_entries else None
-    latest = Observation.from_fhir_entry(last_entries[0]).effective_at if last_entries else None
-    return {"earliest": earliest, "latest": latest, "count": count}
+        _, last_entries, _ = await fetch_observation_page(
+            client, params, page=1, page_size=_BOUNDARY_PROBE, sort="-date"
+        )
+    return {
+        "earliest": _first_effective_at(first_entries),
+        "latest": _first_effective_at(last_entries),
+        "count": total,
+    }
 
 
 async def get_patient_observations(
