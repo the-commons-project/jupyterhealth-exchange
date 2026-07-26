@@ -48,11 +48,21 @@ def test_build_patient_params_each_arg():
 def test_build_patient_params_birthdate_prefix_passthrough():
     assert build_patient_params(birthdate="ge1980-01-01") == {"birthdate": "ge1980-01-01"}
     assert build_patient_params(birthdate="le2000-12-31") == {"birthdate": "le2000-12-31"}
+    assert build_patient_params(birthdate="gt1980-01-01") == {"birthdate": "gt1980-01-01"}
+    assert build_patient_params(birthdate="lt2000-12-31") == {"birthdate": "lt2000-12-31"}
 
 
 def test_build_patient_params_requires_at_least_one():
     with pytest.raises(ValueError, match="at least one"):
         build_patient_params()
+
+
+def test_build_patient_params_strips_and_rejects_whitespace():
+    # Whitespace-only criteria must not slip past the guard: the server skips
+    # blank filters, which would turn "  " into an unfiltered patient listing.
+    assert build_patient_params(family=" Nguyen ") == {"family": "Nguyen"}
+    with pytest.raises(ValueError, match="at least one"):
+        build_patient_params(name="   ")
 
 
 def test_build_patient_params_rejects_bad_birthdate():
@@ -102,3 +112,28 @@ async def test_search_patients_no_args_raises_before_any_request(auth, fake_clie
     with pytest.raises(ValueError, match="at least one"):
         await search_patients(base_url="http://jhe")
     fake_client.fhir_get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_search_patients_clamps_limit_and_page(auth, fake_client):
+    fake_client.fhir_get.return_value = {"total": 0}  # entry key absent is tolerated
+    result = await search_patients(family="x", limit=5000, page=0, base_url="http://jhe")
+    sent = fake_client.fhir_get.await_args.kwargs["params"]
+    assert sent["_count"] == 1000 and sent["_page"] == 1
+    assert result["page_size"] == 1000 and result["page"] == 1
+    assert result["returned"] == 0 and result["patients"] == []
+    assert result["has_more"] is False
+
+
+@pytest.mark.asyncio
+async def test_search_patients_has_more_false_when_page_consumes_total(auth, fake_client):
+    fake_client.fhir_get.return_value = {
+        "total": 2,
+        "entry": [
+            _patient_entry("40006", "Nguyen", "May", "1980-01-31"),
+            _patient_entry("40007", "Roe", "Al", "1975-06-02"),
+        ],
+    }
+    result = await search_patients(family="n", limit=2, page=1, base_url="http://jhe")
+    assert result["returned"] == 2
+    assert result["has_more"] is False

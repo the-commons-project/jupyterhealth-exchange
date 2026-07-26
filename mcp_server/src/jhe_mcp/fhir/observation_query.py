@@ -19,7 +19,7 @@ MAX_PAGE_SIZE = 1000
 MAX_PAGES = 50
 
 
-def _bundle_total(bundle: Any) -> int:
+def bundle_total(bundle: Any) -> int:
     """Return a FHIR search Bundle's ``total``, rejecting non-Bundle responses.
 
     JHE returns 200 with a search Bundle for FHIR queries. If the body is
@@ -85,7 +85,7 @@ def build_observation_params(
 async def count_observations(client: JheClient, params: dict[str, Any]) -> int:
     """Exact count via ``_summary=count`` — the server returns only the total."""
     bundle = await client.fhir_get("Observation", params={**params, "_summary": "count"})
-    return _bundle_total(bundle)
+    return bundle_total(bundle)
 
 
 async def fetch_observation_page(
@@ -101,7 +101,7 @@ async def fetch_observation_page(
     if sort is not None:
         page_params["_sort"] = sort
     bundle = await client.fhir_get("Observation", params=page_params)
-    total = _bundle_total(bundle)
+    total = bundle_total(bundle)
     entries = bundle.get("entry", []) or []
     has_more = page * page_size < total
     return total, entries, has_more

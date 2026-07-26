@@ -7,7 +7,7 @@ from typing import Any
 
 from jhe_mcp.fhir.client import JheClient
 from jhe_mcp.fhir.models import PatientSearchResult
-from jhe_mcp.fhir.observation_query import _bundle_total
+from jhe_mcp.fhir.observation_query import MAX_PAGE_SIZE, bundle_total
 
 _DATE_PREFIXES = ("ge", "le", "gt", "lt")
 
@@ -25,6 +25,13 @@ def build_patient_params(
     prefix (bare value = exact day). Raises ``ValueError`` when no criterion is
     given or the birthdate is malformed, so the tool fails before any request.
     """
+    # Strip before the truthiness checks so whitespace-only values can't slip
+    # past the at-least-one-criterion guard (the server skips blank filters,
+    # which would turn "  " into an unfiltered list of every visible patient).
+    name = name.strip() if name else None
+    family = family.strip() if family else None
+    given = given.strip() if given else None
+    birthdate = birthdate.strip() if birthdate else None
     params: dict[str, Any] = {}
     if name:
         params["name"] = name
@@ -56,13 +63,16 @@ async def search_patients(
     page: int = 1,
     base_url: str,
 ) -> dict[str, Any]:
-    """One page of matching patients: {total, page, page_size, returned, has_more, patients}."""
+    """One page of matching patients: {total, page, page_size, returned, has_more, patients}.
+
+    ``limit`` is clamped to 1..MAX_PAGE_SIZE (the server's page-size cap).
+    """
     params = build_patient_params(name=name, family=family, given=given, birthdate=birthdate)
-    page_size = max(1, min(int(limit), 1000))
+    page_size = max(1, min(int(limit), MAX_PAGE_SIZE))
     page = max(1, int(page))
     async with JheClient(base_url) as client:
         bundle = await client.fhir_get("Patient", params={**params, "_count": page_size, "_page": page})
-    total = _bundle_total(bundle)
+    total = bundle_total(bundle)
     entries = bundle.get("entry", []) or []
     patients = [PatientSearchResult.from_fhir_entry(e).model_dump() for e in entries]
     return {
