@@ -52,11 +52,51 @@ freelancing. The config-vs-code split in section 2, however, was decided
 implicitly during implementation, and that is precisely the decision this RFC
 hands back.
 
-## 2. The gaps: facts the statement needs that `fhir_config.json` cannot express
+## 2. Architecture of #676 and the reasoning behind it
 
-`core/fhir/capability.py` derives everything it can from the config accessors.
-Where config and reality disagree, it currently corrects with hardcoded
-constants. Each row is a "does this belong in the config?" decision.
+Why the implementation is shaped the way it is — the part a diff can't show:
+
+- **Render from the config at request time, no stored artifact.** The builder
+  calls only `core/fhir/config.py` accessors — the same allow-lists the FHIR
+  dispatcher enforces — so the statement *cannot* drift from routing when the
+  config changes, needs no regeneration step, touches no database (safe on a
+  public route), and derives its absolute URLs from the request so every
+  deployment automatically advertises its own endpoints. The alternatives
+  (hand-authored JSON, or a generated file checked into the repo) were
+  rejected precisely because they create a second artifact that goes stale.
+- **One entry per resource type, union of both stores, caveats in
+  `documentation`.** FHIR's CapabilityStatement has no "backing store"
+  dimension, and a JHE client cannot choose the store per-param — so
+  per-store entries aren't expressible and omitting either store's
+  capabilities would under-claim. The union is the honest "what can I send"
+  set, with `documentation` carrying the store caveats (which writes reach
+  which store, which params need `_source`) so a generic client is never
+  silently misled. Everything declared carries expectation `SHALL` because
+  the config is an allow-list: declared == supported; nothing speculative.
+- **Where config and reality disagree, correct in code rather than
+  overclaim.** The constants in section 3 exist because emitting the config
+  verbatim would publish false capabilities (e.g. update/delete on mapped
+  rows that 405). Accuracy of the *output* was prioritized over purity of
+  derivation — with this RFC as the follow-up to move those corrections into
+  the config itself.
+- **Public, CORS-open, cacheable.** FHIR requires the capabilities
+  interaction to be retrievable without authorization; browser-based SMART
+  apps consume discovery documents cross-origin; the content is
+  deploy-static, hence `Cache-Control` and a build-stable `date`.
+- **`smart-configuration` as a second document, not folded into the
+  CapabilityStatement.** SMART App Launch mandates the well-known document as
+  its own endpoint (it's what public PKCE client libraries fetch first); the
+  CapabilityStatement's `oauth-uris` extension is kept too, and both derive
+  from the same request, so the two discovery channels cannot disagree.
+- **US Core as style guide, not conformance target.** Its conventions
+  (expectation extensions, security block shape) make the statement legible
+  to tooling that knows US Core, but `instantiates`/`supportedProfile` are
+  omitted because claiming them would be false (R4 vs R5; unimplemented
+  SHALLs).
+
+## 3. The gaps: facts the statement needs that `fhir_config.json` cannot express
+
+Each row is a "does this belong in the config?" decision.
 
 | # | Fact | Where it lives today | Why the config can't say it | Recommendation |
 |---|------|----------------------|------------------------------|----------------|
@@ -73,7 +113,7 @@ If rows 1, 4, 7 (and the derivation in 8) land in the config, `capability.py`
 collapses toward the minimal renderer #615 described, and the config is again
 the single place that answers "what does this server do".
 
-## 3. Decision requested
+## 4. Decision requested
 
 1. Agree/adjust the per-row calls above (especially #1's explicit mapped
    interaction lists and #4's `fhir_type`).
@@ -81,12 +121,19 @@ the single place that answers "what does this server do".
    the config changes and deletes the corresponding constants; the existing 14
    capability tests pin behavior through the refactor.
 
-## 4. Process proposal (the "RFC for Claude prompts" pilot)
+## 5. Process proposal (the "RFC for Claude prompts" pilot)
 
 For AI-built changes with architectural surface — new endpoints, public API
 shape, source-of-truth/config structure — a doc like this one accompanies (or
-precedes) the PR in `docs/rfcs/`: the prompt/decision log plus the design
-questions, reviewed like any PR. Mechanical changes (dependency bumps, test
-additions, doc syncs) don't get one; the review effort should go where the
-decisions are. This document is the pilot; if the shape works, the next one
-happens *before* the implementation lands rather than retrofitted.
+precedes) the PR: the decision log plus the design questions. Mechanical
+changes (dependency bumps, test additions, doc syncs) don't get one; the
+review effort should go where the decisions are. This document is the pilot;
+if the shape works, the next one happens *before* the implementation lands
+rather than retrofitted.
+
+**Open question — where should these live?** This pilot is a PR into
+`docs/rfcs/` because that makes it reviewable with normal tooling, but it's
+not obvious source control is the right home for prompt/decision provenance
+(vs. GitHub Discussions, the issue thread, or a shared doc, with only the
+final design decision landing in-repo). Genuinely undecided — pick whatever
+you'd actually want to read and comment on, and the next one follows that.
