@@ -9,6 +9,7 @@ from django.db.models import F, Q
 from django.db.utils import IntegrityError
 from django.shortcuts import get_object_or_404
 from fhir.resources.observation import Observation as FHIRObservation
+from jsonschema.exceptions import ValidationError
 
 from core.fhir.effective_time_frame import extract_effective_time_frame
 from core.fhir.scope import authorize_practitioner_scope, resolve_fhir_user
