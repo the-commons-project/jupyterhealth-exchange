@@ -208,6 +208,16 @@ Travis's read — as the author of the SAML integration — in review comments o
 a follow-up issue. **This PR changes no SAML behavior**: same package code
 (renamed distribution), same import paths, same settings, same URLs.
 
+Live validation (2026-07-31, against the deployed `jhe` fly.io app):
+`python:3.11-slim-trixie` contains no xmlsec1 or xmlsec packages and the
+Dockerfile adds only `postgresql-client git`, so the deployed image cannot
+sign SAML requests; and the production login page at
+`https://jhe.fly.dev/accounts/login/` renders no SAML button — i.e. the
+runtime `auth.sso.saml2` setting is off in the deployed database, so users
+cannot reach a SAML login at all. (App logs could neither confirm nor refute
+usage: gunicorn does not access-log requests and fly's CLI log buffer holds
+only seconds of output — itself worth knowing.)
+
 ## 6. Retirement triggers (when to delete the override)
 
 Delete `[tool.uv] override-dependencies` and this RFC's workaround section
