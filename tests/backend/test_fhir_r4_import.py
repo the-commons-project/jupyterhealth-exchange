@@ -200,6 +200,23 @@ def test_engine_implicit_datatype_dispatch():
     assert component["referenceRange"][0]["low"] == {"value": 90, "unit": "mmHg"}
 
 
+def test_engine_copy_transform_keeps_repeating_primitive_list():
+    # AllergyIntolerance.category maps through a plain ``copy`` target (unlike Patient's
+    # repeating primitives, which go through ``create``). The rule runs once per source item,
+    # so a copy that assigns instead of appending keeps only the last item and mistypes the
+    # element as a scalar -- every Epic allergy carries a category, so all of them failed R5
+    # validation with "value is not a valid list".
+    r4 = {
+        "resourceType": "AllergyIntolerance",
+        "category": ["medication", "food"],
+        "code": {"text": "PENICILLIN G"},
+        "patient": {"reference": "Patient/p1"},
+    }
+    out = transform_to_r5("AllergyIntolerance", r4)
+    validate_fhir_resource("AllergyIntolerance", out)
+    assert out["category"] == ["medication", "food"]
+
+
 def test_engine_parenthesised_condition():
     # Newer maps parenthesise rule conditions (`where (s = 'allergy')`); AllergyIntolerance.type is
     # mapped only through such a rule, so a parser that cannot read them drops the field.

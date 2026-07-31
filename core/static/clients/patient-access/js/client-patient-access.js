@@ -115,9 +115,22 @@ function paSanitizeResource(resource, iss) {
   return resource;
 }
 
+// The error text of a failed import entry, from the OperationOutcome the endpoint puts at
+// response.outcome (the first error/fatal issue's diagnostics). Null when there is none.
+function paEntryFailureReason(entry) {
+  var issues = (entry && entry.response && entry.response.outcome && entry.response.outcome.issue) || [];
+  for (var i = 0; i < issues.length; i++) {
+    if (issues[i].severity === "error" || issues[i].severity === "fatal") {
+      return issues[i].diagnostics || (issues[i].details && issues[i].details.text) || issues[i].code || "unknown error";
+    }
+  }
+  return null;
+}
+
 // POST one R4 resource to the JHE R4 import endpoint (converts R4->R5, then creates).
 // The endpoint returns HTTP 200 with a batch-response Bundle even when the single entry
 // failed, so success is the entry's own create status (2xx), not just response.ok.
+// Returns {ok, reason}: reason carries the entry's OperationOutcome error on failure.
 async function paWriteResource(jheToken, sourceId, resourceType, resource) {
   var response = await fetch(IMPORT_ENDPOINT + resourceType, {
     method: "POST",
@@ -129,11 +142,12 @@ async function paWriteResource(jheToken, sourceId, resourceType, resource) {
     },
     body: JSON.stringify(resource),
   });
-  if (!response.ok) return false;
+  if (!response.ok) return { ok: false, reason: "HTTP " + response.status };
   var bundle = await response.json();
   var entry = bundle && bundle.entry && bundle.entry[0];
   var status = entry && entry.response && entry.response.status;
-  return typeof status === "string" && status.charAt(0) === "2";
+  var ok = typeof status === "string" && status.charAt(0) === "2";
+  return { ok: ok, reason: ok ? null : paEntryFailureReason(entry) || status || "unknown error" };
 }
 
 // USCDI resources pulled for the demo phenotype. `single` reads one instance (Patient),
@@ -163,15 +177,20 @@ async function paPullResourceType(client, jheToken, sourceId, pull, iss) {
   }
   var written = 0;
   var failed = 0;
+  var reasons = {}; // distinct failure text -> count, so 45 identical errors read as one line
   for (var i = 0; i < resources.length; i++) {
     var resource = resources[i];
     if (!resource || resource.resourceType !== pull.type) continue;
     paSanitizeResource(resource, iss);
-    var ok = await paWriteResource(jheToken, sourceId, pull.type, resource);
-    if (ok) written++;
-    else failed++;
+    var write = await paWriteResource(jheToken, sourceId, pull.type, resource);
+    if (write.ok) written++;
+    else {
+      failed++;
+      var reason = write.reason || "unknown error";
+      reasons[reason] = (reasons[reason] || 0) + 1;
+    }
   }
-  return { written: written, failed: failed, error: null };
+  return { written: written, failed: failed, error: null, reasons: reasons };
 }
 
 // Search hospital brands for the picker. Returns an array of facility rows (or []).
@@ -324,6 +343,12 @@ async function finishPatientAccessConnect(out, config) {
       continue;
     }
     out.textContent += "\n  saved " + result.written + " record(s)";
+    if (result.failed) {
+      out.textContent += "\n  " + result.failed + " record(s) could not be saved:";
+      for (var reason in result.reasons) {
+        out.textContent += "\n    - " + reason + " (x" + result.reasons[reason] + ")";
+      }
+    }
     summary.push(pull.label + ": " + result.written + (result.failed ? " (" + result.failed + " failed)" : ""));
   }
 

@@ -146,7 +146,7 @@ class _Engine:
         if transform == "copy":
             value = self._param_value(target["parameter"][0], svars, tvars)
             if element is not None and value is not None:
-                context.value[element] = value
+                self._assign(context, element, value)
             return
 
         if transform == "translate":
@@ -154,7 +154,7 @@ class _Engine:
             code = self._param_value(params[0], svars, tvars)
             url = params[1].get("valueString") if len(params) > 1 else None
             if element is not None and code is not None:
-                context.value[element] = self.maps.translate(url, code)
+                self._assign(context, element, self.maps.translate(url, code))
             return
 
         if transform in (None, "create") and element is not None:
@@ -164,6 +164,17 @@ class _Engine:
             return
 
         # ``evaluate`` (Subscription only) and any other transform are unsupported -> skipped.
+
+    @staticmethod
+    def _assign(context, element, value):
+        # A rule over a repeating source runs once per item (see _run_rule), so a repeating
+        # target must append -- plain assignment keeps only the last item and mistypes the
+        # element as a scalar (e.g. R4 AllergyIntolerance.category ["medication", "food"]
+        # collapsed to "food", failing R5 validation).
+        if is_list(context.model, element) and not isinstance(value, list):
+            context.value.setdefault(element, []).append(value)
+        else:
+            context.value[element] = value
 
     def _apply_create(self, target, svars, tvars, context, element):
         # The variable a ``create`` binds carries the *source* element into the target under the
