@@ -55,14 +55,16 @@ jobs:
         with:
           python-version: 3.11
 
-      - name: Install dependencies using Pipenv
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Install dependencies using uv
         run: |
-          pip install pipenv
-          pipenv install --dev
+          uv sync --frozen
 
       - name: Run Django tests
         run: |
-          pipenv run pytest -vx tests/backend/
+          uv run pytest -vx tests/backend/
 
       - name: install coverage.py
         # needed for codecov
