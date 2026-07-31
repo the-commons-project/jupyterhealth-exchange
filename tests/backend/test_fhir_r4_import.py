@@ -217,6 +217,32 @@ def test_engine_copy_transform_keeps_repeating_primitive_list():
     assert out["category"] == ["medication", "food"]
 
 
+def test_engine_assign_semantics_directly():
+    # _assign backs both the copy and translate transforms: repeating target -> append per
+    # iterated source item; scalar target or already-a-list value -> plain assignment; a
+    # scalar left under a repeating key by any earlier rule is promoted to a list.
+    from fhir.resources.allergyintolerance import AllergyIntolerance as R5A
+
+    from core.fhir.cross_version import _Engine, _Var
+
+    ctx = _Var({}, R5A)
+    _Engine._assign(ctx, "category", "medication")
+    _Engine._assign(ctx, "category", "food")
+    assert ctx.value["category"] == ["medication", "food"]
+
+    ctx = _Var({}, R5A)
+    _Engine._assign(ctx, "category", ["medication", "food"])  # pre-built list assigns wholesale
+    assert ctx.value["category"] == ["medication", "food"]
+
+    ctx = _Var({"category": "medication"}, R5A)  # scalar residue under a repeating key
+    _Engine._assign(ctx, "category", "food")
+    assert ctx.value["category"] == ["medication", "food"]
+
+    ctx = _Var({}, R5A)
+    _Engine._assign(ctx, "criticality", "high")  # scalar element: plain assignment
+    assert ctx.value["criticality"] == "high"
+
+
 def test_engine_parenthesised_condition():
     # Newer maps parenthesise rule conditions (`where (s = 'allergy')`); AllergyIntolerance.type is
     # mapped only through such a rule, so a parser that cannot read them drops the field.
@@ -430,6 +456,19 @@ def test_import_error_entry_still_reports_dropped_fields(api_client, patient, fh
     severities = [i["severity"] for i in issues]
     assert "error" in severities
     assert any(i["severity"] == "warning" and i["expression"] == ["Coverage.payor"] for i in issues)
+
+
+def test_import_error_issue_carries_diagnostics_string(api_client, fhir_source):
+    # The patient-access client renders entry.response.outcome.issue[].diagnostics for failed
+    # records (paEntryFailureReason). Pin the contract: the first error issue is severity
+    # "error" with a non-empty diagnostics string.
+    # Coverage reliably fails R5 validation (kind is new-in-R5 and mandatory; no map rule).
+    r4 = {"resourceType": "Coverage", "status": "active", "beneficiary": {"reference": "Patient/p1"}}
+    r = api_client.post("/fhir-import/R4/Coverage", r4, **_src(fhir_source))
+    assert r.status_code == 200, r.text
+    issue = r.json()["entry"][0]["response"]["outcome"]["issue"][0]
+    assert issue["severity"] == "error"
+    assert isinstance(issue["diagnostics"], str) and issue["diagnostics"]
 
 
 def test_import_get_not_allowed(api_client, fhir_source):

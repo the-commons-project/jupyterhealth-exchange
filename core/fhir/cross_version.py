@@ -172,7 +172,11 @@ class _Engine:
         # element as a scalar (e.g. R4 AllergyIntolerance.category ["medication", "food"]
         # collapsed to "food", failing R5 validation).
         if is_list(context.model, element) and not isinstance(value, list):
-            context.value.setdefault(element, []).append(value)
+            existing = context.value.setdefault(element, [])
+            if isinstance(existing, list):
+                existing.append(value)
+            else:
+                context.value[element] = [existing, value]
         else:
             context.value[element] = value
 

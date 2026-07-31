@@ -86,7 +86,7 @@ describe("paPullResourceType", () => {
   test("a pull failure is isolated, not thrown", async () => {
     const client = { patient: { id: "epic-1", request: jest.fn(() => Promise.reject(new Error("timeout"))) } };
     const r = await window.paPullResourceType(client, "tok", "1", CONDITION_PULL, "iss");
-    expect(r).toEqual({ written: 0, failed: 0, error: "timeout" });
+    expect(r).toEqual({ written: 0, failed: 0, error: "timeout", reasons: {} });
   });
 
   test("a per-entry import error counts as failed and aggregates the distinct reason", async () => {

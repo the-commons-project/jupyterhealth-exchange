@@ -173,11 +173,13 @@ async function paPullResourceType(client, jheToken, sourceId, pull, iss) {
       : await client.patient.request(pull.query, { pageLimit: 0, flat: true });
     resources = pull.single ? (result ? [result] : []) : result || [];
   } catch (e) {
-    return { written: 0, failed: 0, error: e && e.message ? e.message : String(e) };
+    return { written: 0, failed: 0, error: e && e.message ? e.message : String(e), reasons: {} };
   }
   var written = 0;
   var failed = 0;
-  var reasons = {}; // distinct failure text -> count, so 45 identical errors read as one line
+  // Distinct failure text -> count, so 45 identical errors read as one line. Null prototype:
+  // a diagnostics string like "__proto__" or "constructor" must count as a plain key.
+  var reasons = Object.create(null);
   for (var i = 0; i < resources.length; i++) {
     var resource = resources[i];
     if (!resource || resource.resourceType !== pull.type) continue;
@@ -345,8 +347,16 @@ async function finishPatientAccessConnect(out, config) {
     out.textContent += "\n  saved " + result.written + " record(s)";
     if (result.failed) {
       out.textContent += "\n  " + result.failed + " record(s) could not be saved:";
-      for (var reason in result.reasons) {
+      // Validation messages can embed record values, making every reason distinct — cap the
+      // list at the 5 most frequent so one bad type cannot flood the page.
+      var reasonList = Object.keys(result.reasons).sort(function (a, b) {
+        return result.reasons[b] - result.reasons[a];
+      });
+      reasonList.slice(0, 5).forEach(function (reason) {
         out.textContent += "\n    - " + reason + " (x" + result.reasons[reason] + ")";
+      });
+      if (reasonList.length > 5) {
+        out.textContent += "\n    ... and " + (reasonList.length - 5) + " more distinct error(s)";
       }
     }
     summary.push(pull.label + ": " + result.written + (result.failed ? " (" + result.failed + " failed)" : ""));
