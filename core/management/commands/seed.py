@@ -93,8 +93,10 @@ class Command(BaseCommand):
             ("site.time_zone", "string", "America/Los_Angeles"),
             ("site.registration_invite_code", "string", invite_code),
             ("auth.default_orgs", "string", ""),  # "20001:v;20002:m"
+            # SAML SSO rides allauth's saml provider; the IdP itself (metadata URL,
+            # attribute mapping, SP certs) is a SocialApp row in Django admin. These
+            # settings just gate the login-page button and restrict signup domains.
             ("auth.sso.saml2", "int", 0),
-            ("auth.sso.idp_metadata_url", "string", ""),
             ("auth.sso.valid_domains", "string", ""),
             ("auth.patient.invitation_expiration_days", "int", 7),
             ("auth.patient.invitation_redemption_window_hours", "int", 12),

@@ -82,10 +82,11 @@ INSTALLED_APPS = [
     # Required for allauth
     "allauth",
     "allauth.account",
+    "allauth.socialaccount",
+    "allauth.socialaccount.providers.saml",
     "oauth2_provider",
     "rest_framework",
     "drf_spectacular",
-    "django_saml2_auth",
 ]
 
 # Required for allauth
@@ -107,6 +108,16 @@ ACCOUNT_LOGIN_BY_CODE_ENABLED = True
 ACCOUNT_LOGIN_BY_CODE_SUPPORTS_RESEND = True
 ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/allauth/email/"
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
+# SAML SSO (practitioners) rides allauth's saml provider; the IdP itself is
+# configured per-deployment as a SocialApp row (provider "saml") in Django
+# admin — metadata URL, attribute mapping, and SP certs live in its settings
+# JSON, so nothing IdP-specific belongs here. The login-page button stays
+# gated by the `auth.sso.saml2` JheSetting. See docs/rfcs/0002 §5.
+SOCIALACCOUNT_ADAPTER = "core.user_messages.JheSocialAccountAdapter"
+SOCIALACCOUNT_AUTO_SIGNUP = True
+# The IdP asserts the email; don't bounce SSO users through email verification.
+SOCIALACCOUNT_EMAIL_VERIFICATION = "none"
+SOCIALACCOUNT_LOGIN_ON_GET = True
 
 REST_FRAMEWORK = {
     # uncomment if you need to revert to the default pagination class
@@ -279,53 +290,6 @@ AUTH_PASSWORD_VALIDATORS = [
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
-
-SAML2_AUTH = {
-    "TRIGGER": {
-        "GET_METADATA_AUTO_CONF_URLS": "core.services.jhe_settings.get_saml_metadata_urls",
-    },
-    "ASSERTION_URL": SITE_URL,
-    "ENTITY_ID": f"{SITE_URL}/sso/acs/",
-    # Attributes according to the Identity Provider.
-    "ATTRIBUTES_MAP": {
-        "email": "email",
-        "first_name": "firstName",
-        "last_name": "lastName",
-    },
-    "CREATE_USER": True,
-    "AUTHN_REQUESTS_SIGNED": not DEBUG,
-    "TOKEN_REQUIRED": not DEBUG,
-    "SIGN_REQUEST": not DEBUG,
-    # Landing page after login
-    "DEFAULT_NEXT_URL": "/clients/jhe-admin/organizations?",
-    "ALLOWED_REDIRECT_HOSTS": ALLOWED_HOSTS,
-    "DEBUG": DEBUG,
-    "LOGGING": {
-        "version": 1,
-        "formatters": {
-            "simple": {
-                "format": "[%(asctime)s] [%(levelname)s] [%(name)s.%(funcName)s] %(message)s",
-            },
-        },
-        "handlers": {
-            "stdout": {
-                "class": "logging.StreamHandler",
-                "stream": "ext://sys.stdout",
-                "level": "DEBUG",
-                "formatter": "simple",
-            },
-        },
-        "loggers": {
-            "saml2": {"level": "DEBUG"},
-        },
-        "root": {
-            "level": "DEBUG",
-            "handlers": [
-                "stdout",
-            ],
-        },
-    },
-}
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/
