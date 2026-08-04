@@ -101,8 +101,8 @@ Three moves, one PR:
    our vendored ACS view are untouched — zero code changes.
 2. **Toolchain: pipenv → uv** for the root app (`Pipfile`/`Pipfile.lock` →
    `pyproject.toml` + `uv.lock`). All version constraints carry over
-   unchanged (Django stays pinned 5.2.15; `fhir.resources` stays 7.1.0;
-   `omh-shim` stays 1.4.0). The repo already uses uv + dependabot for
+   unchanged (Django stays exact-pinned, tracking main — 5.2.16 as of the
+   #689 rebase; `fhir.resources` stays 7.1.0; `omh-shim` stays 1.4.0). The repo already uses uv + dependabot for
    `/mcp_server`, so this makes the root app the second instance of an
    existing pattern rather than a new toolchain. Dockerfile installs via
    `uv export --frozen --no-dev | uv pip install --system` (same
@@ -123,10 +123,18 @@ Three moves, one PR:
    | package | before (locked) | after (locked) |
    |---|---|---|
    | pyjwt | 2.12.1 (5 open advisories) | **2.13.0** (clean) |
-   | cryptography | 48.0.1 (unsound pairing) | **49.0.0** (clean, honest) |
-   | pyopenssl | 24.2.1 (CVE-2026-27459) | **26.3.0** (clean) |
+   | cryptography | 48.0.1 (unsound pairing) | **50.0.0** (clean, honest) |
+   | pyopenssl | 24.2.1 (CVE-2026-27459) | **26.4.0** (clean) |
    | django-saml2-auth-community | 3.21.0 via dead shim | **3.22.0** direct |
-   | pysaml2 / django / everything else | — | unchanged |
+   | pysaml2 / everything else | — | unchanged (django tracks main: 5.2.16) |
+
+   ("Before" reflects the lock as of the RFC's first draft. Main has since
+   drifted *worse*: the 2026-08-04 merge of dependabot #692 forced the honest
+   pipenv relock described in §3, shipping the predicted cryptography
+   **43.0.3 downgrade** to main — plus a duplicate distribution, with both
+   `grafana-django-saml2-auth` and `django-saml2-auth-community` 3.21.0 in
+   `Pipfile.lock` installing the same `django_saml2_auth` module path. This
+   PR's relock supersedes both artifacts.)
 
 ## 3. Why uv and not something smaller
 
@@ -219,6 +227,24 @@ unconfigured, and unsignable. (App logs can neither confirm nor refute
 usage: gunicorn does not access-log requests and fly's CLI log buffer holds
 only seconds of output — itself worth knowing.)
 
+**Resolution (2026-08-04):** @s1monj answered the direction question in
+review: allauth is now the patient login/password-reset stack, so SAML
+should ideally live there too — the grafana package predates JHE's allauth
+adoption and was chosen only as the lighter option at the time. Accordingly:
+
+- The `django-saml2-auth-community` swap in this PR is **transitional**. The
+  end-state is `django-allauth[saml]`
+  (`allauth.socialaccount.providers.saml`), which drops the pysaml2/pyopenssl
+  chain entirely and retires the override via §6 trigger 3.
+- The migration is tracked in a follow-up issue (greenfield per the live
+  validation above — nothing deployed to preserve). Design input from
+  @travis-sauer-oltech as the current integration's author is requested
+  there rather than blocking this PR.
+- One gap carries over rather than disappearing: allauth's SAML provider is
+  backed by `python3-saml`, whose `xmlsec` dependency needs the `libxmlsec1`
+  system libraries — so the missing-`xmlsec1` Docker gap above must be fixed
+  as part of that migration, not this PR.
+
 ## 6. Retirement triggers (when to delete the override)
 
 Delete `[tool.uv] override-dependencies` and this RFC's workaround section
@@ -229,7 +255,8 @@ when **any** of:
    (minimal port + unpinned) merged — watch the IdentityPython re-grouping
    ([IdentityPython/Meetings](https://github.com/IdentityPython/Meetings)).
 2. `django-saml2-auth-community` moves to a pysaml2 release without the cap.
-3. JHE migrates off pysaml2 (allauth SAML provider or SAML removal).
+3. JHE migrates off pysaml2 — per §5's resolution this is now the planned
+   path (allauth SAML provider, tracked in the follow-up issue).
 
 The override line in `pyproject.toml` carries a comment pointing here.
 
