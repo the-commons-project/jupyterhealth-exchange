@@ -20,9 +20,7 @@ dependencies = [
     "pydantic",
     "pydantic-core",
     "pyhumps",
-    # [saml] pulls python3-saml for allauth.socialaccount.providers.saml, which
-    # replaced django-saml2-auth-community per RFC 0002 §5's resolution — SAML
-    # now lives on the same allauth stack as patient login and password reset.
+    # [saml] pulls python3-saml for allauth.socialaccount.providers.saml (RFC 0003)
     "django-allauth[saml]",
     "faker",
     "drf-spectacular",

@@ -2,6 +2,7 @@ import json
 import logging
 from functools import lru_cache
 
+from allauth.socialaccount.models import SocialApp
 from django.conf import settings
 from oauth2_provider.models import get_application_model
 
@@ -28,6 +29,16 @@ def _get_oidc_client_id():
     return client_id
 
 
+def _saml2_enabled():
+    # The login button's provider_login_url resolves only when exactly one saml
+    # SocialApp exists (0 raises DoesNotExist, >1 MultipleObjectsReturned, either
+    # of which would 500 the whole login page). Hide the button instead;
+    # multi-IdP deployments need per-IdP buttons in a customized template.
+    if not get_setting("auth.sso.saml2", 0):
+        return False
+    return SocialApp.objects.filter(provider="saml").count() == 1
+
+
 def constants(request):
     site_url = get_setting("site.url", settings.SITE_URL)
 
@@ -38,7 +49,7 @@ def constants(request):
         "OIDC_CLIENT_AUTHORITY_PATH": settings.OIDC_CLIENT_AUTHORITY_PATH,
         "OAUTH2_CALLBACK_PATH": settings.OAUTH2_CALLBACK_PATH,
         "OIDC_CLIENT_ID": _get_oidc_client_id(),
-        "SAML2_ENABLED": get_setting("auth.sso.saml2", 0),
+        "SAML2_ENABLED": _saml2_enabled(),
         "ORGANIZATION_TYPES": json.dumps(Organization.ORGANIZATION_TYPES),
         "DATA_SOURCE_TYPES": json.dumps(DataSource.DATA_SOURCE_TYPES),
         "JHE_SETTING_VALUE_TYPES": json.dumps(JheSetting.JHE_SETTING_VALUE_TYPES),

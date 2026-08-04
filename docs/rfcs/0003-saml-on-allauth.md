@@ -48,18 +48,32 @@ What we get beyond consistency:
 | Package | django-saml2-auth-community 3.22.0 (+ pysaml2, pyopenssl) | `django-allauth[saml]` (+ python3-saml, xmlsec, lxml) |
 | ACS endpoint | vendored `acs()` at `/sso/acs/` | allauth's at `/allauth/saml/<org>/acs/` |
 | IdP config | `auth.sso.idp_metadata_url` JheSetting → trigger hook | `SocialApp` row (provider `saml`) in Django admin |
-| User provisioning | vendored `get_or_create_user()` | `JheSocialAccountAdapter` (~20 lines) |
-| Login button gate | `auth.sso.saml2` JheSetting | unchanged |
-| Domain restriction | `auth.sso.valid_domains` seeded but **never read** | enforced in the adapter |
+| User provisioning | vendored `get_or_create_user()` | `JheSocialAccountAdapter` (~30 lines) |
+| Login button gate | `auth.sso.saml2` JheSetting | flag **and** exactly one saml SocialApp (else the button hides rather than 500ing the login page) |
+| Domain restriction | `auth.sso.valid_domains` seeded but **never read** | enforced in the adapter at first-time signup (not per-login; deactivate the user to revoke) |
 | Resolver override | `pyopenssl>=26.2` required | deleted |
 
 Provisioning semantics preserved from the old integration (for Travis's
 review): every IdP-asserted user is created as a **practitioner** —
 `JheUser.save()` then auto-creates the Practitioner profile and applies
 `auth.default_orgs` — with `identifier` set from the SAML NameID/uid.
-`SOCIALACCOUNT_EMAIL_VERIFICATION = "none"` because the IdP asserts the
-email; `SOCIALACCOUNT_LOGIN_ON_GET = True` so our own login button is
-one-click instead of bouncing through allauth's interstitial confirm page.
+Signups with no asserted email fail closed (a misconfigured attribute
+mapping renders "Sign Up Closed" instead of falling through to allauth's
+type-any-email signup form). `SOCIALACCOUNT_EMAIL_VERIFICATION = "none"`
+because the IdP asserts the email; `SOCIALACCOUNT_LOGIN_ON_GET = True` so
+our own login button is one-click instead of bouncing through allauth's
+interstitial confirm page.
+
+**Existing accounts:** `SOCIALACCOUNT_EMAIL_AUTHENTICATION` (+`_AUTO_CONNECT`)
+is enabled so a practitioner who already has a password account logs straight
+in via SAML and gets the SocialAccount linked — without it, allauth's
+enumeration-safe default dead-ends every existing same-email user on a fake
+"verification e-mail sent" page. This only activates for emails the IdP's
+SocialApp declares trusted via `"verified_email": true` in its settings JSON
+(§4), so trusting an IdP's email assertions is an explicit per-IdP decision.
+(Enabling social signup also surfaced a latent config gap now fixed:
+`ACCOUNT_USER_MODEL_USERNAME_FIELD = None`, required for JHE's
+username-less user model on allauth's social save path.)
 
 ## 3. Alternatives considered
 
@@ -75,11 +89,16 @@ one-click instead of bouncing through allauth's interstitial confirm page.
    `client_id` = the URL slug (e.g. `berkeley`). Put IdP metadata URL,
    attribute mapping, and optional SP cert/key in the settings JSON
    ([allauth SAML docs](https://docs.allauth.org/en/latest/socialaccount/providers/saml.html)).
+   Include `"verified_email": true` (or a domain list) if the IdP's email
+   assertions are trusted — required for existing password accounts to log
+   in via SAML (§2).
 2. Give the IdP our SP metadata: `/allauth/saml/<slug>/metadata/`.
 3. Optionally set `auth.sso.valid_domains` (comma-separated) to restrict
    signup domains.
-4. Flip `auth.sso.saml2` to `1` — the login-page button appears. Order
-   matters: the button's `provider_login_url` needs the SocialApp to exist.
+4. Flip `auth.sso.saml2` to `1` — the login-page button appears. The button
+   renders only when exactly one saml SocialApp exists; with zero (or a
+   second IdP) it hides rather than erroring. Multiple IdPs need per-IdP
+   buttons in a customized login template.
 
 ## 5. xmlsec: the RFC 0002 §5 gap closes
 
@@ -100,8 +119,12 @@ cleanly. **No Dockerfile changes.**
 - python3-saml/xmlsec is a heavier binary dependency than pysaml2's pure
   Python — but it's the maintained, allauth-blessed path, and it's what makes
   signing actually work.
-- Enabling the button flag before creating the SocialApp raises on the login
-  page (documented ordering in §4; flag is seeded off).
+- `SOCIALACCOUNT_EMAIL_AUTHENTICATION` means a SAML assertion for a trusted
+  (`"verified_email": true`) IdP logs into an existing same-email account —
+  intended, but it makes the per-IdP trust declaration security-relevant:
+  only set it for IdPs that actually verify mailbox ownership.
+- `auth.sso.valid_domains` gates first-time provisioning only; it is not a
+  per-login access control (revocation = deactivate the user).
 
 ## 7. How this was researched (provenance, per RFC 0001's process)
 
@@ -117,5 +140,10 @@ and checking linked library versions, and corrected in both RFCs; (4) the
 human decisions: allauth-native SocialApp config over JheSetting glue; keep
 the `auth.sso.saml2` gate and landing-page behavior byte-compatible; ship as
 a draft PR stacked on #679 for Travis's review rather than merging directly.
-Verification: 983 backend tests (6 new), repo-pinned pre-commit, Docker
+Before review, three independent adversarial passes (correctness/security,
+DRY/KISS, tests/docs) were run over the diff; their confirmed findings —
+the existing-account email-link dead-end, the login-page 500 on a
+flag/SocialApp mismatch, and the signup-only scope of the domain gate —
+were fixed in-branch and are reflected in §2/§4/§6 above.
+Verification: 988 backend tests (11 new), repo-pinned pre-commit, Docker
 image build + in-container import check.

@@ -25,20 +25,26 @@ class JheAccountAdapter(DefaultAccountAdapter):
 
 
 class JheSocialAccountAdapter(DefaultSocialAccountAdapter):
-    """Provisions SAML SSO logins the way the previous django_saml2_auth
-    integration did: every IdP-asserted user is a practitioner (JheUser.save()
-    then auto-creates the Practitioner profile and applies `auth.default_orgs`),
-    optionally restricted to email domains listed in the `auth.sso.valid_domains`
-    JheSetting (comma-separated; empty means any domain — allauth renders its
-    "Sign Up Closed" page for rejected domains).
+    """SAML SSO glue: IdP-asserted users are provisioned as practitioners,
+    optionally restricted to email domains in the `auth.sso.valid_domains`
+    JheSetting (comma-separated; empty allows any). The gate applies to
+    first-time provisioning only — an already-linked SocialAccount keeps
+    logging in if the setting is tightened later; deactivate the user to
+    revoke access. Rejected signups get allauth's "Sign Up Closed" page.
     """
 
     def is_open_for_signup(self, request, sociallogin):
+        email = (sociallogin.user.email or "").lower()
+        if not email:
+            # No email asserted (misconfigured IdP attribute mapping): fail
+            # closed rather than fall through to allauth's type-any-email
+            # signup form, which would mint an unverified practitioner.
+            return False
         valid_domains = get_setting("auth.sso.valid_domains", "")
         if not valid_domains:
             return True
-        email = (sociallogin.user.email or "").lower()
-        return email.rsplit("@", 1)[-1] in [d.strip().lower() for d in valid_domains.split(",") if d.strip()]
+        allowed = {d.strip().lstrip("@").lower() for d in valid_domains.split(",") if d.strip()}
+        return email.rsplit("@", 1)[-1] in allowed
 
     def populate_user(self, request, sociallogin, data):
         user = super().populate_user(request, sociallogin, data)
