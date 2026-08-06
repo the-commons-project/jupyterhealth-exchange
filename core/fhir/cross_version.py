@@ -144,9 +144,18 @@ class _Engine:
         element = target.get("element")
 
         if transform == "copy":
-            value = self._param_value(target["parameter"][0], svars, tvars)
+            param = target["parameter"][0]
+            value = self._param_value(param, svars, tvars)
             if element is not None and value is not None:
-                self._assign(context, element, value)
+                source_var = svars.get(param["valueId"]) if "valueId" in param else None
+                json_key, child_model = _target_key(context.model, element, source_var)
+                # A bare code copied into a CodeableConcept-typed element (e.g. the
+                # DocumentReference4to5 map's attester.mode = "professional") is wrapped
+                # rather than assigned raw, which would fail R5 validation. No coding
+                # system is available from the map, so the code lands in ``text``.
+                if isinstance(value, str) and getattr(child_model, "__name__", None) == "CodeableConcept":
+                    value = {"text": value}
+                self._assign(context, json_key, value)
             return
 
         if transform == "translate":
