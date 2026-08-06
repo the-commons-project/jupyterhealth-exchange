@@ -243,6 +243,40 @@ def test_engine_assign_semantics_directly():
     assert ctx.value["criticality"] == "high"
 
 
+def test_engine_copy_flattens_choice_target_and_wraps_codeableconcept():
+    # Two DocumentReference4to5 gaps found via live Epic pulls (every clinical-note
+    # document failed R5 validation):
+    # 1. R4 ``content.format`` (Coding) copies into R5 ``content.profile.value[x]`` -- a
+    #    choice element the copy transform must flatten to ``valueCoding``, exactly as
+    #    ``create`` targets already do.
+    # 2. R4 ``authenticator`` maps to an attester whose ``mode`` the map fills with the
+    #    bare code "professional", but R5 mode is a CodeableConcept -- the copy wraps it.
+    r4 = {
+        "resourceType": "DocumentReference",
+        "status": "current",
+        "content": [
+            {
+                "attachment": {"contentType": "text/html", "url": "Binary/b1"},
+                "format": {
+                    "system": "http://ihe.net/fhir/ValueSet/IHE.FormatCode.codesystem",
+                    "code": "urn:ihe:iti:xds:2017:mimeTypeSufficient",
+                },
+            }
+        ],
+        "authenticator": {"reference": "Practitioner/pr1"},
+    }
+    out = transform_to_r5("DocumentReference", r4)
+    validate_fhir_resource("DocumentReference", out)
+    profile = out["content"][0]["profile"][0]
+    assert profile["valueCoding"]["code"] == "urn:ihe:iti:xds:2017:mimeTypeSufficient"
+    # The local patch map merges the official map's two attester rules into one entry
+    # carrying both mode and party (data/fhir/fhir-cross-version-patches).
+    assert len(out["attester"]) == 1
+    attester = out["attester"][0]
+    assert attester["party"]["reference"] == "Practitioner/pr1"
+    assert attester["mode"] == {"text": "professional"}
+
+
 def test_engine_parenthesised_condition():
     # Newer maps parenthesise rule conditions (`where (s = 'allergy')`); AllergyIntolerance.type is
     # mapped only through such a rule, so a parser that cannot read them drops the field.
