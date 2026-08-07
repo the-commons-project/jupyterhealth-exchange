@@ -1,10 +1,8 @@
-# RFC 0003: SAML SSO on allauth — one auth stack, no vendored ACS, no override
+# SAML SSO on allauth — one auth stack, no vendored ACS, no override
 
-- **Status:** Discussion
-- **RFC issue:** #706 · **Companion PR:** #697 (stacked on #679 / RFC 0002)
-- **Process:** discussion & decision happen in the RFC issue (per `.github/ISSUE_TEMPLATE/02_rfc.yml`, the flow used for #334 → #391); this file is the durable design record. Becomes **Accepted** when a maintainer approves companion PR #697 — the approving review + merge commit are the acceptance record, and this line flips to Accepted in the merge.
-- **Primary reviewers:** @s1monj (architecture), @travis-sauer-oltech (SAML behavior — author of the integration this replaces)
-- **Follows:** RFC 0002 §5's resolution; provenance per RFC 0001 (#677, in review)
+- **RFC:** [jupyterhealth-exchange#706](https://github.com/jupyterhealth/jupyterhealth-exchange/issues/706) — discussion and acceptance live on the issue, via the `.github/ISSUE_TEMPLATE/02_rfc.yml` flow (the one used for #334 → #391): a maintainer signs off in the issue and opens/merges the implementation. This file carries no status of its own.
+- **Companion PR:** #697 · **Reviewers:** @s1monj (architecture), @travis-sauer-oltech (SAML behavior — author of the integration this replaces)
+- **Purpose:** design record + operational runbook for #697. RFCs here are keyed by their GitHub issue number, not an ordinal.
 
 **TL;DR:** Practitioner SAML SSO moves from the vendored django_saml2_auth
 integration to allauth's built-in SAML provider (`django-allauth[saml]`) —
