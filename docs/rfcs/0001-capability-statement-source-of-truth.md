@@ -1,7 +1,8 @@
 # RFC 0001: CapabilityStatement source of truth (fhir_config vs. code) + AI-work provenance
 
 - **Status:** Discussion
-- **Companion PR:** #676 (CapabilityStatement + smart-configuration) · **Origin issue:** #615
+- **RFC issue:** #704 · **Companion PR:** #676 (CapabilityStatement + smart-configuration) · **Origin issue:** #615
+- **Process:** discussion & decision happen in the RFC issue (per `.github/ISSUE_TEMPLATE/02_rfc.yml`, the flow used for #334 → #391); this file is the durable design record. **Accepted** when a maintainer approves the companion PR.
 - **Also piloting:** the "share the prompt + decisions with the PR" process proposed by @s1monj
 
 This document does two jobs: (1) it is the provenance manifest for PR #676 —
