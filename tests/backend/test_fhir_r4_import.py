@@ -243,6 +243,53 @@ def test_engine_assign_semantics_directly():
     assert ctx.value["criticality"] == "high"
 
 
+def test_engine_translate_transform_appends_on_repeating_element():
+    # translate shares _assign with copy, but no pack map translates onto a repeating
+    # element today, so drive the engine with a minimal synthetic map: both source codes
+    # must survive a translate-transform rule over a repeating element (plain assignment
+    # would keep only the last and mistype the element as a scalar).
+    from core.fhir.cross_version import _Engine
+
+    group = {
+        "name": "AllergyIntolerance",
+        "input": [{"name": "src", "mode": "source"}, {"name": "tgt", "mode": "target"}],
+        "rule": [
+            {
+                "name": "category",
+                "source": [{"context": "src", "element": "category", "variable": "v", "type": "code"}],
+                "target": [
+                    {
+                        "context": "tgt",
+                        "element": "category",
+                        "transform": "translate",
+                        "parameter": [{"valueId": "v"}, {"valueString": "http://example.org/cat4to5"}],
+                    }
+                ],
+            },
+            {
+                "name": "patient",  # R5-required; carried over so the output validates
+                "source": [{"context": "src", "element": "patient", "variable": "p"}],
+                "target": [
+                    {"context": "tgt", "element": "patient", "transform": "copy", "parameter": [{"valueId": "p"}]}
+                ],
+            },
+        ],
+    }
+
+    class _StubMaps:
+        def group_for(self, name):
+            return group if name == "AllergyIntolerance" else None
+
+        def translate(self, url, code):
+            assert url == "http://example.org/cat4to5"
+            return {"med": "medication", "fd": "food"}[code]
+
+    r4 = {"resourceType": "AllergyIntolerance", "category": ["med", "fd"], "patient": {"reference": "Patient/p1"}}
+    out = _Engine(maps=_StubMaps()).transform("AllergyIntolerance", r4)
+    validate_fhir_resource("AllergyIntolerance", out)
+    assert out["category"] == ["medication", "food"]
+
+
 def test_engine_copy_flattens_choice_target_and_wraps_codeableconcept():
     # Two DocumentReference4to5 gaps found via live Epic pulls (every clinical-note
     # document failed R5 validation):

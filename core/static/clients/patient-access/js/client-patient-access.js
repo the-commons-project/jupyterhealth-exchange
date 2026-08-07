@@ -142,7 +142,16 @@ async function paWriteResource(jheToken, sourceId, resourceType, resource) {
     },
     body: JSON.stringify(resource),
   });
-  if (!response.ok) return { ok: false, reason: "HTTP " + response.status };
+  if (!response.ok) {
+    // Keep the response body: a scope rejection reads as a bare 403 without it.
+    var detail = "";
+    try {
+      detail = (await response.text()).slice(0, 300);
+    } catch (e) {
+      /* body unreadable; status alone will have to do */
+    }
+    return { ok: false, reason: "HTTP " + response.status + (detail ? ": " + detail : "") };
+  }
   var bundle = await response.json();
   var entry = bundle && bundle.entry && bundle.entry[0];
   var status = entry && entry.response && entry.response.status;
@@ -347,6 +356,9 @@ async function finishPatientAccessConnect(out, config) {
     out.textContent += "\n  saved " + result.written + " record(s)";
     if (result.failed) {
       out.textContent += "\n  " + result.failed + " record(s) could not be saved:";
+      // The on-screen list below is capped; log the complete map so a console capture
+      // keeps every distinct reason.
+      console.error("Patient Access import failures for " + pull.label + ":", result.reasons);
       // Validation messages can embed record values, making every reason distinct — cap the
       // list at the 5 most frequent so one bad type cannot flood the page.
       var reasonList = Object.keys(result.reasons).sort(function (a, b) {

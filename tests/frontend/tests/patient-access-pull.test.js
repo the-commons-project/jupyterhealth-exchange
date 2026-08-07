@@ -67,6 +67,21 @@ describe("paWriteResource", () => {
       reason: "400 invalid",
     });
   });
+
+  test("keeps the response body in the reason for a transport-level failure", async () => {
+    // A scope rejection must not read as a bare 403 — the body says which scope.
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: false,
+        status: 403,
+        text: () => Promise.resolve('{"detail":"missing patient/Condition.read scope"}'),
+      }),
+    );
+    expect(await window.paWriteResource("tok", "1", "Condition", {})).toEqual({
+      ok: false,
+      reason: 'HTTP 403: {"detail":"missing patient/Condition.read scope"}',
+    });
+  });
 });
 
 describe("paPullResourceType", () => {
