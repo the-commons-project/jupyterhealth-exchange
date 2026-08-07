@@ -1,11 +1,8 @@
 # RFC 0003: SAML SSO on allauth — one auth stack, no vendored ACS, no override
 
-- **Status:** Discussion — becomes Accepted when a maintainer approves
-  companion PR #697; the approving review + merge commit are the acceptance
-  record, and this line flips to Accepted in the merge. (Where RFC docs live
-  vs. the `02_rfc.yml` issue flow is an open question posed to maintainers in
-  RFC 0001, #677.)
-- **Companion PR:** #697 (stacked on #679 / RFC 0002)
+- **Status:** Discussion
+- **RFC issue:** #706 · **Companion PR:** #697 (stacked on #679 / RFC 0002)
+- **Process:** discussion & decision happen in the RFC issue (per `.github/ISSUE_TEMPLATE/02_rfc.yml`, the flow used for #334 → #391); this file is the durable design record. Becomes **Accepted** when a maintainer approves companion PR #697 — the approving review + merge commit are the acceptance record, and this line flips to Accepted in the merge.
 - **Primary reviewers:** @s1monj (architecture), @travis-sauer-oltech (SAML behavior — author of the integration this replaces)
 - **Follows:** RFC 0002 §5's resolution; provenance per RFC 0001 (#677, in review)
 
