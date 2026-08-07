@@ -96,7 +96,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 # Custom adapter rewords allauth's bundled error messages (e.g. "Incorrect code.").
-ACCOUNT_ADAPTER = "core.user_messages.JheAccountAdapter"
+ACCOUNT_ADAPTER = "core.adapters.JheAccountAdapter"
 # JheUser has no username field; without this, allauth's social signup path
 # raises KeyError('username') writing the auto-generated username.
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
@@ -114,18 +114,25 @@ ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
 # SAML SSO via allauth's saml provider. IdP config (metadata URL, attribute
 # map, SP certs) is a per-deployment SocialApp row in Django admin; the login
 # button is gated by the auth.sso.saml2 JheSetting. See docs/rfcs/0003.
-SOCIALACCOUNT_ADAPTER = "core.user_messages.JheSocialAccountAdapter"
+SOCIALACCOUNT_ADAPTER = "core.adapters.JheSocialAccountAdapter"
 # "none": the IdP asserts the email (default falls through to the account
 # setting above, which would bounce SSO users through email verification).
 SOCIALACCOUNT_EMAIL_VERIFICATION = "none"
-# GET-initiated login is acceptable for our own login-page redirect; skips
-# allauth's interstitial confirm page.
+# GET-initiated login (skips allauth's interstitial confirm page). Login-CSRF
+# surface accepted: attacker-account substitution is blocked regardless by
+# allauth's session-bound InResponseTo state check plus its default rejection
+# of unsolicited IdP-initiated assertions; the residual is a third party
+# force-starting the victim's own login. See docs/rfcs/0003 §5.
 SOCIALACCOUNT_LOGIN_ON_GET = True
-# Log an SSO user into an existing same-email account instead of allauth's
-# enumeration-safe dead end, and link the SocialAccount on first use. Only
-# takes effect for emails the IdP's SocialApp marks trusted via
-# "verified_email": true in its settings JSON (see docs/rfcs/0003 §4).
-SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
+# Email-authentication — logging an SSO user into an existing same-email
+# account instead of allauth's enumeration-safe dead end — is enabled per-IdP
+# by `"email_authentication": true` in that SocialApp's settings JSON, not
+# globally here (the global stays allauth's default False). The matched email
+# must also count as verified: either the IdP asserts the mapped
+# `email_verified` attribute or the SocialApp sets `"verified_email": true`.
+# See docs/rfcs/0003 §2-§3. AUTO_CONNECT (link the SocialAccount on first
+# use) has no per-app key; it is global but inert until email-authentication
+# actually fires.
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 
 REST_FRAMEWORK = {

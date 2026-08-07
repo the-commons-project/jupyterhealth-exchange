@@ -1,4 +1,6 @@
 from allauth.account.adapter import DefaultAccountAdapter
+from allauth.account.models import EmailAddress
+from allauth.core.exceptions import SignupClosedException
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.utils.translation import gettext_lazy as _
 
@@ -27,11 +29,37 @@ class JheAccountAdapter(DefaultAccountAdapter):
 class JheSocialAccountAdapter(DefaultSocialAccountAdapter):
     """SAML SSO glue: IdP-asserted users are provisioned as practitioners,
     optionally restricted to email domains in the `auth.sso.valid_domains`
-    JheSetting (comma-separated; empty allows any). The gate applies to
-    first-time provisioning only — an already-linked SocialAccount keeps
-    logging in if the setting is tightened later; deactivate the user to
-    revoke access. Rejected signups get allauth's "Sign Up Closed" page.
+    JheSetting (comma-separated; empty allows any). The domain gate applies to
+    first-time provisioning only — existing accounts reached via
+    email-authentication, and already-linked SocialAccounts, never pass through
+    it; deactivate the user to revoke access. `user_type`/`identifier` are
+    likewise set at first-time provisioning only. Rejections render allauth's
+    "Sign Up Closed" page.
     """
+
+    def pre_social_login(self, request, sociallogin):
+        # SAML SSO is a practitioner entrance: don't let an existing patient
+        # account (same IdP-asserted email, or previously linked) into a
+        # practitioner portal session.
+        if sociallogin.is_existing and sociallogin.user.is_patient():
+            raise SignupClosedException()
+        # When allauth matched this login to an existing user by verified
+        # IdP-asserted email (_did_authenticate_by_email, set in lookup()),
+        # its anti-pre-registration guard would wipe the user's password in
+        # _accept_login unless a *verified* allauth EmailAddress row exists —
+        # and JHE practitioners created via our own signup/admin paths have
+        # none. Backfill one: the IdP's email trust (the same decision that
+        # enabled email-authentication for this SocialApp) vouches for it.
+        email = getattr(sociallogin, "_did_authenticate_by_email", None)
+        if email and sociallogin.user.pk:
+            address, _ = EmailAddress.objects.get_or_create(
+                user=sociallogin.user,
+                email=email.lower(),
+                defaults={"verified": True, "primary": True},
+            )
+            if not address.verified:
+                address.verified = True
+                address.save(update_fields=["verified"])
 
     def is_open_for_signup(self, request, sociallogin):
         email = (sociallogin.user.email or "").lower()
@@ -44,10 +72,16 @@ class JheSocialAccountAdapter(DefaultSocialAccountAdapter):
         if not valid_domains:
             return True
         allowed = {d.strip().lstrip("@").lower() for d in valid_domains.split(",") if d.strip()}
+        # rsplit, not partition: the domain is what follows the LAST "@" (RFC
+        # 5321 quoted local parts may contain "@"), matching Django's
+        # EmailValidator parse.
         return email.rsplit("@", 1)[-1] in allowed
 
     def populate_user(self, request, sociallogin, data):
         user = super().populate_user(request, sociallogin, data)
         user.user_type = "practitioner"
         user.identifier = sociallogin.account.uid
+        # Mirrors the verified allauth EmailAddress row this login records —
+        # the IdP asserted the email, so JHE's own flag agrees with it.
+        user.email_is_verified = True
         return user

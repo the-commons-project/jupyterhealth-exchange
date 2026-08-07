@@ -4,12 +4,13 @@ from functools import lru_cache
 
 from allauth.socialaccount.models import SocialApp
 from django.conf import settings
+from django.core.cache import cache
 from oauth2_provider.models import get_application_model
 
 from core.fhir.config import supported_resource_types
 from core.models import DataSource, JheSetting, Organization
 from core.permissions import ROLE_PERMISSIONS
-from core.services.jhe_settings import get_setting
+from core.services.jhe_settings import DEFAULT_CACHE_TTL, get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,14 @@ def _saml2_enabled():
     # multi-IdP deployments need per-IdP buttons in a customized template.
     if not get_setting("auth.sso.saml2", 0):
         return False
-    return SocialApp.objects.filter(provider="saml").count() == 1
+    # Same TTL cache as get_setting (not lru_cache: SocialApp rows are runtime
+    # admin config, so the two gates must go stale together, within 60s).
+    cache_key = "saml2_single_social_app"
+    enabled = cache.get(cache_key)
+    if enabled is None:
+        enabled = SocialApp.objects.filter(provider="saml").count() == 1
+        cache.set(cache_key, enabled, DEFAULT_CACHE_TTL)
+    return enabled
 
 
 def constants(request):
