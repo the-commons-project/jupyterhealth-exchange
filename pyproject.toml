@@ -20,7 +20,7 @@ dependencies = [
     "pydantic",
     "pydantic-core",
     "pyhumps",
-    # [saml] pulls python3-saml for allauth.socialaccount.providers.saml (RFC 0003)
+    # [saml] pulls python3-saml for allauth.socialaccount.providers.saml (#697)
     "django-allauth[saml]",
     "faker",
     "drf-spectacular",

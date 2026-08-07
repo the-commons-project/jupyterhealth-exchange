@@ -1,5 +1,5 @@
 """JHE glue around allauth's SAML provider: the login-button gate, the
-practitioner-provisioning adapter, and the ACS login flows (see docs/rfcs/0003)."""
+practitioner-provisioning adapter, and the ACS login flows (#697)."""
 
 from unittest import mock
 

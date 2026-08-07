@@ -113,7 +113,8 @@ ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = "/allauth/email/"
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
 # SAML SSO via allauth's saml provider. IdP config (metadata URL, attribute
 # map, SP certs) is a per-deployment SocialApp row in Django admin; the login
-# button is gated by the auth.sso.saml2 JheSetting. See docs/rfcs/0003.
+# button is gated by the auth.sso.saml2 JheSetting. Operator setup guide:
+# jhe/auth.md in the software-documentation repo.
 SOCIALACCOUNT_ADAPTER = "core.adapters.JheSocialAccountAdapter"
 # "none": the IdP asserts the email (default falls through to the account
 # setting above, which would bounce SSO users through email verification).
@@ -122,7 +123,7 @@ SOCIALACCOUNT_EMAIL_VERIFICATION = "none"
 # surface accepted: attacker-account substitution is blocked regardless by
 # allauth's session-bound InResponseTo state check plus its default rejection
 # of unsolicited IdP-initiated assertions; the residual is a third party
-# force-starting the victim's own login. See docs/rfcs/0003 §5.
+# force-starting the victim's own login.
 SOCIALACCOUNT_LOGIN_ON_GET = True
 # Email-authentication — logging an SSO user into an existing same-email
 # account instead of allauth's enumeration-safe dead end — is enabled per-IdP
@@ -130,9 +131,8 @@ SOCIALACCOUNT_LOGIN_ON_GET = True
 # globally here (the global stays allauth's default False). The matched email
 # must also count as verified: either the IdP asserts the mapped
 # `email_verified` attribute or the SocialApp sets `"verified_email": true`.
-# See docs/rfcs/0003 §2-§3. AUTO_CONNECT (link the SocialAccount on first
-# use) has no per-app key; it is global but inert until email-authentication
-# actually fires.
+# AUTO_CONNECT (link the SocialAccount on first use) has no per-app key; it
+# is global but inert until email-authentication actually fires.
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 
 REST_FRAMEWORK = {

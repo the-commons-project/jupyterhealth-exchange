@@ -2,7 +2,7 @@ from django.db import migrations
 
 
 def delete_superseded_idp_metadata_url_setting(apps, schema_editor):
-    # IdP config moved to an allauth SocialApp row (docs/rfcs/0003); nothing
+    # IdP config moved to an allauth SocialApp row (#697); nothing
     # reads this key anymore, so drop it from already-seeded databases where it
     # would otherwise linger as an editable-but-dead settings-admin row. The
     # seeded value was always "" (SAML was never operable), so nothing is lost.
