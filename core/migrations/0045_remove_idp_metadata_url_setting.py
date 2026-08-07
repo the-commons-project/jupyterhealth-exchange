@@ -11,6 +11,9 @@ def delete_superseded_idp_metadata_url_setting(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # Numbered 0045: #681 ships 0043/0044 on the same 0042 parent. Whichever
+    # PR merges second flips this dependency to the other's leaf (e.g.
+    # "0044_aux_upstream_uniqueness") — one line, no rename needed.
     dependencies = [
         ("core", "0042_ehrbrand_ehrbrandlocation"),
     ]
