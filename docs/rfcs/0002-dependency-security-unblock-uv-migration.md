@@ -126,7 +126,7 @@ unconfigured, unsignable.
 **Resolution (2026-08-04):** @s1monj's review direction is that SAML should
 join patient login/password reset on allauth. The community-fork swap here is
 therefore **transitional**; the end-state is implemented in **#697 (RFC
-0003)**, stacked on this PR, which also closes the xmlsec1 gap (RFC 0003 §5).
+0003)**, stacked on this PR, which also closes the xmlsec1 gap (RFC 0003 §4).
 This PR changes no SAML behavior.
 
 ## 6. Retirement triggers (when to delete the override)
