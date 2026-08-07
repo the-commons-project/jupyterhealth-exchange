@@ -1,8 +1,9 @@
 # RFC 0002: Unblocking dependency security updates — django-saml2-auth-community, uv, and one declared override
 
-- **Status:** Discussion
-- **Companion PR:** #679 · **Hotfix for pre-existing main regression:** #678
-- **Primary reviewers:** @s1monj (architecture/process), @travis-sauer-oltech (SAML behavior)
+- **Status:** Accepted (2026-08-04) — implemented in #679
+- **RFC issue:** #705 · **Implemented in:** #679 · **Hotfix for pre-existing main regression:** #678
+- **Process:** decided via the RFC issue (per `.github/ISSUE_TEMPLATE/02_rfc.yml`, the flow used for #334 → #391); this file is the durable design record. Accepted on maintainer approval of #679, now merged.
+- **Reviewers:** @s1monj (architecture/process), @travis-sauer-oltech (SAML behavior)
 - **Follows:** the provenance format piloted in RFC 0001 (#677)
 
 **TL;DR:** Three upstream pins outside our control had wedged the app so that
