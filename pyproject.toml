@@ -25,7 +25,7 @@ dependencies = [
     # Formerly grafana-django-saml2-auth: Grafana archived their repo 2026-06-16
     # and the grafana-named package is frozen at 3.21.0 (pyjwt==2.12.1) forever.
     # The maintained continuation is django-saml2-auth-community (same
-    # django_saml2_auth import paths). See docs/rfcs/0002.
+    # django_saml2_auth import paths). See #679.
     "django-saml2-auth-community>=3.22.0",
     "jsonschema",
     "ipython",
@@ -58,7 +58,7 @@ override-dependencies = [
     # updates. Lifting it lets pyopenssl/cryptography track current releases
     # (also clears pyopenssl's own CVE-2026-27459). Precedent: Flagsmith ships
     # this same override in production SAML. Remove when pysaml2 releases with
-    # #977 or #1021 merged. See docs/rfcs/0002 for the full analysis.
+    # #977 or #1021 merged. See #679 for the full analysis.
     "pyopenssl>=26.2",
 ]
 
