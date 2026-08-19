@@ -18,6 +18,7 @@ misled.
 
 from django.utils import timezone
 
+from core.auth import authorize_uri, token_uri
 from core.fhir.config import (
     FHIR_VERSION,
     aux_interactions,
@@ -164,8 +165,8 @@ def build_capability_statement(request):
                         {
                             "url": _OAUTH_URIS_URL,
                             "extension": [
-                                {"url": "authorize", "valueUri": request.build_absolute_uri("/o/authorize/")},
-                                {"url": "token", "valueUri": request.build_absolute_uri("/o/token/")},
+                                {"url": "authorize", "valueUri": authorize_uri(request)},
+                                {"url": "token", "valueUri": token_uri(request)},
                             ],
                         }
                     ],

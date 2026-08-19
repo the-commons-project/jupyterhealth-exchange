@@ -42,6 +42,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.auth import authorize_uri, token_uri
 from core.fhir.capability import build_capability_statement
 from core.fhir.config import (
     aux_interactions,
@@ -672,8 +673,8 @@ def smart_configuration(request):
     """
     return Response(
         {
-            "authorization_endpoint": request.build_absolute_uri("/o/authorize/"),
-            "token_endpoint": request.build_absolute_uri("/o/token/"),
+            "authorization_endpoint": authorize_uri(request),
+            "token_endpoint": token_uri(request),
             "grant_types_supported": ["authorization_code"],
             "response_types_supported": ["code"],
             "code_challenge_methods_supported": ["S256"],
