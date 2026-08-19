@@ -113,7 +113,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     # 'DEFAULT_PAGINATION_CLASS': 'core.pagination.CustomPageNumberPagination',
     "PAGE_SIZE": 1000,
-    "DEFAULT_AUTHENTICATION_CLASSES": ("core.authentication.JheOAuth2Authentication",),
+    "DEFAULT_AUTHENTICATION_CLASSES": ("core.auth.JheOAuth2Authentication",),
     "DEFAULT_RENDERER_CLASSES": (
         "djangorestframework_camel_case.render.CamelCaseJSONRenderer",
         "djangorestframework_camel_case.render.CamelCaseBrowsableAPIRenderer",
@@ -236,7 +236,7 @@ OAUTH2_PROVIDER = {
         "openid": "OpenID Connect scope",
         "email": "Email address",
     },
-    "OAUTH2_VALIDATOR_CLASS": "core.oauth2_validators.JheOAuth2Validator",
+    "OAUTH2_VALIDATOR_CLASS": "core.auth.JheOAuth2Validator",
     "ACCESS_TOKEN_EXPIRE_SECONDS": 1209600,  # 2 weeks
 }
 OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"

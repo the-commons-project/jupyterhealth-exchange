@@ -15,7 +15,6 @@ from django.utils.translation import gettext_lazy as _
 from oauth2_provider.models import AccessToken, Grant, IDToken, RefreshToken, get_application_model
 
 from core.services.jhe_settings import get_setting
-from core.tokens import account_activation_token
 
 from .organization import Organization
 from .patient import Patient
@@ -196,6 +195,11 @@ class JheUser(AbstractUser):
                                 link.save(update_fields=["role"])
 
     def send_email_verificaion(self):
+        # Deferred: core.auth imports DOT's oauth2_validators, which calls
+        # get_application_model() at module level. Importing it here at
+        # model-definition time would run before the app registry is ready.
+        from core.auth import account_activation_token
+
         message = render_to_string(
             "registration/verify_email_message.html",
             {

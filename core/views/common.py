@@ -41,14 +41,12 @@ from oauth2_provider.models import get_access_token_model
 from oauth2_provider.views import TokenView
 from oauthlib.common import Request
 
+from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
 from core.models import JheUser
-from core.oauth2_validators import JheOAuth2Validator
-from core.oidc_verify import IdTokenError, parse_fhir_user, verify_id_token
 from core.services.jhe_settings import get_setting
 from core.utils import get_or_create_user
 
 from ..forms import UserRegistrationForm
-from ..tokens import account_activation_token
 
 logger = logging.getLogger(__name__)
 
