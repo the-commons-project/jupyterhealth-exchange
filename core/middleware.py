@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import HttpResponse
 
 
@@ -27,7 +28,7 @@ class OAuthCorsMiddleware:
         is_discovery = request.path.startswith("/FHIR/") and (
             request.path.endswith("/metadata") or request.path.endswith("/.well-known/smart-configuration")
         )
-        is_oauth = request.path.startswith("/o/") or is_discovery
+        is_oauth = request.path.startswith(settings.OAUTH_MOUNT_PATH) or is_discovery
         if is_oauth and request.method == "OPTIONS":
             response = HttpResponse(status=204)
         else:

@@ -16,6 +16,7 @@ Including another URLconf
 """
 
 import django_saml2_auth.views
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views  # noqa
 from django.urls import include, path, re_path
@@ -27,12 +28,15 @@ from drf_spectacular.views import (
 
 from core.views.common import JheTokenView
 
+# Relative form of settings.OAUTH_MOUNT_PATH ("/o/" -> "o/"), which is what path() takes.
+_OAUTH_MOUNT = settings.OAUTH_MOUNT_PATH.lstrip("/")
+
 urlpatterns = [
     path("", include("core.urls")),
     path("admin/", admin.site.urls),
     # Override DOT's token endpoint to return JSON on errors (#192) before the include.
-    path("o/token/", JheTokenView.as_view(), name="token"),
-    path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
+    path(f"{_OAUTH_MOUNT}token/", JheTokenView.as_view(), name="token"),
+    path(_OAUTH_MOUNT, include("oauth2_provider.urls", namespace="oauth2_provider")),
     path("accounts/", include("django.contrib.auth.urls")),
     path("allauth/", include("allauth.urls")),
     path(

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.urls import include, path, re_path
 from django.views.generic import TemplateView
 from rest_framework.routers import DefaultRouter
@@ -82,7 +83,7 @@ urlpatterns = [
     ),
     path("auth/login/", common.client_auth_login, name="client-auth-login"),
     # oauth token exchange
-    path("o/token-exchange", common.token_exchange, name="token-exchange"),
+    path(f"{settings.OAUTH_MOUNT_PATH.lstrip('/')}token-exchange", common.token_exchange, name="token-exchange"),
     # OW Client pages
     path("clients/ow/launch", common.ow_launch, name="ow-launch"),
     path("clients/ow/complete", common.ow_complete, name="ow-complete"),
