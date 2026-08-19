@@ -60,6 +60,13 @@ class JheSocialAccountAdapter(DefaultSocialAccountAdapter):
             if not address.verified:
                 address.verified = True
                 address.save(update_fields=["verified"])
+            # Keep JHE's own flag in step with the verified allauth row. Without
+            # this, an email-linked practitioner reaches login through here (not
+            # populate_user, which only runs for brand-new SSO users) and would
+            # linger as unverified in the JHE admin panel.
+            if not sociallogin.user.email_is_verified:
+                sociallogin.user.email_is_verified = True
+                sociallogin.user.save(update_fields=["email_is_verified"])
 
     def is_open_for_signup(self, request, sociallogin):
         email = (sociallogin.user.email or "").lower()

@@ -14,6 +14,11 @@ from core.services.jhe_settings import DEFAULT_CACHE_TTL, get_setting
 
 logger = logging.getLogger(__name__)
 
+# The "exactly one SAML SocialApp" gate cached by _saml2_enabled(). A
+# post_save/post_delete receiver on SocialApp (core/signals.py) clears it so
+# adding or removing an IdP row takes effect at once, not after the TTL.
+SAML2_SINGLE_SOCIAL_APP_CACHE_KEY = "saml2_single_social_app"
+
 
 @lru_cache(maxsize=1)
 def _get_oidc_client_id():
@@ -39,11 +44,10 @@ def _saml2_enabled():
         return False
     # Same TTL cache as get_setting (not lru_cache: SocialApp rows are runtime
     # admin config, so the two gates must go stale together, within 60s).
-    cache_key = "saml2_single_social_app"
-    enabled = cache.get(cache_key)
+    enabled = cache.get(SAML2_SINGLE_SOCIAL_APP_CACHE_KEY)
     if enabled is None:
         enabled = SocialApp.objects.filter(provider="saml").count() == 1
-        cache.set(cache_key, enabled, DEFAULT_CACHE_TTL)
+        cache.set(SAML2_SINGLE_SOCIAL_APP_CACHE_KEY, enabled, DEFAULT_CACHE_TTL)
     return enabled
 
 

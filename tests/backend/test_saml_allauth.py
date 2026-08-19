@@ -68,6 +68,17 @@ class LoginPageSamlButtonTests(TestCase):
         response = self.client.get("/accounts/login/")
         self.assertContains(response, "Continue with SAML2")
         self.assertContains(response, "/allauth/saml/idp/login/")
+        # The button carries the post-login destination through the query string:
+        # default it to the admin org list (matches the password form's next).
+        self.assertContains(response, "next=%2Fclients%2Fjhe-admin%2Forganizations")
+
+    def test_button_forwards_login_page_next(self):
+        SocialApp.objects.create(provider="saml", name="Test IdP", client_id="idp")
+        _set_setting("auth.sso.saml2", "int", 1)
+        response = self.client.get("/accounts/login/?next=/clients/jhe-admin/studies")
+        # A ?next= on the login page overrides the default and reaches the href,
+        # so SSO users land where a same-page password login would have.
+        self.assertContains(response, "next=%2Fclients%2Fjhe-admin%2Fstudies")
 
     def test_button_hidden_when_enabled_without_social_app(self):
         _set_setting("auth.sso.saml2", "int", 1)
@@ -195,6 +206,14 @@ class SamlAcsFlowTests(TestCase):
         self.assertTrue(user.check_password("hunter2!"))
         self.assertTrue(SocialAccount.objects.filter(user=user, provider="saml").exists())
         self.assertTrue(EmailAddress.objects.filter(user=user, email="doc@example.org", verified=True).exists())
+
+    def test_acs_inactive_practitioner_not_logged_in(self):
+        """Deactivation revokes SAML access (the adapter's documented way to
+        cut off a user): an is_active=False practitioner reaching ACS by
+        email-authentication must not receive a session."""
+        JheUser.objects.create_user("doc@example.org", password="hunter2!", user_type="practitioner", is_active=False)
+        self._post_acs("doc@example.org")
+        self.assertIsNone(self._logged_in_user_id())
 
     def test_acs_existing_patient_rejected(self):
         """SAML is a practitioner entrance: a same-email patient account is
