@@ -58,7 +58,13 @@ OW_S3_ACCESS_KEY = os.getenv("OW_S3_ACCESS_KEY", "")
 OW_S3_SECRET_KEY = os.getenv("OW_S3_SECRET_KEY", "")
 OW_S3_REGION = os.getenv("OW_S3_REGION", "us-east-1")
 
-OIDC_CLIENT_AUTHORITY_PATH = "/o/"
+# Where Django OAuth Toolkit is mounted (jhe/urls.py). DOT has no setting for its
+# own mount point, so this is the single declaration everything else derives from:
+# the URL mount, the CORS gate in core/middleware.py, and the URIs the FHIR
+# discovery documents advertise (via reverse(), see core/auth.py).
+OAUTH_MOUNT_PATH = "/o/"
+# The name the browser OIDC client expects in its config (server_settings.js).
+OIDC_CLIENT_AUTHORITY_PATH = OAUTH_MOUNT_PATH
 
 if "ALLOWED_HOSTS" in os.environ:
     ALLOWED_HOSTS = os.environ["ALLOWED_HOSTS"].split(",")
@@ -140,7 +146,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     # 'DEFAULT_PAGINATION_CLASS': 'core.pagination.CustomPageNumberPagination',
     "PAGE_SIZE": 1000,
-    "DEFAULT_AUTHENTICATION_CLASSES": ("core.authentication.JheOAuth2Authentication",),
+    "DEFAULT_AUTHENTICATION_CLASSES": ("core.auth.JheOAuth2Authentication",),
     "DEFAULT_RENDERER_CLASSES": (
         "djangorestframework_camel_case.render.CamelCaseJSONRenderer",
         "djangorestframework_camel_case.render.CamelCaseBrowsableAPIRenderer",
@@ -263,7 +269,7 @@ OAUTH2_PROVIDER = {
         "openid": "OpenID Connect scope",
         "email": "Email address",
     },
-    "OAUTH2_VALIDATOR_CLASS": "core.oauth2_validators.JheOAuth2Validator",
+    "OAUTH2_VALIDATOR_CLASS": "core.auth.JheOAuth2Validator",
     "ACCESS_TOKEN_EXPIRE_SECONDS": 1209600,  # 2 weeks
 }
 OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"
