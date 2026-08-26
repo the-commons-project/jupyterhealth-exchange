@@ -411,16 +411,23 @@ class TestSeedNoDuplicateObservations:
         call_command("seed", "--flush-db")
         observations = Observation.objects.all()
 
-        # Expected consents:
+        # Expected consents (one observation per consented non-FHIR scope):
         # Berkeley:
         #   peter  → bp_hr(BP, HR) = 2 obs
-        #   pamela → bp_hr(BP, HR) + bp(BP) = 3 obs  (2 BP obs is correct: one per consent)
+        #   pamela → bp_hr(BP, HR) + sleep_bp(BP) = 3 obs  (2 BP obs is correct: one per consent)
         # UCSF:
         #   percy → mosl_bt(BT) = 1 obs
         #   paul  → olgin_o2(O2) = 1 obs
         #   pat   → cardio_rr(RR) + olgin_o2(O2) = 2 obs
-        # Total = 5 + 4 = 9
-        assert observations.count() == 9, f"Expected 9 observations (5 berkeley + 4 ucsf), got {observations.count()}"
+        # Subtotal = 5 + 4 = 9
+        # Plus the sleep episodes, which the seed writes explicitly rather than one-per-consent
+        # (the generic generator cannot build a valid sleep-episode body): peter 2 + pamela 2 = 4.
+        # Total = 13
+        assert observations.count() == 13, (
+            f"Expected 13 observations (5 berkeley + 4 ucsf + 4 sleep), got {observations.count()}"
+        )
+        sleep = observations.filter(codeable_concept__coding_code="ieee:sleep-episode:1.0")
+        assert sleep.count() == 4, f"Expected 4 sleep episodes, got {sleep.count()}"
 
         # Verify no cross-contamination from Bug 1:
         # Berkeley patients should not have UCSF-only codes (RR, BT, O2)

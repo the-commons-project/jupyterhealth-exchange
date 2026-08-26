@@ -52,7 +52,7 @@ const ROUTES = {
     action: "renderStudies",
   },
   observations: {
-    label: "OMH Observations",
+    label: "OMH / IEEE 1752",
     iconClass: "bi-database",
     action: "renderObservations",
   },

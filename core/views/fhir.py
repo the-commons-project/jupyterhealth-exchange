@@ -199,14 +199,14 @@ class MappedResourceHandler:
 
 
 class ObservationHandler(MappedResourceHandler):
-    """Observation needs a custom serializer (Base64 valueAttachment) and the OMH create path."""
+    """Observation needs a custom serializer (Base64 valueAttachment) and the OMH/IEEE create path."""
 
     def serialize(self, instance):
         # valueAttachment.data needs Base64 encoding, which the config can't express.
         return FHIRObservationSerializer().to_representation(instance)
 
     def create(self, data):
-        # Only the OMH path reaches here (the view routes non-OMH Observations to aux).
+        # Only the OMH/IEEE path reaches here (the view routes other-coded Observations to aux).
         observation = Observation.fhir_create(data, self.user)
         logger.debug("created observation: %s", observation)
 
@@ -591,7 +591,7 @@ class FHIRResourceView(APIView):
         criteria = mapped_criteria(resource)
         mapped = mapped_interactions(resource)
         aux = aux_interactions(resource)
-        # OMH criteria routes a writable mapped resource between the model and aux.
+        # The code criteria routes a writable mapped resource between the model and aux.
         if "create" in mapped and (criteria is None or matches_criteria(_camelized(data), criteria)):
             return self._mapped_handler(resource).create(data)
         if "create" in aux:

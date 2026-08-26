@@ -1,6 +1,8 @@
 import os
 import secrets
 import string
+import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.management import call_command
@@ -36,6 +38,38 @@ from core.models import (
 from core.utils import generate_observation_value_attachment_data
 
 fake = Faker()
+
+SLEEP_EPISODE_CODE = "ieee:sleep-episode:1.0"
+
+
+def sleep_episode_data_point(start, hours_asleep, awakenings):
+    """A schema-valid ieee:sleep-episode:1.0 data point.
+
+    Built by hand rather than via generate_observation_value_attachment_data: there is no
+    example data point on disk for this code, and the generator's fallback writes an
+    ``effective_time_frame.date_time``, whereas sleep-episode requires a ``time_interval``.
+    """
+    end = start + timedelta(hours=hours_asleep)
+    return {
+        "header": {
+            "uuid": str(uuid.uuid4()),
+            "schema_id": {"namespace": "ieee", "name": "sleep-episode", "version": "1.0"},
+            "source_creation_date_time": end.isoformat().replace("+00:00", "Z"),
+            "modality": "sensed",
+            "acquisition_provenance": {"source_name": "Oura"},
+        },
+        "body": {
+            "effective_time_frame": {
+                "time_interval": {
+                    "start_date_time": start.isoformat().replace("+00:00", "Z"),
+                    "end_date_time": end.isoformat().replace("+00:00", "Z"),
+                }
+            },
+            "total_sleep_time": {"value": round(hours_asleep * 3600), "unit": "sec"},
+            "number_of_awakenings": awakenings,
+            "is_main_sleep": True,
+        },
+    }
 
 
 class Command(BaseCommand):
@@ -161,47 +195,35 @@ class Command(BaseCommand):
 
     @staticmethod
     def seed_codeable_concepts():
+        # OMH = https://w3id.org/openmhealth, IEEE = https://w3id.org/ieee1752. IEEE 1752 is the
+        # balloted form of an OMH schema and JHE treats the two coding systems interchangeably,
+        # so a measure can be seeded under either -- or both, where the schema versions differ.
+        # Every label therefore names its namespace: the two are indistinguishable otherwise,
+        # and the admin renders a CodeableConcept by its text alone.
+        omh = "https://w3id.org/openmhealth"
+        ieee = "https://w3id.org/ieee1752"
         codes = [
-            ("https://w3id.org/openmhealth", "omh:blood-glucose:4.0", "Blood glucose"),
-            (
-                "https://w3id.org/openmhealth",
-                "omh:blood-pressure:4.0",
-                "Blood pressure",
-            ),
-            (
-                "https://w3id.org/openmhealth",
-                "omh:body-temperature:4.0",
-                "Body temperature",
-            ),
-            ("https://w3id.org/openmhealth", "omh:heart-rate:2.0", "Heart Rate"),
-            (
-                "https://w3id.org/openmhealth",
-                "omh:oxygen-saturation:2.0",
-                "Oxygen saturation",
-            ),
-            (
-                "https://w3id.org/openmhealth",
-                "omh:respiratory-rate:2.0",
-                "Respiratory rate",
-            ),
-            ("https://w3id.org/openmhealth", "omh:rr-interval:1.0", "RR Interval"),
-            ("https://w3id.org/openmhealth", "omh:body-weight:3.0", "Body weight"),
-            (
-                "https://w3id.org/openmhealth",
-                "omh:forced-vital-capacity:1.0",
-                "Forced vital capacity",
-            ),
-            (
-                "https://w3id.org/openmhealth",
-                "omh:forced-expiratory-volume-1-second:1.0",
-                "Forced expiratory volume 1 second",
-            ),
+            (omh, "omh:blood-glucose:4.0", "Blood glucose (OMH)"),
+            (omh, "omh:blood-pressure:4.0", "Blood pressure (OMH)"),
+            (omh, "omh:body-temperature:4.0", "Body temperature (OMH)"),
+            (omh, "omh:heart-rate:2.0", "Heart Rate (OMH)"),
+            (omh, "omh:oxygen-saturation:2.0", "Oxygen saturation (OMH)"),
+            (omh, "omh:respiratory-rate:2.0", "Respiratory rate (OMH)"),
+            (omh, "omh:rr-interval:1.0", "RR Interval (OMH)"),
+            (omh, "omh:body-weight:3.0", "Body weight (OMH)"),
+            (omh, "omh:forced-vital-capacity:1.0", "Forced vital capacity (OMH)"),
+            (omh, "omh:forced-expiratory-volume-1-second:1.0", "Forced expiratory volume 1 second (OMH)"),
+            (omh, "omh:physical-activity:1.2", "Physical activity (OMH)"),
+            (omh, "omh:step-count:3.0", "Step count (OMH)"),
+            (omh, "omh:sleep-episode:1.1", "Sleep episode (OMH)"),
+            (omh, "omh:sleep-duration:2.0", "Sleep duration (OMH)"),
+            (omh, "omh:total-sleep-time:1.0", "Total sleep time (OMH)"),
+            (ieee, "ieee:sleep-stage-summary:1.0", "Sleep stage summary (IEEE)"),
+            (ieee, "ieee:physical-activity:1.0", "Physical activity (IEEE)"),
+            (ieee, "ieee:sleep-episode:1.0", "Sleep episode (IEEE)"),
+            (ieee, "ieee:time-in-bed:1.0", "Time in bed (IEEE)"),
+            # Not an OMH/IEEE data point: a FHIR resource type, so it carries no suffix.
             ("http://hl7.org/fhir/resource-types", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
-            ("https://w3id.org/openmhealth", "omh:physical-activity:1.2", "Physical activity"),
-            ("https://w3id.org/openmhealth", "omh:step-count:3.0", "Step count"),
-            ("https://w3id.org/ieee1752", "ieee:sleep-stage-summary:1.0", "Sleep stage summary"),
-            ("https://w3id.org/openmhealth", "omh:sleep-episode:1.1", "Sleep episode"),
-            ("https://w3id.org/openmhealth", "omh:sleep-duration:2.0", "Sleep duration"),
         ]
         # bulk create thing
         for system, code, text in codes:
@@ -216,7 +238,7 @@ class Command(BaseCommand):
             ("CareX", "personal_device", ["omh:blood-pressure:4.0", "omh:heart-rate:2.0"]),
             ("Dexcom", "personal_device", ["omh:blood-glucose:4.0"]),
             ("iHealth", "personal_device", ["omh:body-temperature:4.0", "omh:heart-rate:2.0"]),
-            ("Oura", "personal_device", ["omh:heart-rate:2.0"]),
+            ("Oura", "personal_device", ["omh:heart-rate:2.0", "ieee:sleep-episode:1.0"]),
             ("Questionnaire", "patient_app", ["QuestionnaireResponse"]),
             # Source for clinical records pulled from Patient Access API (#489). No OMH
             # supported scopes: its data is stored as auxiliary FHIR resources.
@@ -246,6 +268,14 @@ class Command(BaseCommand):
                 "name": "CommonHealth",
                 "invitation_url": "https://commonhealth.tcp.org?invitation=CODE",
                 "data_sources": ["Dexcom", "iHealth"],
+            },
+            {
+                # Open Wearables patient client, served by JHE itself at /clients/ow/launch
+                # (core/views/common.py::ow_launch). The OW polling pipeline (ow_poll) pulls
+                # Oura data for patients who have linked an OW account.
+                "name": "Open Wearables",
+                "invitation_url": "http://localhost:8001/clients/ow/launch?code=CODE",
+                "data_sources": ["Oura"],
             },
             {
                 # SMART on FHIR patient EHR-records client (issue #489). Served on JHE's
@@ -349,27 +379,37 @@ class Command(BaseCommand):
             description="Blood Pressure & Heart Rate",
             organization=lifespan_lab,
         )
-        lifespan_study_bp = Study.objects.create(
-            name="Lifespan Study on BP", description="Blood Pressure", organization=lifespan_lab
+        lifespan_study_sleep_bp = Study.objects.create(
+            name="Lifespan Study on Sleep & BP",
+            description="Sleep & Blood Pressure",
+            organization=lifespan_lab,
         )
 
         code_omh_bp = CodeableConcept.objects.get(coding_code="omh:blood-pressure:4.0")
         code_omh_hr = CodeableConcept.objects.get(coding_code="omh:heart-rate:2.0")
+        code_ieee_sleep = CodeableConcept.objects.get(coding_code=SLEEP_EPISODE_CODE)
         code_fhir_qr = CodeableConcept.objects.get(coding_code="QuestionnaireResponse")
 
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_omh_bp)
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_omh_hr)
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_fhir_qr)
-        StudyScopeRequest.objects.create(study=lifespan_study_bp, scope_code=code_omh_bp)
-        StudyScopeRequest.objects.create(study=lifespan_study_bp, scope_code=code_fhir_qr)
+        StudyScopeRequest.objects.create(study=lifespan_study_sleep_bp, scope_code=code_omh_bp)
+        StudyScopeRequest.objects.create(study=lifespan_study_sleep_bp, scope_code=code_ieee_sleep)
+        StudyScopeRequest.objects.create(study=lifespan_study_sleep_bp, scope_code=code_fhir_qr)
 
         carex_ds = DataSource.objects.get(name="CareX")
         questionnaire_ds = DataSource.objects.get(name="Questionnaire")
         carex_client = get_application_model().objects.get(name="CareX")
-        for study in [lifespan_study_bp_hr, lifespan_study_bp]:
+        for study in [lifespan_study_bp_hr, lifespan_study_sleep_bp]:
             StudyDataSource.objects.create(study=study, data_source=carex_ds)
             StudyDataSource.objects.create(study=study, data_source=questionnaire_ds)
             StudyClient.objects.create(study=study, client=carex_client)
+
+        # The sleep study collects its sleep episodes from Oura via the Open Wearables client.
+        oura_ds = DataSource.objects.get(name="Oura")
+        ow_client = get_application_model().objects.get(name="Open Wearables")
+        StudyDataSource.objects.create(study=lifespan_study_sleep_bp, data_source=oura_ds)
+        StudyClient.objects.create(study=lifespan_study_sleep_bp, client=ow_client)
 
         # Wire the Patient Access (Epic SMART) client to Peter's BP & HR study so it shows up
         # as an invitable client for him (consolidated_clients gates on StudyClient).
@@ -393,9 +433,9 @@ class Command(BaseCommand):
         ll_patient_pamela.organizations.add(lifespan_lab)
 
         sp_peter_bp_hr = StudyPatient.objects.create(study=lifespan_study_bp_hr, patient=ll_patient_pete)
-        sp_peter_bp = StudyPatient.objects.create(study=lifespan_study_bp, patient=ll_patient_pete)  # noqa
+        sp_peter_sleep_bp = StudyPatient.objects.create(study=lifespan_study_sleep_bp, patient=ll_patient_pete)
         sp_pamela_bp_hr = StudyPatient.objects.create(study=lifespan_study_bp_hr, patient=ll_patient_pamela)
-        sp_pamela_bp = StudyPatient.objects.create(study=lifespan_study_bp, patient=ll_patient_pamela)
+        sp_pamela_sleep_bp = StudyPatient.objects.create(study=lifespan_study_sleep_bp, patient=ll_patient_pamela)
 
         now = timezone.now()
         StudyPatientScopeConsent.objects.create(
@@ -419,7 +459,8 @@ class Command(BaseCommand):
 
         for sp, codes in [
             (sp_pamela_bp_hr, [code_omh_bp, code_omh_hr, code_fhir_qr]),
-            (sp_pamela_bp, [code_omh_bp, code_fhir_qr]),
+            (sp_pamela_sleep_bp, [code_omh_bp, code_ieee_sleep, code_fhir_qr]),
+            (sp_peter_sleep_bp, [code_ieee_sleep]),
         ]:
             for code in codes:
                 StudyPatientScopeConsent.objects.create(
@@ -429,16 +470,41 @@ class Command(BaseCommand):
                     consented_time=now,
                 )
 
-        planetary_research_institute_study_patients = [sp_peter_bp_hr, sp_peter_bp, sp_pamela_bp_hr, sp_pamela_bp]
-        for consent in StudyPatientScopeConsent.objects.filter(
-            consented=True, study_patient__in=planetary_research_institute_study_patients
-        ).exclude(scope_code__coding_system__startswith="http://hl7.org/fhir/"):
+        planetary_research_institute_study_patients = [
+            sp_peter_bp_hr,
+            sp_peter_sleep_bp,
+            sp_pamela_bp_hr,
+            sp_pamela_sleep_bp,
+        ]
+        for consent in (
+            StudyPatientScopeConsent.objects.filter(
+                consented=True, study_patient__in=planetary_research_institute_study_patients
+            )
+            .exclude(scope_code__coding_system__startswith="http://hl7.org/fhir/")
+            # Seeded explicitly below: generate_observation_value_attachment_data has no
+            # example for this code and its fallback body fails schema validation.
+            .exclude(scope_code__coding_code=SLEEP_EPISODE_CODE)
+        ):
             scope_code = consent.scope_code
             Observation.objects.create(
                 subject_patient=consent.study_patient.patient,
                 codeable_concept=scope_code,
                 omh_data=generate_observation_value_attachment_data(consent.scope_code.coding_code),
             )
+
+        # A couple of nights each, from the Oura data source the sleep study collects through.
+        for patient, nights in [
+            (ll_patient_pete, [(2, 7.5, 1), (1, 6.25, 3)]),
+            (ll_patient_pamela, [(2, 8.0, 0), (1, 5.75, 2)]),
+        ]:
+            for days_ago, hours_asleep, awakenings in nights:
+                bedtime = (now - timedelta(days=days_ago)).replace(hour=23, minute=0, second=0, microsecond=0)
+                Observation.objects.create(
+                    subject_patient=patient,
+                    codeable_concept=code_ieee_sleep,
+                    data_source=oura_ds,
+                    omh_data=sleep_episode_data_point(bedtime, hours_asleep, awakenings),
+                )
 
         peter_fhir_source = FhirSource.objects.create(
             patient=ll_patient_pete,

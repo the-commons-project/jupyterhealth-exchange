@@ -26,8 +26,10 @@ logger = logging.getLogger(__name__)
 # Observation per record: https://stackoverflow.com/a/61484800 (author worked at ONC)
 class Observation(models.Model):
     subject_patient = models.ForeignKey("Patient", on_delete=models.CASCADE)
-    # The Django Observation model holds OMH observations only (code system
-    # https://w3id.org/openmhealth). Any other FHIR Observation is stored in FhirAuxResource.
+    # The Django Observation model holds OMH / IEEE 1752 observations only (code system
+    # https://w3id.org/openmhealth or https://w3id.org/ieee1752 -- the two schema namespaces are
+    # the same thing to JHE, IEEE being the balloted form of an OMH schema). Any other FHIR
+    # Observation is stored in FhirAuxResource.
     codeable_concept = models.ForeignKey("CodeableConcept", on_delete=models.PROTECT, null=True)
     data_source = models.ForeignKey("DataSource", on_delete=models.SET_NULL, null=True, blank=True)
     omh_data = models.JSONField(null=True)
@@ -192,11 +194,11 @@ class Observation(models.Model):
     # base64 it eg https://cryptii.com/pipes/binary-to-base64
     @staticmethod
     def fhir_create(data, user):
-        # Persist an OMH Observation (code system https://w3id.org/openmhealth) onto the Django
-        # Observation model: the value attachment is decoded into the omh_data column, the code
-        # must be a known, consented scope, and a Device is required. The FHIR view routes
-        # non-OMH (or code-less) Observations to FhirAuxResource instead, so this method always
-        # handles the OMH path.
+        # Persist an OMH / IEEE 1752 Observation (code system https://w3id.org/openmhealth or
+        # https://w3id.org/ieee1752) onto the Django Observation model: the value attachment is
+        # decoded into the omh_data column, the code must be a known, consented scope, and a
+        # Device is required. The FHIR view routes any other-coded (or code-less) Observation to
+        # FhirAuxResource instead, so this method always handles the OMH/IEEE path.
         import humps
 
         camelized = humps.camelize(data)
@@ -304,8 +306,10 @@ class Observation(models.Model):
         self.code = None
 
     def clean(self):
-        # Django Observations are OMH; validate omh_data against the OMH schemas. Guard against
-        # partially-populated instances (no omh_data/codeable_concept) defensively.
+        # Django Observations carry an OMH or IEEE 1752 data point; validate omh_data against
+        # the schemas for whichever namespace the code names (code_to_schema resolves both, and
+        # the header schema is the IEEE one either way). Guard against partially-populated
+        # instances (no omh_data/codeable_concept) defensively.
         if self.omh_data is None or self.codeable_concept is None:
             return
         try:
