@@ -564,13 +564,18 @@ def test_search_source_below_returns_all_imported(api_client, patient, device, f
     assert bundle["total"] == 2
 
 
-def _lab_observation(patient_id):
-    return {
+def _lab_observation(patient_id, category=None):
+    body = {
         "resourceType": "Observation",
         "status": "final",
         "code": {"text": "glucose"},
         "subject": {"reference": f"Patient/{patient_id}"},
     }
+    if category:
+        body["category"] = [
+            {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": category}]}
+        ]
+    return body
 
 
 def test_external_source_view_returns_imported_observation_and_plain_search_does_not(api_client, patient, fhir_source):
@@ -586,6 +591,22 @@ def test_external_source_view_returns_imported_observation_and_plain_search_does
 
     native = api_client.get("/FHIR/R5/Observation").json()
     assert imported_id not in [e["resource"]["id"] for e in native.get("entry", [])]
+
+
+def test_ad_hoc_url_param_narrows_the_browser_view(api_client, patient, fhir_source):
+    # The FHIR browser passes through every URL param that is not a "~" JHE system param, so a
+    # filter typed straight into the address bar reaches the server even though no control on
+    # the page produces it. This is that request: the Source=External selection's _source:below
+    # plus a hand-added &category=laboratory.
+    lab = api_client.post("/FHIR/R5/Observation", _lab_observation(patient.id, "laboratory"), **_src(fhir_source))
+    vitals = api_client.post("/FHIR/R5/Observation", _lab_observation(patient.id, "vital-signs"), **_src(fhir_source))
+    assert lab.status_code == 201 and vitals.status_code == 201
+
+    view = {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/"}
+    assert api_client.get("/FHIR/R5/Observation", view).json()["total"] == 2
+
+    narrowed = api_client.get("/FHIR/R5/Observation", {**view, "category": "laboratory"}).json()
+    assert [e["resource"]["id"] for e in narrowed["entry"]] == [lab.json()["id"]]
 
 
 def test_external_source_view_returns_aux_rows_for_native_mapped_types(api_client, organization, patient, fhir_source):

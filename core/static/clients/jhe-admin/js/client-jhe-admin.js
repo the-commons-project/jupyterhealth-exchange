@@ -1983,24 +1983,28 @@ async function renderFhir(queryParams) {
   const page = parseInt(queryParams._page) || 1;
   const count = parseInt(queryParams._count) || 20;
 
-  // The FHIR search. The two jhe* context filters translate to their FHIR spellings here;
-  // every other param is carried through under the name the URL already shows.
-  const fhirQuery = {
-    "patient.organization": queryParams[ORGANIZATION_PARAM],
-    _page: page,
-    _count: count,
-  };
+  // The FHIR search. Every URL param that is NOT a JHE system param (the "~" prefix) is a FHIR
+  // search param and goes through verbatim — so a filter typed straight into the address bar
+  // (say &category=laboratory) reaches the server and narrows the search even though no control
+  // on this page produces it, and survives in the URL because the controls all rebuild their
+  // nav() params from the current ones. This page has no modal routes (create/read/update/
+  // delete), so there is no non-FHIR param to sift out. _source:below and patient are already
+  // normalized into queryParams above, so they are carried by this loop too.
+  const fhirQuery = {};
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (!key.startsWith("~") && value != null && value !== "") {
+      fhirQuery[key] = value;
+    }
+  }
+
+  // The controls that own a param have the last word: the two JHE context filters translate to
+  // their FHIR spellings, and paging is the parsed/defaulted value rather than the raw text.
+  fhirQuery["patient.organization"] = queryParams[ORGANIZATION_PARAM];
+  fhirQuery._page = page;
+  fhirQuery._count = count;
 
   if (queryParams[STUDY_PARAM]) {
     fhirQuery["patient._has:Group:member:_id"] = queryParams[STUDY_PARAM];
-  }
-
-  if (queryParams[SOURCE_PARAM]) {
-    fhirQuery[SOURCE_PARAM] = queryParams[SOURCE_PARAM];
-  }
-
-  if (patientIdFilter) {
-    fhirQuery.patient = patientIdFilter;
   }
 
   // The header opts this search into the server's sticky resource memory; searches without it
