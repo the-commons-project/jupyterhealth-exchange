@@ -278,19 +278,29 @@ def get_mapping_interactions(mapping):
 def matches_criteria(resource, criteria):
     """Evaluate a ``__criteria`` expression against an incoming FHIR resource dict.
 
-    Supported form: ``"<param>=<system>|<code>"``. Currently only ``param == "code"`` is
-    understood, matching a ``code.coding[*]`` whose ``system`` (and ``code``, when given)
-    equals the expression's. An unrecognised expression matches (the mapped path applies),
-    so a misconfigured criteria never silently diverts data to the aux blob.
+    Supported form: ``"<param>=<system>|<code>[,<system>|<code>...]"``. Currently only
+    ``param == "code"`` is understood, matching a ``code.coding[*]`` whose ``system`` (and
+    ``code``, when given) equals one of the expression's. Comma-separated values OR, as in a
+    FHIR token search -- Observation uses that to treat the OMH and IEEE 1752 coding systems
+    as one and the same. An unrecognised expression matches (the mapped path applies), so a
+    misconfigured criteria never silently diverts data to the aux blob.
     """
     param, _, value = criteria.partition("=")
     if param.strip() != "code":
         return True
-    system, _, code = value.partition("|")
-    for coding in ((resource.get("code") or {}).get("coding")) or []:
-        if system and coding.get("system") != system:
-            continue
-        if code and coding.get("code") != code:
-            continue
+    wanted = []
+    for token in value.split(","):
+        system, _, code = token.strip().partition("|")
+        if system or code:
+            wanted.append((system, code))
+    if not wanted:
+        # An empty expression selects nothing in particular; treat it as unrecognised.
         return True
+    for coding in ((resource.get("code") or {}).get("coding")) or []:
+        for system, code in wanted:
+            if system and coding.get("system") != system:
+                continue
+            if code and coding.get("code") != code:
+                continue
+            return True
     return False

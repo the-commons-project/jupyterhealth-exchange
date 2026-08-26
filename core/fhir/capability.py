@@ -100,8 +100,9 @@ def _resource_entry(resource_type):
         # to point supportedProfile at (yet), so it is stated as documentation.
         docs.append(
             "JHE-native Observations code their measurement with system "
-            "https://w3id.org/openmhealth and carry the full Open mHealth data "
-            "point as a base64 JSON valueAttachment (contentType application/json)."
+            "https://w3id.org/openmhealth or https://w3id.org/ieee1752 (the OMH and "
+            "IEEE 1752 schema namespaces are treated interchangeably) and carry the full "
+            "data point as a base64 JSON valueAttachment (contentType application/json)."
         )
     if docs:
         entry["documentation"] = " ".join(docs)

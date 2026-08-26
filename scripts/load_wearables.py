@@ -34,19 +34,17 @@ DATA_SOURCE_NAME = "Oura"
 SEED = 4242
 MAX_DAYS = 21  # cap per-patient window so volume stays reasonable
 
-OMH = "https://w3id.org/openmhealth"
-IEEE = "https://w3id.org/ieee1752"
-
-# scope coding_code -> (coding_system, label). Order is the per-day record order.
+# Scope coding_codes, in the per-day record order. Every one of these is seeded by
+# `manage.py seed`, so this script only ever looks them up -- it never defines a code.
 SCOPES = [
-    ("ieee:physical-activity:1.0", IEEE, "Physical activity"),
-    ("ieee:sleep-episode:1.0", IEEE, "Sleep episode (IEEE)"),
-    ("ieee:time-in-bed:1.0", IEEE, "Time in bed"),
-    ("omh:heart-rate:2.0", OMH, "Heart Rate"),
-    ("omh:respiratory-rate:2.0", OMH, "Respiratory rate"),
-    ("omh:oxygen-saturation:2.0", OMH, "Oxygen saturation"),
-    ("omh:total-sleep-time:1.0", OMH, "Total sleep time"),
-    ("omh:sleep-episode:1.1", OMH, "Sleep episode"),
+    "ieee:physical-activity:1.0",
+    "ieee:sleep-episode:1.0",
+    "ieee:time-in-bed:1.0",
+    "omh:heart-rate:2.0",
+    "omh:respiratory-rate:2.0",
+    "omh:oxygen-saturation:2.0",
+    "omh:total-sleep-time:1.0",
+    "omh:sleep-episode:1.1",
 ]
 
 
@@ -251,17 +249,12 @@ def main():
 
     data_source, _ = DataSource.objects.get_or_create(name=DATA_SOURCE_NAME, defaults={"type": "personal_device"})
 
-    # CodeableConcepts (create the 5 new ones; reuse the 3 existing omh vitals).
-    cc_by_code = {}
-    for code, system, label in SCOPES:
-        cc, _ = CodeableConcept.objects.get_or_create(
-            coding_code=code, defaults={"coding_system": system, "text": label}
-        )
-        cc_by_code[code] = cc
+    # CodeableConcepts come from the seed; a missing one means the db was not seeded.
+    cc_by_code = {code: CodeableConcept.objects.get(coding_code=code) for code in SCOPES}
 
     with transaction.atomic():
         StudyDataSource.objects.get_or_create(study=study, data_source=data_source)
-        for code, _system, _label in SCOPES:
+        for code in SCOPES:
             StudyScopeRequest.objects.get_or_create(
                 study=study, scope_code=cc_by_code[code], defaults={"scope_actions": "rs"}
             )
@@ -293,7 +286,7 @@ def main():
             rng = random.Random(f"{SEED}:{ident}")
 
             # Consent once per patient per scope.
-            for code, _system, _label in SCOPES:
+            for code in SCOPES:
                 StudyPatientScopeConsent.objects.update_or_create(
                     study_patient=sp,
                     scope_code=cc_by_code[code],
@@ -308,7 +301,7 @@ def main():
             for offset in range(span):
                 day = start_day + timedelta(days=offset)
                 records = _generate_day(day, offset, age, risk, rng)
-                for code, _system, _label in SCOPES:
+                for code in SCOPES:
                     to_create.append(
                         Observation(
                             subject_patient=sp.patient,

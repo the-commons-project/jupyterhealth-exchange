@@ -32,7 +32,20 @@ class Code(Enum):
     HeartRate = "omh:heart-rate:2.0"
     BloodPressure = "omh:blood-pressure:4.0"
     BloodGlucose = "omh:blood-glucose:4.0"
+    TimeInBed = "ieee:time-in-bed:1.0"
     OpenMHealth = "https://w3id.org/openmhealth"
+    IEEE1752 = "https://w3id.org/ieee1752"
+
+
+# JHE treats the two namespaces interchangeably, so the coding system follows the code's
+# own namespace prefix rather than being assumed to be OMH.
+_CODING_SYSTEMS = {"omh": Code.OpenMHealth.value, "ieee": Code.IEEE1752.value}
+
+
+def coding_system_for(code: "Code | str") -> str:
+    if isinstance(code, Code):
+        code = code.value
+    return _CODING_SYSTEMS[code.split(":", 1)[0]]
 
 
 def create_study(
@@ -47,7 +60,7 @@ def create_study(
         if isinstance(code, Code):
             code = code.value
         scope_code, _ = CodeableConcept.objects.update_or_create(
-            coding_system=Code.OpenMHealth.value,
+            coding_system=coding_system_for(code),
             coding_code=code,
             text=code,
         )
@@ -114,7 +127,7 @@ def add_observations(patient: Patient, code: Code | str, n: int) -> None:
         code = code.value
 
     scope_code, _ = CodeableConcept.objects.update_or_create(
-        coding_system="https://w3id.org/openmhealth",
+        coding_system=coding_system_for(code),
         coding_code=code,
         text=code,
     )

@@ -4,7 +4,7 @@ Covers the reworked routing: a Django model backs only the JHE-system view of a 
 everything else lands in FhirAuxResource (UUID id, linked to a FhirSource named by the
 X-JHE-FHIR-Source-ID header or the body's meta.source); a search hits exactly one store, chosen by
 the _source param (no union); writes for read/search-only mapped types fall through to aux; only
-OMH Observations write to the Django model.
+OMH / IEEE 1752 Observations write to the Django model.
 """
 
 import base64
@@ -25,7 +25,7 @@ from core.models import (
 )
 from core.utils import generate_observation_value_attachment_data
 
-from .utils import Code, add_observations
+from .utils import Code, add_observations, add_patient_to_study, create_study
 
 _CLINICAL_STATUS = {
     "coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]
@@ -343,7 +343,7 @@ def test_uuid_id_routes_to_aux_read(api_client, patient, fhir_source):
 
 
 # ---------------------------------------------------------------------------
-# Observation create routing (OMH -> Django model, otherwise -> aux)
+# Observation create routing (OMH / IEEE 1752 -> Django model, otherwise -> aux)
 # ---------------------------------------------------------------------------
 
 
@@ -372,6 +372,51 @@ def test_observation_omh_create_maps_columns(api_client, device, hr_study, patie
     assert read["code"]["coding"][0]["system"] == Code.OpenMHealth.value
     # The __criteria annotation never leaks into the rendered resource.
     assert "__criteria" not in json.dumps(read)
+
+
+def test_observation_ieee_create_maps_columns(api_client, device, organization, patient):
+    # IEEE 1752 is the balloted form of an OMH schema, so JHE treats the two coding systems
+    # interchangeably: an IEEE-coded Observation takes the same mapped path as an OMH one.
+    study = create_study(name="sleep", organization=organization, codes=[Code.TimeInBed])
+    add_patient_to_study(patient=patient, study=study)
+    record = {
+        "header": {
+            "uuid": str(uuid.uuid4()),
+            "schema_id": {"namespace": "ieee", "name": "time-in-bed", "version": "1.0"},
+            "source_creation_date_time": "2026-01-02T08:00:00Z",
+            "modality": "sensed",
+        },
+        "body": {
+            "time_in_bed": {"value": 27000, "unit": "sec"},
+            "effective_time_frame": {
+                "time_interval": {
+                    "start_date_time": "2026-01-01T23:00:00Z",
+                    "end_date_time": "2026-01-02T06:30:00Z",
+                }
+            },
+        },
+    }
+    resource = {
+        "resourceType": "Observation",
+        "status": "final",
+        "code": {"coding": [{"system": Code.IEEE1752.value, "code": Code.TimeInBed.value}]},
+        "subject": {"reference": f"Patient/{patient.id}"},
+        "device": {"reference": f"Device/{device.id}"},
+        "valueAttachment": {
+            "contentType": "application/json",
+            "data": base64.b64encode(json.dumps(record).encode()).decode(),
+        },
+    }
+    r = api_client.post("/FHIR/R5/Observation", resource)
+    assert r.status_code == 201, r.text
+    # IEEE code -> a Django Observation row (integer id), not aux. No source header needed.
+    obs = Observation.objects.get(subject_patient=patient)
+    assert obs.codeable_concept.coding_system == Code.IEEE1752.value
+    assert obs.omh_data["body"] == record["body"]
+    assert not FhirAuxResource.objects.filter(resource_type="Observation").exists()
+
+    read = api_client.get(f"/FHIR/R5/Observation/{obs.id}").json()
+    assert read["code"]["coding"][0]["system"] == Code.IEEE1752.value
 
 
 def _non_omh_observation(patient_id, payload):

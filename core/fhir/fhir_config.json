@@ -55,7 +55,7 @@
       "meta": {
         "lastUpdated": "Observation.last_updated",
         "source": "'https://jupyterhealth.org/jhe'",
-        "__criteria": "code=https://w3id.org/openmhealth|",
+        "__criteria": "code=https://w3id.org/openmhealth|,https://w3id.org/ieee1752|",
         "__interaction": [
           "*"
         ]
