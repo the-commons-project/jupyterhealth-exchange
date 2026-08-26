@@ -285,8 +285,11 @@ async function nav(newRoute, queryParams, appendQueryParams) {
         "",
         ROUTE_PREFIX +
           newRoute +
+          // "~" is unreserved in RFC 3986 and needs no encoding, but URLSearchParams
+          // percent-encodes it anyway. Put it back so the "~" that marks a JHE system param
+          // (as opposed to a FHIR search param) stays readable in the address bar.
           "?" +
-          new URLSearchParams(urlParams).toString()
+          new URLSearchParams(urlParams).toString().replace(/%7E/g, "~")
       );
     }
   } catch (e) {
@@ -345,10 +348,15 @@ function getCurrentRouteAndParams() {
   };
 }
 
-async function apiRequest(method, resourcePath, query, extraHeaders) {
+// `options.handledStatuses` lists response statuses the CALLER will deal with itself: the raw
+// response is returned untouched instead of being turned into a page-level error alert. Use it
+// only for a status that is an expected outcome of the request rather than a fault (e.g. the 403
+// a FHIR search returns for a Patient ID the practitioner may not see).
+async function apiRequest(method, resourcePath, query, extraHeaders, options) {
   console.log(
     `apiRequest: ${method} ${resourcePath} ${JSON.stringify(query)}`
   );
+  const handledStatuses = (options && options.handledStatuses) || [];
   const headers = {
     "Cache-Control": "no-cache",
     ...(extraHeaders || {}),
@@ -378,6 +386,9 @@ async function apiRequest(method, resourcePath, query, extraHeaders) {
     console.log(
       `apiRequest response: ${response.status} ${response.statusText}`
     );
+    if (handledStatuses.includes(parseInt(response.status))) {
+      return response;
+    }
     // Unauthorized
     if (parseInt(response.status) == 401) {
       // Don't re-redirect into a failed OAuth flow (#192) - surface the error.
@@ -1814,15 +1825,29 @@ async function renderObservations(queryParams) {
 // FHIR Resources
 // ────────────────────────────────────────────────────
 
-// The patient's full name, read from the JHE provenance extension the server stamps on every
-// stored aux resource (see _with_jhe_extensions in core/views/fhir.py).
-function fhirPatientName(resource) {
-  const extension = (resource.extension || []).find(
-    (e) =>
-      e.url ===
-      "https://jupyterhealth.org/fhir/StructureDefinition/patient-full-name",
+// Mirrors JHE_EXTENSION_BASE (core/models/fhir_aux_resource.py).
+const JHE_EXTENSION_BASE = "https://jupyterhealth.org/fhir/StructureDefinition";
+
+function jheExtension(resource, name) {
+  return (resource.extension || []).find(
+    (e) => e.url === `${JHE_EXTENSION_BASE}/${name}`,
   );
-  return extension?.valueString || "";
+}
+
+// The patient's full name, read from the JHE provenance extension the server stamps on every
+// stored aux resource (see apply_jhe_extensions in core/models/fhir_aux_resource.py).
+function fhirPatientName(resource) {
+  return jheExtension(resource, "patient-full-name")?.valueString || "";
+}
+
+// The Patient column label: the patient's name followed by the JHE Patient ID, both read from
+// the provenance extensions the server stamps on stored aux resources. Mapped (JHE-native) rows
+// carry no such extensions and are shown without ids. The JHE User ID is not shown here: it is
+// not in the FHIR body, and reaching it would mean joining it into a FHIR response.
+function fhirPatientLabel(resource) {
+  const name = fhirPatientName(resource);
+  const patientId = jheExtension(resource, "patient-id")?.valueInteger;
+  return patientId ? `${name} (Patient ID: ${patientId})`.trim() : name;
 }
 
 async function renderFhir(queryParams) {
@@ -1833,24 +1858,38 @@ async function renderFhir(queryParams) {
     return pageNoticeMarkup("This user does not belong to any Organization.");
   }
 
+  // On this route every URL param is either a FHIR search param sent verbatim to the server
+  // (_source:below, patient, _page, _count) or a JHE system param marked with a leading "~"
+  // so it is obviously not FHIR (~organizationId, ~studyId, ~resource). The address bar
+  // therefore reads as the query being run — see the fhirQuery assembly below for the
+  // translation of the two context filters.
+  const RESOURCE_PARAM = "~resource";
+  const ORGANIZATION_PARAM = "~organizationId";
+  const STUDY_PARAM = "~studyId";
+
+  // Every control on this page is restored from the practitioner's saved settings when the URL
+  // does not already name it (see Practitioner.remember_settings, written by the FHIR search).
+  // A control that IS named in queryParams — even as null, which a cleared control passes — is
+  // the user's live choice and is never overridden.
+  const profileSettings = (await getUserProfile()).settings ?? {};
+
   // If no org is selected, lets check what they were last using in the profile,
   // otherwise default to the first organization in the list
-  if (!queryParams.organizationId) {
-    const currentOrganizationId = (await getUserProfile()).settings
-      ?.currentOrganizationId;
+  if (!queryParams[ORGANIZATION_PARAM]) {
+    const currentOrganizationId = profileSettings.currentOrganizationId;
     if (currentOrganizationId) {
       console.log(
         "Setting currentOrganizationId from user profile settings: ",
         currentOrganizationId,
       );
-      queryParams.organizationId = currentOrganizationId;
+      queryParams[ORGANIZATION_PARAM] = currentOrganizationId;
     } else {
-      queryParams.organizationId = organizations[0].id;
+      queryParams[ORGANIZATION_PARAM] = organizations[0].id;
     }
   }
   let selectedOrganization;
   const organizationForFhirSelect = organizations.map((organization) => {
-    if (organization.id === parseInt(queryParams.organizationId)) {
+    if (organization.id === parseInt(queryParams[ORGANIZATION_PARAM])) {
       organization.selected = true;
       selectedOrganization = organization;
     } else {
@@ -1860,20 +1899,19 @@ async function renderFhir(queryParams) {
   });
 
   const studiesResponse = await apiRequest("GET", "studies", {
-    organizationId: queryParams.organizationId,
+    organizationId: queryParams[ORGANIZATION_PARAM],
   });
   const studies = await studiesResponse.json();
 
-  // Restore the last-used study from settings when arriving without an explicit studyId
-  // (e.g. navigating here from another route). If studyId is present as a key — even as
+  // Restore the last-used study from settings when arriving without an explicit ~studyId
+  // (e.g. navigating here from another route). If ~studyId is present as a key — even as
   // null, which "All Studies" passes — skip restoration so the user's choice is honoured.
-  const currentStudyId = (await getUserProfile()).settings?.currentStudyId;
-  if (currentStudyId && !("studyId" in queryParams)) {
-    queryParams.studyId = currentStudyId;
+  if (profileSettings.currentStudyId && !(STUDY_PARAM in queryParams)) {
+    queryParams[STUDY_PARAM] = profileSettings.currentStudyId;
   }
 
-  const selectedStudyId = queryParams.studyId
-    ? parseInt(queryParams.studyId)
+  const selectedStudyId = queryParams[STUDY_PARAM]
+    ? parseInt(queryParams[STUDY_PARAM])
     : null;
   const studyForFhirSelect = studies.results.map((study) => {
     const studyIsSelected =
@@ -1882,123 +1920,122 @@ async function renderFhir(queryParams) {
     return study;
   });
 
-  // Restore the last-used resource from settings when arriving without an explicit resource
-  // (e.g. navigating here from another route), mirroring the organization/study restoration.
-  const currentFhirResource = (await getUserProfile()).settings
-    ?.currentFhirResource;
-  if (currentFhirResource && !("resource" in queryParams)) {
-    queryParams.resource = currentFhirResource;
+  // The three FHIR-browser controls, restored the same way (current_fhir_resource,
+  // current_fhir_source, current_fhir_jhe_patient_id — camelCased by the profile serializer).
+  if (profileSettings.currentFhirResource && !(RESOURCE_PARAM in queryParams)) {
+    queryParams[RESOURCE_PARAM] = profileSettings.currentFhirResource;
   }
 
-  // Six types are "mapped" (served from native Django models when no _source is sent) and
-  // also accept imported EHR rows into the aux store; a search hits exactly ONE store (see
-  // core/views/fhir.py). Every mapped type is therefore split into per-store views instead
-  // of exposing a source selector — otherwise its imported rows are unreachable from the
-  // browser. The patient-access pull only writes Observation/Patient/Device; the other three
-  // fill via direct /fhir-import calls (pulled resources merely *reference* practitioners
-  // and organizations).
-  // Mirrors JHE_FHIR_SOURCE_BASE (core/models/fhir_aux_resource.py); the server rstrips the slash.
+  // Store selection is its own control, not a compound of the Resource dropdown. Every
+  // imported (aux-store) row carries meta.source = <JHE_FHIR_SOURCE_BASE>/<id>, so the FHIR
+  // `_source:below` prefix search selects all of them at once; sending no _source at all
+  // selects the JHE-native store. A search hits exactly ONE store (core/views/fhir.py), which
+  // is why the two are offered as a choice rather than merged.
+  // IMPORTED_SOURCE_PREFIX mirrors JHE_FHIR_SOURCE_BASE (core/models/fhir_aux_resource.py);
+  // the server rstrips the trailing slash.
+  const SOURCE_PARAM = "_source:below";
   const IMPORTED_SOURCE_PREFIX = "https://jupyterhealth.org/fhir/fhir-source/";
-  const RESOURCE_VIEWS = {
-    Observation: {
-      "Observation - Device Data": {},
-      "Observation - Labs": { "_source:below": IMPORTED_SOURCE_PREFIX, category: "laboratory" },
-      "Observation - Vital Signs": { "_source:below": IMPORTED_SOURCE_PREFIX, category: "vital-signs" },
-    },
-    Patient: {
-      "Patient - JHE": {},
-      "Patient - Imported EHR": { "_source:below": IMPORTED_SOURCE_PREFIX },
-    },
-    Device: {
-      "Device - Data Sources": {},
-      "Device - Imported EHR": { "_source:below": IMPORTED_SOURCE_PREFIX },
-    },
-    Group: {
-      "Group - Studies": {},
-      "Group - Imported EHR": { "_source:below": IMPORTED_SOURCE_PREFIX },
-    },
-    Organization: {
-      "Organization - JHE": {},
-      "Organization - Imported EHR": { "_source:below": IMPORTED_SOURCE_PREFIX },
-    },
-    Practitioner: {
-      "Practitioner - JHE": {},
-      "Practitioner - Imported EHR": { "_source:below": IMPORTED_SOURCE_PREFIX },
-    },
-  };
-  // viewName -> {path, query}; and mapped-type name -> its first view (for restores of the
-  // plain path the server remembers, and old ?resource= bookmarks).
-  const viewsByName = {};
-  for (const [path, views] of Object.entries(RESOURCE_VIEWS)) {
-    for (const [name, query] of Object.entries(views)) {
-      viewsByName[name] = { path, query };
-    }
-  }
-  // The server remembers "path?viewParams" (see _remember_resource): resolve it to the view
-  // whose query matches, so "Observation - Labs" survives navigating away and back instead
-  // of landing on the first Observation view. No match -> the bare path, handled below.
-  if (queryParams.resource && queryParams.resource.includes("?")) {
-    const [savedPath, savedQuery] = queryParams.resource.split("?");
-    const savedParams = Object.fromEntries(new URLSearchParams(savedQuery));
-    const match = Object.keys(RESOURCE_VIEWS[savedPath] || {}).find((name) => {
-      const view = RESOURCE_VIEWS[savedPath][name];
-      const keys = Object.keys(view);
-      return keys.length === Object.keys(savedParams).length && keys.every((k) => savedParams[k] === view[k]);
-    });
-    queryParams.resource = match || savedPath;
-  }
-  if (RESOURCE_VIEWS[queryParams.resource]) {
-    queryParams.resource = Object.keys(RESOURCE_VIEWS[queryParams.resource])[0];
-  }
-  const selectedResource = queryParams.resource || CONSTANTS.FHIR_RESOURCES[0];
-  const resourceForFhirSelect = CONSTANTS.FHIR_RESOURCES.flatMap((resource) =>
-    RESOURCE_VIEWS[resource] ? Object.keys(RESOURCE_VIEWS[resource]) : [resource],
-  ).map((resource) => ({
+  const SOURCE_OPTIONS = [
+    { value: "", name: "None (JHE System Data)" },
+    { value: IMPORTED_SOURCE_PREFIX, name: "External" },
+  ];
+
+  // The resource is the FHIR path segment. Materialize the default into queryParams (as the
+  // organization filter above does) so the URL always spells the type actually requested.
+  const selectedResource = queryParams[RESOURCE_PARAM] || CONSTANTS.FHIR_RESOURCES[0];
+  queryParams[RESOURCE_PARAM] = selectedResource;
+  const resourceForFhirSelect = CONSTANTS.FHIR_RESOURCES.map((resource) => ({
     name: resource,
     selected: resource === selectedResource,
   }));
-  const resourceView = viewsByName[selectedResource];
-  const selectedResourcePath = resourceView ? resourceView.path : selectedResource;
+
+  // Only the two offered values are honoured — anything else in the URL is normalized away so
+  // the address bar always spells the query actually sent. Observation is pinned to External:
+  // its JHE-native rows have their own dedicated page at /observations, so this browser only
+  // ever shows the imported ones and the control is disabled.
+  if (profileSettings.currentFhirSource && !(SOURCE_PARAM in queryParams)) {
+    queryParams[SOURCE_PARAM] = profileSettings.currentFhirSource;
+  }
+  if (queryParams[SOURCE_PARAM] !== IMPORTED_SOURCE_PREFIX) delete queryParams[SOURCE_PARAM];
+  const sourcePinned = selectedResource === "Observation";
+  if (sourcePinned) queryParams[SOURCE_PARAM] = IMPORTED_SOURCE_PREFIX;
+  const selectedSource = queryParams[SOURCE_PARAM] || "";
+  const sourceForFhirSelect = SOURCE_OPTIONS.map((option) => ({
+    ...option,
+    selected: option.value === selectedSource,
+  }));
+
+  // The JHE patient id — the same integer an aux body carries as the
+  // .../StructureDefinition/patient-id extension's valueInteger. `patient` is the canonical
+  // FHIR search param for it, resolves in both stores, and is authorized server-side.
+  if (profileSettings.currentFhirJhePatientId && !("patient" in queryParams)) {
+    queryParams.patient = profileSettings.currentFhirJhePatientId;
+  }
+  const patientIdFilter = (queryParams.patient || "").toString().trim();
+  if (patientIdFilter) queryParams.patient = patientIdFilter;
+  else delete queryParams.patient;
 
   const content = Handlebars.compile(
     document.getElementById("t-fhir").innerHTML,
   );
 
-  // Parse the page and pageSize from queryParams
-  const pageParsed = parseInt(queryParams.page) || 1;
-  const pageSizeParsed = parseInt(queryParams.pageSize) || 20;
+  // The pagination params are already spelled as FHIR (_page/_count) in the URL.
+  const page = parseInt(queryParams._page) || 1;
+  const count = parseInt(queryParams._count) || 20;
 
-  // FHIR search uses the canonical location filters and the _page/_count pagination params.
-  const fhirQuery = {
-    "patient.organization": queryParams.organizationId,
-    _page: isNaN(pageParsed) ? 1 : pageParsed,
-    _count: isNaN(pageSizeParsed) ? 20 : pageSizeParsed,
-  };
-
-  if (queryParams.studyId) {
-    fhirQuery["patient._has:Group:member:_id"] = queryParams.studyId;
+  // The FHIR search. Every URL param that is NOT a JHE system param (the "~" prefix) is a FHIR
+  // search param and goes through verbatim — so a filter typed straight into the address bar
+  // (say &category=laboratory) reaches the server and narrows the search even though no control
+  // on this page produces it, and survives in the URL because the controls all rebuild their
+  // nav() params from the current ones. This page has no modal routes (create/read/update/
+  // delete), so there is no non-FHIR param to sift out. _source:below and patient are already
+  // normalized into queryParams above, so they are carried by this loop too.
+  const fhirQuery = {};
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (!key.startsWith("~") && value != null && value !== "") {
+      fhirQuery[key] = value;
+    }
   }
 
-  if (resourceView) {
-    Object.assign(fhirQuery, resourceView.query);
+  // The controls that own a param have the last word: the two JHE context filters translate to
+  // their FHIR spellings, and paging is the parsed/defaulted value rather than the raw text.
+  fhirQuery["patient.organization"] = queryParams[ORGANIZATION_PARAM];
+  fhirQuery._page = page;
+  fhirQuery._count = count;
+
+  if (queryParams[STUDY_PARAM]) {
+    fhirQuery["patient._has:Group:member:_id"] = queryParams[STUDY_PARAM];
   }
 
-  // The header opts this search into the server's sticky-view memory; searches without it
-  // (MCP server, API scripts) never clobber the browser's remembered view.
+  // The header opts this search into the server's sticky resource memory; searches without it
+  // (MCP server, API scripts) never clobber the practitioner's browser selection.
   const fhirResponse = await apiRequest(
     "GET",
-    `FHIR/R5/${selectedResourcePath}`,
+    `FHIR/R5/${selectedResource}`,
     fhirQuery,
     { "X-JHE-Remember-View": "1" },
+    // The JHE Patient ID box is free text, so a practitioner can name a patient in another
+    // organization (or one that does not exist). The server authorizes it as a targeted
+    // resource and answers 403 OperationOutcome (authorize_practitioner_scope in
+    // core/fhir/scope.py) -- correct for the API, but here it is a mistyped filter, not a
+    // fault, so we handle it ourselves and render the table empty.
+    { handledStatuses: [403] },
   );
 
-  const bundle = await fhirResponse.json();
+  // An empty searchset stands in for any search we could not read: the 403 above, and the
+  // undefined apiRequest returns once it has already raised a page-level alert (a 5xx). The
+  // page still renders, so the controls stay usable and the offending id stays visible in the
+  // box for the user to correct.
+  const bundle =
+    fhirResponse && fhirResponse.ok
+      ? await fhirResponse.json()
+      : { entry: [], total: 0 };
 
   const fhir = (bundle.entry || []).map((entry) => {
     const resource = entry.resource;
     return {
       id: resource.id,
-      patientName: fhirPatientName(resource),
+      patientName: fhirPatientLabel(resource),
       fhirData: JSON.stringify(resource, null, 2),
     };
   });
@@ -2015,14 +2052,14 @@ async function renderFhir(queryParams) {
   const renderParams = {
     ...queryParams,
     fhir: fhir,
-    page: isNaN(pageParsed) ? 1 : pageParsed,
-    pageSize: isNaN(pageSizeParsed) ? 20 : pageSizeParsed,
-    totalPages: Math.ceil(
-      bundle.total / (isNaN(pageSizeParsed) ? 20 : pageSizeParsed),
-    ),
+    _page: page,
+    _count: count,
+    totalPages: Math.ceil(bundle.total / count),
     organizationForFhirSelect: organizationForFhirSelect,
     studyForFhirSelect: studyForFhirSelect,
     resourceForFhirSelect: resourceForFhirSelect,
+    sourceForFhirSelect: sourceForFhirSelect,
+    sourcePinned: sourcePinned,
     pageSizes: [20, 100, 500, 1000],
   };
 

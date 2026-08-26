@@ -1,14 +1,14 @@
 {% verbatim %}
 <script id="t-fhir" type="text/template">
 
-  <div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
     <table>
       <tr>
         <td class="pe-3">
           <select
             id="organizationForFhir"
             class="form-control form-select"
-            onchange="nav('fhir', null, {organizationId: this.value})"
+            onchange="nav('fhir', null, {'~organizationId': this.value, _page: 1})"
           >
             {{#organizationForFhirSelect}} {{#if selected}}
               <option value="{{id}}" selected>{{name}}</option>
@@ -21,7 +21,7 @@
           <select
             id="studyForFhir"
             class="form-control form-select"
-            onchange="this.value == 'all' ? nav('fhir',{ organizationId: {{organizationId}}, page: 1, studyId: null }) : nav('fhir',{studyId: this.value, organizationId: {{organizationId}}, page: 1 })"
+            onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, '~studyId': this.value == 'all' ? null : this.value, _page: 1})"
           >
               <option value="all">All Studies</option>
             {{#studyForFhirSelect}} {{#if selected}}
@@ -31,47 +31,94 @@
             {{/if}} {{/studyForFhirSelect}}
           </select>
         </td>
-        <td class="pe-3">
-          <select
-            id="resourceForFhir"
-            class="form-control form-select"
-            onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, resource: this.value, page: 1})"
-          >
-            {{#resourceForFhirSelect}} {{#if selected}}
-              <option value="{{name}}" selected>{{name}}</option>
-            {{else}}
-              <option value="{{name}}">{{name}}</option>
-            {{/if}} {{/resourceForFhirSelect}}
-          </select>
-        </td>
       </tr>
     </table>
     <div class="d-flex align-items-center flex-wrap gap-2">
-      <span class="d-inline-flex align-items-center text-nowrap me-3">Page
+      <span class="d-inline-flex align-items-center text-nowrap">Page
         <input
           type="number"
           class="form-control form-control-sm d-inline-block mx-2"
           style="width: 60px;"
-          value="{{page}}"
+          value="{{_page}}"
           min="1"
           max="{{totalPages}}"
-          onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, page: this.value})"
-          onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('fhir', null, {...getCurrentRouteAndParams().params, page: this.value}) }"
+          onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, _page: this.value})"
+          onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('fhir', null, {...getCurrentRouteAndParams().params, _page: this.value}) }"
         /> of {{totalPages}}
       </span>
+      <span class="text-nowrap">&nbsp;&nbsp;&bull;&nbsp;&nbsp;</span>
       <span class="d-inline-flex align-items-center text-nowrap">
         <select
           class="form-select form-select-sm me-2"
           style="width: auto;"
-          onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, pageSize: this.value, page: 1})"
+          onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, _count: this.value, _page: 1})"
         >
           {{#each pageSizes}}
-            <option value="{{this}}" {{#if (eq ../pageSize this)}}selected{{/if}}>{{this}}</option>
+            <option value="{{this}}" {{#if (eq ../_count this)}}selected{{/if}}>{{this}}</option>
           {{/each}}
         </select>
         per page
       </span>
     </div>
+  </div>
+
+  <div class="d-flex align-items-center mb-3">
+    <table>
+      <tr>
+        <td class="pe-3">
+          <span class="d-inline-flex align-items-center text-nowrap">
+            <label for="resourceForFhir" class="mb-0 me-2">Resource:</label>
+            <select
+              id="resourceForFhir"
+              class="form-control form-select"
+              onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, '~resource': this.value, _page: 1})"
+            >
+              {{#resourceForFhirSelect}} {{#if selected}}
+                <option value="{{name}}" selected>{{name}}</option>
+              {{else}}
+                <option value="{{name}}">{{name}}</option>
+              {{/if}} {{/resourceForFhirSelect}}
+            </select>
+          </span>
+        </td>
+        <td class="pe-3">
+          <span class="d-inline-flex align-items-center text-nowrap">
+            <label for="sourceForFhir" class="mb-0 me-2">Source:</label>
+            <select
+              id="sourceForFhir"
+              class="form-control form-select"
+              {{#if sourcePinned}}disabled title="Observation is always read from External; JHE system Observations have their own page."{{/if}}
+              onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, '_source:below': this.value || null, _page: 1})"
+            >
+              {{#sourceForFhirSelect}} {{#if selected}}
+                <option value="{{value}}" selected>{{name}}</option>
+              {{else}}
+                <option value="{{value}}">{{name}}</option>
+              {{/if}} {{/sourceForFhirSelect}}
+            </select>
+          </span>
+        </td>
+        <td class="pe-3">
+          <span class="d-inline-flex align-items-center text-nowrap">
+            <label for="patientIdForFhir" class="mb-0 me-2">JHE Patient ID:</label>
+            <input
+              id="patientIdForFhir"
+              type="number"
+              class="form-control"
+              style="width: 8em;"
+              min="1"
+              value="{{patient}}"
+              onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, patient: this.value || null, _page: 1})"
+              onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('fhir', null, {...getCurrentRouteAndParams().params, patient: this.value || null, _page: 1}) }"
+            />
+          </span>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="alert alert-info px-2 py-1 d-inline-block" role="alert">
+    <small><i class="bi bi-info-circle-fill"></i> Additional FHIR query params can be added directly to the browser URL above.</small>
   </div>
 
   <table class="table table-striped">

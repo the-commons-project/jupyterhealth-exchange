@@ -30,6 +30,30 @@ class Practitioner(models.Model):
     def get_setting(self, key):
         return self.settings.get(key)
 
+    def remember_settings(self, save, forget=()):
+        """Persist a page's sticky UI selections in a single write.
+
+        ``save`` maps setting key -> selected value. A key whose value is empty is *removed*
+        when it is listed in ``forget`` -- the control was explicitly cleared ("All Studies", a
+        blank Patient ID box) and a stale value must not come back on the next visit -- and is
+        otherwise left untouched, because the caller simply did not send that control. Nothing
+        is written when nothing changed.
+
+        Callers are the practitioner-facing list endpoints that back a browser page's filters
+        (see core/views/observation.py, patient.py, study.py and fhir.py).
+        """
+        changed = False
+        for key, value in save.items():
+            if value is None or value == "":
+                if key in forget and key in self.settings:
+                    del self.settings[key]
+                    changed = True
+            elif self.settings.get(key) != value:
+                self.settings[key] = value
+                changed = True
+        if changed:
+            self.save(update_fields=["settings"])
+
     @staticmethod
     def fhir_search(
         jhe_user_id,

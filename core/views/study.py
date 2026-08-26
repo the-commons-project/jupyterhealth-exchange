@@ -56,11 +56,16 @@ class StudyViewSet(ModelViewSet):
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
         if hasattr(request.user, "practitioner_profile"):
-            practitioner = request.user.practitioner_profile
-            if organization_id := request.query_params.get("organization_id"):
-                practitioner.save_setting("current_organization_id", int(organization_id))
-            if study_id := request.query_params.get("study_id"):
-                practitioner.save_setting("current_study_id", int(study_id))
+            organization_id = request.query_params.get("organization_id")
+            study_id = request.query_params.get("study_id")
+            # Nothing is forgotten here: the studies list has no study selected, so an absent
+            # study_id must not clear the practitioner's current study.
+            request.user.practitioner_profile.remember_settings(
+                save={
+                    "current_organization_id": int(organization_id) if organization_id else None,
+                    "current_study_id": int(study_id) if study_id else None,
+                }
+            )
         return response
 
     @action(detail=True, methods=["GET", "POST", "DELETE"])

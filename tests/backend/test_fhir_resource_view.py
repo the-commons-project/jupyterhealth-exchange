@@ -564,41 +564,55 @@ def test_search_source_below_returns_all_imported(api_client, patient, device, f
     assert bundle["total"] == 2
 
 
-def _lab_observation(patient_id):
-    return {
+def _lab_observation(patient_id, category=None):
+    body = {
         "resourceType": "Observation",
         "status": "final",
         "code": {"text": "glucose"},
-        "category": [
-            {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "laboratory"}]}
-        ],
         "subject": {"reference": f"Patient/{patient_id}"},
     }
+    if category:
+        body["category"] = [
+            {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": category}]}
+        ]
+    return body
 
 
-def test_labs_view_query_returns_imported_lab_and_plain_search_does_not(api_client, patient, fhir_source):
-    # The exact query the "Observation - Labs" browser view sends: _source:below scoped to the
-    # fhir-source base + category=laboratory. The imported lab must be there — and absent from
-    # the plain (mapped/device-data) search, which serves the Django store only.
+def test_external_source_view_returns_imported_observation_and_plain_search_does_not(api_client, patient, fhir_source):
+    # The exact query the browser's Observation + Source=External selection sends: _source:below
+    # scoped to the fhir-source base, and nothing else. The imported Observation must be there —
+    # and absent from the no-_source search, which serves the JHE-native (mapped) store only.
     r = api_client.post("/FHIR/R5/Observation", _lab_observation(patient.id), **_src(fhir_source))
     assert r.status_code == 201, r.text
-    lab_id = r.json()["id"]
+    imported_id = r.json()["id"]
 
-    labs_view = api_client.get(
-        "/FHIR/R5/Observation", {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/", "category": "laboratory"}
-    ).json()
-    assert [e["resource"]["id"] for e in labs_view["entry"]] == [lab_id]
+    external = api_client.get("/FHIR/R5/Observation", {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/"}).json()
+    assert [e["resource"]["id"] for e in external["entry"]] == [imported_id]
 
-    plain = api_client.get("/FHIR/R5/Observation").json()
-    assert lab_id not in [e["resource"]["id"] for e in plain.get("entry", [])]
+    native = api_client.get("/FHIR/R5/Observation").json()
+    assert imported_id not in [e["resource"]["id"] for e in native.get("entry", [])]
 
 
-def test_imported_ehr_view_query_returns_aux_rows_for_native_mapped_types(
-    api_client, organization, patient, fhir_source
-):
-    # The exact query the "Organization - Imported EHR" browser view sends (Group and
-    # Practitioner share the shape): _source:below on the fhir-source base returns the
-    # imported row and excludes the native Django one, and vice versa for the plain search.
+def test_ad_hoc_url_param_narrows_the_browser_view(api_client, patient, fhir_source):
+    # The FHIR browser passes through every URL param that is not a "~" JHE system param, so a
+    # filter typed straight into the address bar reaches the server even though no control on
+    # the page produces it. This is that request: the Source=External selection's _source:below
+    # plus a hand-added &category=laboratory.
+    lab = api_client.post("/FHIR/R5/Observation", _lab_observation(patient.id, "laboratory"), **_src(fhir_source))
+    vitals = api_client.post("/FHIR/R5/Observation", _lab_observation(patient.id, "vital-signs"), **_src(fhir_source))
+    assert lab.status_code == 201 and vitals.status_code == 201
+
+    view = {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/"}
+    assert api_client.get("/FHIR/R5/Observation", view).json()["total"] == 2
+
+    narrowed = api_client.get("/FHIR/R5/Observation", {**view, "category": "laboratory"}).json()
+    assert [e["resource"]["id"] for e in narrowed["entry"]] == [lab.json()["id"]]
+
+
+def test_external_source_view_returns_aux_rows_for_native_mapped_types(api_client, organization, patient, fhir_source):
+    # The same Source=External selection on a type whose native rows come from a Django model
+    # (Organization; Group, Patient, Device and Practitioner share the shape): _source:below
+    # returns the imported row and excludes the native one, and vice versa for Source=None.
     api_client.post("/FHIR/R5/Organization", {"resourceType": "Organization", "name": "Aux Org"}, **_src(fhir_source))
     imported = api_client.get("/FHIR/R5/Organization", {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/"}).json()
     assert {e["resource"].get("name") for e in imported["entry"]} == {"Aux Org"}
@@ -606,48 +620,94 @@ def test_imported_ehr_view_query_returns_aux_rows_for_native_mapped_types(
     assert "Aux Org" not in {e["resource"].get("name") for e in native["entry"]}
 
 
+def test_external_source_view_narrows_to_one_patient(api_client, patient, device, fhir_source):
+    # The Patient ID box sends the canonical `patient` search param -- the same integer the aux
+    # body carries as the .../StructureDefinition/patient-id extension's valueInteger.
+    from core.models import JheUser
+
+    other_patient = JheUser.objects.create_user(email="other-pt@example.org", user_type="patient").patient
+    other_patient.organizations.add(*patient.organizations.all())
+    other_source = FhirSource.objects.create(
+        patient=other_patient, data_source=device, label="o2", fhir_base_url="https://o2/fhir"
+    )
+    mine = api_client.post("/FHIR/R5/Observation", _lab_observation(patient.id), **_src(fhir_source)).json()["id"]
+    api_client.post("/FHIR/R5/Observation", _lab_observation(other_patient.id), **_src(other_source))
+
+    both = api_client.get("/FHIR/R5/Observation", {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/"}).json()
+    assert both["total"] == 2
+
+    narrowed = api_client.get(
+        "/FHIR/R5/Observation", {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/", "patient": patient.id}
+    ).json()
+    assert [e["resource"]["id"] for e in narrowed["entry"]] == [mine]
+
+    # The extension the box is named for carries that same patient id on the stored body.
+    extensions = narrowed["entry"][0]["resource"]["extension"]
+    assert {
+        "url": "https://jupyterhealth.org/fhir/StructureDefinition/patient-id",
+        "valueInteger": patient.id,
+    } in extensions
+
+
 _REMEMBER = {"HTTP_X_JHE_REMEMBER_VIEW": "1"}  # the header only the jhe-admin browser sends
 
 
-def test_search_remembers_view_params_not_just_the_path(api_client, user, patient, fhir_source):
-    # The admin UI restores the last-used browser view from this setting. Remembering only the
-    # URL path sent "Observation - Labs" users back to the first Observation view (Device Data);
-    # the view-defining params must be kept, while pagination/org/study context params are not.
-    # NOTE: the study filter is checked in its POST-middleware spelling (_group), which is how
-    # the view sees it (CamelCaseMiddleWare underscoreizes query-param keys).
+def test_search_remembers_every_browser_control(api_client, user, patient, fhir_source):
+    # The admin UI restores its controls from these settings: one key per control, written
+    # through Practitioner.remember_settings like the studies/observations pages.
     api_client.get(
         "/FHIR/R5/Observation",
-        {
-            "_source:below": f"{JHE_FHIR_SOURCE_BASE}/",
-            "category": "laboratory",
-            "_page": 2,
-            "_count": 20,
-            "patient._has:_group:member:_id": 7,
-        },
+        {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/", "patient": patient.id, "_page": 2, "_count": 100},
         **_REMEMBER,
     )
     user.refresh_from_db()
-    remembered = user.practitioner_profile.get_setting("current_fhir_resource")
-    from urllib.parse import parse_qs
+    settings = user.practitioner_profile.settings
+    assert settings["current_fhir_resource"] == "Observation"
+    assert settings["current_fhir_source"] == f"{JHE_FHIR_SOURCE_BASE}/"
+    assert settings["current_fhir_jhe_patient_id"] == str(patient.id)
+    # Paging is deliberately not sticky.
+    assert "current_fhir_page" not in settings and "current_fhir_count" not in settings
 
-    path, _, query = remembered.partition("?")
-    assert path == "Observation"
-    assert parse_qs(query) == {"_source:below": [f"{JHE_FHIR_SOURCE_BASE}/"], "category": ["laboratory"]}
 
-    # A plain search (no view params) keeps the legacy bare-path form.
+def test_search_forgets_cleared_source_and_patient_controls(api_client, user, patient, fhir_source):
+    # A cleared Source ("None (JHE System Data)") or Patient ID box sends no param at all;
+    # the stale value must be dropped, not left to come back on the next visit.
+    api_client.get(
+        "/FHIR/R5/Observation",
+        {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/", "patient": patient.id},
+        **_REMEMBER,
+    )
     api_client.get("/FHIR/R5/Condition", **_REMEMBER)
     user.refresh_from_db()
-    assert user.practitioner_profile.get_setting("current_fhir_resource") == "Condition"
+    settings = user.practitioner_profile.settings
+    assert settings["current_fhir_resource"] == "Condition"
+    assert "current_fhir_source" not in settings
+    assert "current_fhir_jhe_patient_id" not in settings
+
+
+def test_remembered_settings_reach_the_client_camelcased(api_client, user, patient, fhir_source):
+    # The browser reads these off the profile as currentFhirResource / currentFhirSource /
+    # currentFhirJhePatientId; pin the serializer spelling the client depends on.
+    api_client.get(
+        "/FHIR/R5/Observation",
+        {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/", "patient": patient.id},
+        **_REMEMBER,
+    )
+    profile = api_client.get("/api/v1/users/profile").json()
+    assert profile["settings"]["currentFhirResource"] == "Observation"
+    assert profile["settings"]["currentFhirSource"] == f"{JHE_FHIR_SOURCE_BASE}/"
+    assert profile["settings"]["currentFhirJhePatientId"] == str(patient.id)
 
 
 def test_search_without_remember_header_never_touches_the_sticky_view(api_client, user, patient, fhir_source):
     # MCP-server and API-script searches don't send the header; they must not clobber the
-    # practitioner's remembered browser view with their own search params.
-    api_client.get("/FHIR/R5/Observation", {"category": "laboratory"}, **_REMEMBER)
+    # practitioner's remembered controls.
+    api_client.get("/FHIR/R5/Observation", {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/"}, **_REMEMBER)
     api_client.get("/FHIR/R5/Condition", {"code": "http://loinc.org|4548-4"})
     user.refresh_from_db()
-    remembered = user.practitioner_profile.get_setting("current_fhir_resource")
-    assert remembered.startswith("Observation")
+    settings = user.practitioner_profile.settings
+    assert settings["current_fhir_resource"] == "Observation"
+    assert settings["current_fhir_source"] == f"{JHE_FHIR_SOURCE_BASE}/"
 
 
 def test_search_unrecognized_source_returns_empty(api_client, patient, fhir_source):

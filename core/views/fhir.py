@@ -24,7 +24,6 @@ The FHIR bundle batch endpoint (POST at the base, e.g. ``FHIR/R5/``) remains ser
 
 import logging
 import uuid
-from urllib.parse import urlencode
 
 from django.core.exceptions import BadRequest as DjangoBadRequest
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
@@ -508,45 +507,34 @@ class FHIRResourceView(APIView):
     def get(self, request, resource, id=None):
         self._check_supported(resource)
         if id is None:
-            self._remember_resource(resource)
+            self._remember_search(resource)
             return self._search_bundle(resource)
         return Response(self._read(resource, id))
 
-    # Context filters the admin UI sends with every search; everything else (category,
-    # _source:below, ...) is part of the *view* the user is on and must survive a restore —
-    # a bare path would land "Observation - Labs" users back on the first Observation view.
-    # NOTE: keys are matched AFTER CamelCaseMiddleWare underscoreizes them, so the study
-    # filter arrives as `patient._has:_group:member:_id` (see _canonical_search_kwargs); the
-    # client-sent spelling is kept too in case the middleware config changes.
-    _EPHEMERAL_SEARCH_PARAMS = {
-        "_page",
-        "_count",
-        "_summary",
-        "patient.organization",
-        "patient._has:_group:member:_id",
-        "patient._has:Group:member:_id",
-    }
-
     # Sent only by the jhe-admin browser's FHIR page. Searches from anything else (the MCP
-    # server, API scripts) must not clobber the practitioner's sticky browser view.
+    # server, API scripts) must not clobber the practitioner's sticky selections.
     REMEMBER_VIEW_HEADER = "X-JHE-Remember-View"
 
-    def _remember_resource(self, resource):
-        # Make the admin UI's Resource select sticky, mirroring how the studies/observations
-        # viewsets persist current_organization_id / current_study_id (see core/views/study.py).
+    def _remember_search(self, resource):
+        # Make the admin UI's FHIR-browser controls sticky, the same way the studies/
+        # observations/patients list endpoints persist current_organization_id and
+        # current_study_id (see Practitioner.remember_settings). One setting per control:
+        # the resource type, the Source select, and the Patient ID box. Paging is deliberately
+        # not remembered -- returning to page 7 of a different search helps nobody.
         if not self.request.headers.get(self.REMEMBER_VIEW_HEADER):
             return
         user = self.request.user
         if hasattr(user, "practitioner_profile"):
-            view_params = urlencode(
-                sorted(
-                    (key, value)
-                    for key, value in self.request.query_params.items()
-                    if key not in self._EPHEMERAL_SEARCH_PARAMS
-                )
+            user.practitioner_profile.remember_settings(
+                save={
+                    "current_fhir_resource": resource,
+                    "current_fhir_source": self.request.GET.get("_source:below"),
+                    "current_fhir_jhe_patient_id": self.request.GET.get("patient"),
+                },
+                # An absent source is the "None (JHE System Data)" selection and an absent
+                # patient is a cleared filter -- both are choices, so neither may go stale.
+                forget=("current_fhir_source", "current_fhir_jhe_patient_id"),
             )
-            remembered = f"{resource}?{view_params}" if view_params else resource
-            user.practitioner_profile.save_setting("current_fhir_resource", remembered)
 
     def post(self, request, resource, id=None):
         self._check_supported(resource)

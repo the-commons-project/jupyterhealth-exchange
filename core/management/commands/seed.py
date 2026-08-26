@@ -14,6 +14,7 @@ from faker import Faker
 from oauth2_provider.models import get_application_model
 
 from core.models import (
+    JHE_FHIR_SOURCE_BASE,
     ClientDataSource,
     CodeableConcept,
     DataSource,
@@ -565,6 +566,15 @@ class Command(BaseCommand):
         for practitioner in [manager_mary, member_megan, viewer_victor]:
             practitioner.save_setting("current_organization_id", lifespan_lab.id)
             practitioner.save_setting("current_study_id", lifespan_study_bp_hr.id)
+            # Open the FHIR browser on the QuestionnaireResponses seeded above, so the page has
+            # rows on a first visit instead of an empty JHE-native store. These are the same
+            # settings the browser writes back via X-JHE-Remember-View (FHIRResourceView.
+            # _remember_search). The source value is the "External" option: JHE_FHIR_SOURCE_BASE
+            # with the trailing slash the `_source:below` prefix search uses -- the browser
+            # normalizes away anything that is not exactly that string. The JHE Patient ID box is
+            # deliberately left unset: an absent current_fhir_jhe_patient_id is a cleared filter.
+            practitioner.save_setting("current_fhir_resource", "QuestionnaireResponse")
+            practitioner.save_setting("current_fhir_source", f"{JHE_FHIR_SOURCE_BASE}/")
 
     def seed_health_system(self, root_organization):
         nhs = Organization.objects.create(
