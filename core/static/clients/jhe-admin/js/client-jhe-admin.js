@@ -1950,15 +1950,13 @@ async function renderFhir(queryParams) {
   }));
 
   // Only the two offered values are honoured — anything else in the URL is normalized away so
-  // the address bar always spells the query actually sent. Observation is pinned to External:
-  // its JHE-native rows have their own dedicated page at /observations, so this browser only
-  // ever shows the imported ones and the control is disabled.
+  // the address bar always spells the query actually sent. Every resource type, Observation
+  // included, is free to select either store: the JHE-native OMH Observations are rendered as
+  // FHIR here, which /observations (their OMH form) does not do.
   if (profileSettings.currentFhirSource && !(SOURCE_PARAM in queryParams)) {
     queryParams[SOURCE_PARAM] = profileSettings.currentFhirSource;
   }
   if (queryParams[SOURCE_PARAM] !== IMPORTED_SOURCE_PREFIX) delete queryParams[SOURCE_PARAM];
-  const sourcePinned = selectedResource === "Observation";
-  if (sourcePinned) queryParams[SOURCE_PARAM] = IMPORTED_SOURCE_PREFIX;
   const selectedSource = queryParams[SOURCE_PARAM] || "";
   const sourceForFhirSelect = SOURCE_OPTIONS.map((option) => ({
     ...option,
@@ -2059,7 +2057,6 @@ async function renderFhir(queryParams) {
     studyForFhirSelect: studyForFhirSelect,
     resourceForFhirSelect: resourceForFhirSelect,
     sourceForFhirSelect: sourceForFhirSelect,
-    sourcePinned: sourcePinned,
     pageSizes: [20, 100, 500, 1000],
   };
 
