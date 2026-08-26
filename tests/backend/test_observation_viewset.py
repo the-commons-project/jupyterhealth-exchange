@@ -79,14 +79,17 @@ def test_observation_pagination(hr_study, patient, api_client, get_observations)
     assert link_rels == ["self", "previous"]
 
 
-def test_observation_list_includes_user_id(api_client, patient, hr_study):
+def test_observation_list_includes_patient_and_user_ids(api_client, patient, hr_study):
     # The REST observations list exposes the patient's JHE User ID (jheUserId) so it can be
-    # shown in the jhe-admin and Django admin Observations displays (issue #525).
+    # shown in the jhe-admin and Django admin Observations displays (issue #525), and the JHE
+    # Patient ID (subjectPatientId). The jhe-admin Patient column renders both, so pin the
+    # camelCased spellings that template reads.
     add_observations(patient=patient, code=Code.HeartRate, n=3)
     results = fetch_paginated(api_client, "/api/v1/observations", {"patient_id": patient.id, "pageSize": 10})
     assert results
     for row in results:
         assert row["jheUserId"] == patient.jhe_user_id
+        assert row["subjectPatientId"] == patient.id
 
 
 def test_observation_limit(hr_study, patient, api_client, get_observations):

@@ -34,7 +34,7 @@
       </tr>
     </table>
     <div class="d-flex align-items-center flex-wrap gap-2">
-      <span class="d-inline-flex align-items-center text-nowrap me-3">Page
+      <span class="d-inline-flex align-items-center text-nowrap">Page
         <input
           type="number"
           class="form-control form-control-sm d-inline-block mx-2"
@@ -46,6 +46,7 @@
           onkeydown="if(event.key === 'Enter') { event.preventDefault(); nav('observations', null, {...getCurrentRouteAndParams().params, page: this.value}) }"
         /> of {{totalPages}}
       </span>
+      <span class="text-nowrap">&nbsp;&nbsp;&bull;&nbsp;&nbsp;</span>
       <span class="d-inline-flex align-items-center text-nowrap">
         <select
           class="form-select form-select-sm me-2"
@@ -68,7 +69,6 @@
         <th scope="col">ID</th>
         <th scope="col">Scope</th>
         <th scope="col">Patient</th>
-        <th scope="col">User ID</th>
         <th scope="col">Transaction Time</th>
         <th scope="col">Data</th>
       </tr>
@@ -80,18 +80,12 @@
           </td>
           <td>{{id}}</td>
           <td>{{codingText}}</td>
-          <td>{{patientNameFamily}}, {{patientNameGiven}}</td>
-          <td>{{jheUserId}}</td>
+          <td>{{patientNameFamily}}, {{patientNameGiven}} (Patient ID: {{subjectPatientId}} | User ID: {{jheUserId}})</td>
           <td>{{lastUpdated}}</td>
           <td><pre>{{omhData}}</pre></td>
         </tr>
       {{/observations}}
     </tbody>
   </table>
-  <div class="form-text">
-    <strong>ID</strong> is the JHE-generated Patient record id.
-    <strong>User ID</strong> is the JHE-generated account id (jheUserId) for the patient's login.
-    A patient's External ID, set by whoever created the patient, is shown on the Patient record.
-  </div>
 </script>
 {% endverbatim %}
