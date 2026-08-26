@@ -87,7 +87,6 @@
             <select
               id="sourceForFhir"
               class="form-control form-select"
-              {{#if sourcePinned}}disabled title="Observation is always read from External; JHE system Observations have their own page."{{/if}}
               onchange="nav('fhir', null, {...getCurrentRouteAndParams().params, '_source:below': this.value || null, _page: 1})"
             >
               {{#sourceForFhirSelect}} {{#if selected}}
