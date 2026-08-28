@@ -28,7 +28,7 @@ class FhirSourceViewSet(ModelViewSet):
         patient = self.request.user.get_patient()
         if patient is None:
             raise PermissionDenied("Only patient users can register a FhirSource.")
-        # Idempotent registration: the patient-access Connect flow registers its source on
+        # Idempotent registration: the EHR Patient Portal Connect flow registers its source on
         # every run. Reuse the patient's existing source for the same upstream endpoint —
         # the aux-store upsert is keyed on fhir_source, so a fresh source per run would
         # re-import the whole chart as duplicates. An empty fhir_base_url identifies

@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeAll, beforeEach, jest } from "@jest/globals";
 
-// Loads client-patient-access.js which exposes the picker helpers on window.
+// Loads client-ehr-patient-portal.js which exposes the picker helpers on window.
 beforeAll(() => {
-  require("../../../core/static/clients/patient-access/js/client-patient-access.js");
+  require("../../../core/static/clients/ehr-patient-portal/js/client-ehr-patient-portal.js");
 });
 
 beforeEach(() => {
@@ -10,47 +10,47 @@ beforeEach(() => {
   delete global.FHIR;
 });
 
-describe("paSearchBrands", () => {
+describe("eppSearchBrands", () => {
   test("queries the brands API with the JHE token and returns the results", async () => {
     const rows = [{ brandName: "Mount Sinai", facilityName: "MSH", fhirBaseUrl: "https://s/FHIR/R4", addressText: "NY" }];
     global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ results: rows }) }));
 
-    const out = await window.paSearchBrands("tok", "sinai");
+    const out = await window.eppSearchBrands("tok", "sinai");
 
     expect(out).toEqual(rows);
     const [url, opts] = global.fetch.mock.calls[0];
-    // Hyphen, matching the route in core/urls.py. An underscore 404s and paSearchBrands
+    // Hyphen, matching the route in core/urls.py. An underscore 404s and eppSearchBrands
     // swallows it into [], so the picker just says "no hospitals found".
-    expect(url).toContain("/api/v1/patient-access/brands");
+    expect(url).toContain("/api/v1/ehr-patient-portal/brands");
     expect(url).toContain("q=sinai");
     expect(opts.headers.Authorization).toBe("Bearer tok");
   });
 
   test("returns [] on a failed response", async () => {
     global.fetch = jest.fn(() => Promise.resolve({ ok: false }));
-    const out = await window.paSearchBrands("tok", "x");
+    const out = await window.eppSearchBrands("tok", "x");
     expect(out).toEqual([]);
   });
 });
 
-describe("paAuthorizeWithIss", () => {
+describe("eppAuthorizeWithIss", () => {
   test("launches SMART authorize with the selected hospital's iss", () => {
     const authorize = jest.fn();
     global.FHIR = { oauth2: { authorize } };
     const config = { clientId: "cid", scope: "launch/patient" };
 
-    window.paAuthorizeWithIss(config, "https://sinai/FHIR/R4");
+    window.eppAuthorizeWithIss(config, "https://sinai/FHIR/R4");
 
     expect(authorize).toHaveBeenCalledTimes(1);
     const arg = authorize.mock.calls[0][0];
     expect(arg.iss).toBe("https://sinai/FHIR/R4");
     expect(arg.clientId).toBe("cid");
     expect(arg.scope).toBe("launch/patient");
-    expect(arg.redirectUri).toContain("/clients/patient-access/callback");
+    expect(arg.redirectUri).toContain("/clients/ehr-patient-portal/callback");
   });
 });
 
-describe("paRenderBrandResults", () => {
+describe("eppRenderBrandResults", () => {
   test("renders a clickable row per result and fires onSelect with that result", () => {
     const container = document.createElement("div");
     const rows = [
@@ -59,7 +59,7 @@ describe("paRenderBrandResults", () => {
     ];
     const onSelect = jest.fn();
 
-    const n = window.paRenderBrandResults(container, rows, onSelect);
+    const n = window.eppRenderBrandResults(container, rows, onSelect);
 
     expect(n).toBe(2);
     const items = container.querySelectorAll("[data-brand-result]");
@@ -73,7 +73,7 @@ describe("paRenderBrandResults", () => {
 
   test("shows a no-results message when empty", () => {
     const container = document.createElement("div");
-    const n = window.paRenderBrandResults(container, [], jest.fn());
+    const n = window.eppRenderBrandResults(container, [], jest.fn());
     expect(n).toBe(0);
     expect(container.textContent.toLowerCase()).toContain("no ");
   });

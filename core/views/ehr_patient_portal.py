@@ -1,51 +1,59 @@
 import logging
 
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.shortcuts import render
 from oauth2_provider.models import get_application_model
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from core.models import DataSource, EhrBrandLocation, PatientIdentifier
+from core.models import ClientDataSource, EhrBrandLocation, PatientIdentifier
 
 logger = logging.getLogger(__name__)
 Application = get_application_model()
 
-PATIENT_ACCESS_CLIENT_NAME = "Patient Access"
-PATIENT_ACCESS_DATA_SOURCE_NAME = "Patient Access API"
+# The seeded Application row this client is served from. Its DataSource of the same name is
+# NOT looked up by name here -- see _config_context.
+EHR_PATIENT_PORTAL_CLIENT_NAME = "EHR Patient Portal"
 BRANDS_DEFAULT_LIMIT = 25
 BRANDS_MAX_LIMIT = 100
 
 
-def _patient_access_aux_data():
-    """EHR config from the seeded Patient Access JheClient.aux_data (client_id/scopes)."""
-    app = Application.objects.filter(name=PATIENT_ACCESS_CLIENT_NAME).select_related("jhe_client").first()
-    if app is None or getattr(app, "jhe_client", None) is None:
-        return {}
-    return app.jhe_client.aux_data or {}
+def _ehr_patient_portal_client():
+    """The seeded EHR Patient Portal Application, with its JheClient and data-source links."""
+    return (
+        Application.objects.filter(name=EHR_PATIENT_PORTAL_CLIENT_NAME)
+        .select_related("jhe_client")
+        .prefetch_related(Prefetch("data_sources", queryset=ClientDataSource.objects.order_by("id")))
+        .first()
+    )
 
 
 def _config_context():
-    aux = _patient_access_aux_data()
-    # The FhirSource the browser registers for the pulled Labs needs a DataSource id;
-    # expose the seeded "Patient Access API" DataSource so the client can send it.
-    data_source = DataSource.objects.filter(name=PATIENT_ACCESS_DATA_SOURCE_NAME).first()
+    app = _ehr_patient_portal_client()
+    jhe_client = getattr(app, "jhe_client", None) if app else None
+    aux = (jhe_client.aux_data if jhe_client else None) or {}
+    # The FhirSource the browser registers needs a DataSource id. It is read off the client's
+    # ClientDataSource link -- established by seed or by an admin -- so the association is
+    # declared data, not something this view infers by matching on a name at request time.
+    # The portal client has exactly one link; ordering by id keeps the choice stable rather
+    # than arbitrary if an admin ever adds a second.
+    link = next(iter(app.data_sources.all()), None) if app else None
     return {
-        "patient_access_client_id": aux.get("client_id", ""),
-        "patient_access_scopes": aux.get("scopes", ""),
-        "patient_access_data_source_id": data_source.id if data_source else "",
+        "ehr_patient_portal_client_id": aux.get("client_id", ""),
+        "ehr_patient_portal_scopes": aux.get("scopes", ""),
+        "ehr_patient_portal_data_source_id": link.data_source_id if link else "",
     }
 
 
-def patient_access_connect(request):
+def ehr_patient_portal_connect(request):
     """Patient-facing start page: invitation -> JHE token -> Epic authorize."""
-    return render(request, "clients/patient-access/connect.html", _config_context())
+    return render(request, "clients/ehr-patient-portal/connect.html", _config_context())
 
 
-def patient_access_callback(request):
+def ehr_patient_portal_callback(request):
     """Return page: FHIR.oauth2.ready() -> store id -> pull Labs -> write to JHE."""
-    return render(request, "clients/patient-access/callback.html", _config_context())
+    return render(request, "clients/ehr-patient-portal/callback.html", _config_context())
 
 
 def _parse_limit(raw):
@@ -60,8 +68,8 @@ def _parse_limit(raw):
 @permission_classes([IsAuthenticated])
 def brands_search(request):
     """
-    GET /api/v1/patient-access/brands?q=&state=&postal=&limit=
-    Search hospital facilities for the Patient Access picker. `q` matches facility name,
+    GET /api/v1/ehr-patient-portal/brands?q=&state=&postal=&limit=
+    Search hospital facilities for the EHR Patient Portal picker. `q` matches facility name,
     city, or brand name; `state`/`postal` filter those columns. Each result carries
     the brand's fhir_base_url (the SMART `iss`) the browser authorizes against.
     """
@@ -99,7 +107,7 @@ def brands_search(request):
 @permission_classes([IsAuthenticated])
 def save_patient_identifier(request):
     """
-    POST /api/v1/patient-access/identifier  {system, value}
+    POST /api/v1/ehr-patient-portal/identifier  {system, value}
     Additively attach an external identifier (the EHR patient id) to the
     authenticated patient. get_or_create keeps it idempotent and never replaces
     the patient's other identifiers (unlike the practitioner PATCH path).

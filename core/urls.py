@@ -6,7 +6,7 @@ from rest_framework.routers import DefaultRouter
 from core.fhir.config import FHIR_VERSION
 
 from . import views
-from .views import common, ow, patient_access
+from .views import common, ehr_patient_portal, ow
 from .views.fhir import FHIRResourceView, capability_statement, smart_configuration
 from .views.fhir_import import FHIRImportView
 
@@ -94,11 +94,26 @@ urlpatterns = [
     path("clients/ow/launch", common.ow_launch, name="ow-launch"),
     path("clients/ow/complete", common.ow_complete, name="ow-complete"),
     path("clients/ow/manage", common.ow_manage, name="ow-manage"),
-    # Patient Access patient EHR-records client (issue #489)
-    path("clients/patient-access/", patient_access.patient_access_connect, name="patient-access-connect"),
-    path("clients/patient-access/callback", patient_access.patient_access_callback, name="patient-access-callback"),
-    path("api/v1/patient-access/brands", patient_access.brands_search, name="patient-access-brands"),
-    path("api/v1/patient-access/identifier", patient_access.save_patient_identifier, name="patient-access-identifier"),
+    # EHR Patient Portal patient EHR-records client (issue #489). The two page paths are
+    # registered as redirect URIs on the Epic app -- changing them requires the Epic-side
+    # registration to be updated in step. The api/v1 pair below is JHE's own and is not
+    # registered anywhere upstream.
+    path(
+        "clients/ehr-patient-portal/",
+        ehr_patient_portal.ehr_patient_portal_connect,
+        name="ehr-patient-portal-connect",
+    ),
+    path(
+        "clients/ehr-patient-portal/callback",
+        ehr_patient_portal.ehr_patient_portal_callback,
+        name="ehr-patient-portal-callback",
+    ),
+    path("api/v1/ehr-patient-portal/brands", ehr_patient_portal.brands_search, name="ehr-patient-portal-brands"),
+    path(
+        "api/v1/ehr-patient-portal/identifier",
+        ehr_patient_portal.save_patient_identifier,
+        name="ehr-patient-portal-identifier",
+    ),
     # OW API proxy endpoints
     path("api/v1/ow/users", ow.create_ow_user, name="ow-create-user"),
     path("api/v1/ow/oauth/oura/authorize", ow.get_oura_auth_url, name="ow-oura-authorize"),

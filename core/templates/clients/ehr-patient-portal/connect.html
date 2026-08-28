@@ -1,4 +1,4 @@
-{% extends "clients/patient-access/base.html" %} {% block title %}Connect clinical records{% endblock %}
+{% extends "clients/ehr-patient-portal/base.html" %} {% block title %}Connect clinical records{% endblock %}
 
 {% block body_content %}
 <div class="w-100 text-center mt-5">
@@ -30,6 +30,6 @@
   };
   // Redeem the invitation for a JHE access token, then let the patient pick their
   // hospital; selecting one launches the Epic SMART flow against that hospital.
-  startPatientAccessConnect(out, PATIENT_ACCESS_CONFIG, picker);
+  startEhrPatientPortalConnect(out, EHR_PATIENT_PORTAL_CONFIG, picker);
 </script>
 {% endblock %}

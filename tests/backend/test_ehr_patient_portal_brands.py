@@ -1,11 +1,11 @@
-"""Tests for the Patient Access hospital-picker search API: GET /api/v1/patient-access/brands."""
+"""Tests for the EHR Patient Portal hospital-picker search API: GET /api/v1/ehr-patient-portal/brands."""
 
 import pytest
 from rest_framework.test import APIClient
 
 from core.models import EhrBrand, EhrBrandLocation
 
-URL = "/api/v1/patient-access/brands"
+URL = "/api/v1/ehr-patient-portal/brands"
 
 
 @pytest.fixture

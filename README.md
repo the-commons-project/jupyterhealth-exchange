@@ -149,6 +149,17 @@ Entities are based on the [HL7 FHIR model](https://build.fhir.org/), a widely us
 9. Upload Observations using the FHIR API and access token.
 10. View the Observations from the Web UI.
 
+## Demonstration Clients, Data Sources and Auth Strategies
+
+| Data Source | Client | Auth |
+| --- | --- | --- |
+| **CareX**<br>`omh:blood-pressure:4.0`<br>`omh:heart-rate:2.0`<br><br>**Questionnaire**<br>`QuestionnaireResponse` | **CareX** | Invitation Link |
+| **Dexcom Stelo**<br>`omh:blood-glucose:4.0`<br><br>**iHealth**<br>`omh:body-temperature:4.0`<br>`omh:heart-rate:2.0` | **CommonHealth** | Invitation Link |
+| **EHR Patient Portal**<br>`*` (all FHIR resources) | **EHR Patient Portal** | Invitation Link |
+| – | **JHE Admin** | User Credentials<br/>(Username/Password) |
+| **Oura**<br>`ieee:sleep-episode:1.0`<br>`omh:heart-rate:2.0` | **Open Wearables** | Invitation Link |
+| – | – | Patient Access<br/>(E-mail one-time code) |
+
 ## Contributing
 
 See [doc](https://jupyterhealth.github.io/software-documentation/) for test requirements, coding standards, and PR checklist.

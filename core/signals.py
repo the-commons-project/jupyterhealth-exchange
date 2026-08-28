@@ -1,5 +1,7 @@
 # accounts/signals.py
 
+import logging
+
 from allauth.socialaccount.models import SocialApp
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -10,6 +12,7 @@ from core.context_processors import SAML2_SINGLE_SOCIAL_APP_CACHE_KEY
 from core.models import Practitioner
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 @receiver(post_save, sender=SocialApp)
@@ -25,12 +28,12 @@ def clear_saml2_social_app_cache(sender, **kwargs):
 @receiver(pre_save, sender=User)
 def before_superuser_created(sender, instance, **kwargs):
     if instance._state.adding and instance.is_superuser and not instance.user_type:
-        print(f"signals pre_save: superuser {instance.email} - setting user_type=practitioner")
+        logger.debug("pre_save: superuser %s - setting user_type=practitioner", instance.email)
         instance.user_type = "practitioner"
 
 
 @receiver(post_save, sender=User)
 def on_superuser_created(sender, instance, created, **kwargs):
     if created and instance.is_superuser:
-        print(f"signals post_save: superuser {instance.email} - adding Practitioner")
+        logger.debug("post_save: superuser %s - adding Practitioner", instance.email)
         Practitioner.objects.create(jhe_user=instance)
