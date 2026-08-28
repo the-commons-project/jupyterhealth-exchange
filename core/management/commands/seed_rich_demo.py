@@ -35,7 +35,7 @@ from core.models import (
 
 STUDY_NAME = "CGM & Wearables Demo"
 ORG_NAME_FRAGMENT = "Planetary Research Institute"
-CGM_DATA_SOURCE = "Dexcom"
+CGM_DATA_SOURCE = "Dexcom Stelo"
 WEARABLE_DATA_SOURCE = "Oura"
 CGM_SOURCE_NAME = "demo-cgm-generator"
 WEARABLE_SOURCE_NAME = "demo-synthea-omh-ieee-generator"  # credit: dicristea/oura-clinical-workbench

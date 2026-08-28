@@ -437,7 +437,7 @@ def create_aux_resource(resource_type, data, fhir_source, upstream_id=None):
 
     Imports are idempotent per upstream record: when the body carries the EHR's own ``id`` and a
     row for (source, type, that id) already exists, that row is updated in place -- re-running a
-    patient-access Connect refreshes records instead of duplicating them -- keeping its JHE UUID
+    EHR Patient Portal Connect refreshes records instead of duplicating them -- keeping its JHE UUID
     so stored references to it stay valid. A body with no upstream id cannot be recognised across
     runs and always creates. Backed by the conditional unique constraint on FhirAuxResource.
     """

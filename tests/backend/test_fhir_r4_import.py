@@ -535,7 +535,7 @@ def test_import_error_entry_still_reports_dropped_fields(api_client, patient, fh
 
 
 def test_reimport_is_idempotent_per_upstream_record(api_client, patient, fhir_source):
-    # Re-running a patient-access Connect re-posts every record; the import must refresh the
+    # Re-running an EHR Patient Portal Connect re-posts every record; the import must refresh the
     # existing rows (same source + upstream id), not duplicate them.
     r4 = {
         "resourceType": "Condition",
@@ -646,7 +646,7 @@ def test_import_error_entry_still_reports_enrichment(api_client, fhir_source):
 
 
 def test_import_error_issue_carries_diagnostics_string(api_client, fhir_source):
-    # The patient-access client renders entry.response.outcome.issue[].diagnostics for failed
+    # The EHR Patient Portal client renders entry.response.outcome.issue[].diagnostics for failed
     # records (paEntryFailureReason). Pin the contract: the first error issue is severity
     # "error" with a non-empty diagnostics string.
     # Coverage reliably fails R5 validation (kind is new-in-R5 and mandatory; no map rule).
@@ -729,29 +729,29 @@ def test_import_bundle_reports_per_entry_error(api_client, patient, fhir_source)
 
 
 # ---------------------------------------------------------------------------
-# Pull-list invariants: everything the patient-access client pulls must convert
+# Pull-list invariants: everything the EHR Patient Portal client pulls must convert
 # to valid R5 (with import-path enrichment applied), and every pulled type must
 # have a matching seeded scope. These are the invariants RFC 0003 states.
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _SEED_PY_PATH = _REPO_ROOT / "core" / "management" / "commands" / "seed.py"
-_CLIENT_JS = _REPO_ROOT / "core" / "static" / "clients" / "patient-access" / "js" / "client-patient-access.js"
+_CLIENT_JS = _REPO_ROOT / "core" / "static" / "clients" / "ehr-patient-portal" / "js" / "client-ehr-patient-portal.js"
 
 
 def _pulled_types():
     text = _CLIENT_JS.read_text()
-    match = re.search(r"var PATIENT_ACCESS_PULLS = \[(.*?)\n\];", text, re.DOTALL)
-    assert match, "PATIENT_ACCESS_PULLS not found in client-patient-access.js — was it renamed or reformatted?"
+    match = re.search(r"var EHR_PATIENT_PORTAL_PULLS = \[(.*?)\n\];", text, re.DOTALL)
+    assert match, "EHR_PATIENT_PORTAL_PULLS not found in client-ehr-patient-portal.js — was it renamed or reformatted?"
     return set(re.findall(r'type: "(\w+)"', match.group(1)))
 
 
-def _patient_access_seed_scopes():
-    # Scope the parse to the Patient Access client's aux_data block — a future client with
+def _ehr_patient_portal_seed_scopes():
+    # Scope the parse to the EHR Patient Portal client's aux_data block — a future client with
     # its own patient/*.read scopes elsewhere in seed.py must not bleed into this invariant.
     text = _SEED_PY_PATH.read_text()
-    match = re.search(r'"name": "Patient Access".*?"scopes": \((.*?)\)', text, re.DOTALL)
-    assert match, 'Patient Access client "scopes" block not found in seed.py'
+    match = re.search(r'"name": "EHR Patient Portal".*?"scopes": \((.*?)\)', text, re.DOTALL)
+    assert match, 'EHR Patient Portal client "scopes" block not found in seed.py'
     return match.group(1)
 
 
@@ -814,7 +814,7 @@ _MINIMAL_PULL_R4 = {
 
 def test_pull_list_fixture_coverage_matches_client():
     assert _pulled_types() == set(_MINIMAL_PULL_R4), (
-        "PATIENT_ACCESS_PULLS and _MINIMAL_PULL_R4 diverged - add/remove the fixture "
+        "EHR_PATIENT_PORTAL_PULLS and _MINIMAL_PULL_R4 diverged - add/remove the fixture "
         "so every pulled type stays convert+validate guarded"
     )
 
@@ -829,13 +829,19 @@ def test_every_pulled_type_converts_to_valid_r5(resource_type):
 
 
 def test_pulled_types_match_seeded_scopes():
-    scoped = set(re.findall(r"patient/(\w+)\.read", _patient_access_seed_scopes()))
-    assert scoped == _pulled_types(), "seed.py patient-access scopes and PATIENT_ACCESS_PULLS diverged"
+    scoped = set(re.findall(r"patient/(\w+)\.read", _ehr_patient_portal_seed_scopes()))
+    assert scoped == _pulled_types(), "seed.py EHR Patient Portal scopes and EHR_PATIENT_PORTAL_PULLS diverged"
 
 
 def test_scope_migration_matches_seed_and_updates_existing_clients(db):
-    # Migration 0043 exists because seed.py only writes aux_data on creation: an already-deployed
-    # Patient Access row must pick the widened scopes up via migrate, not a manual step.
+    # Migration 0043 widened the scopes on already-deployed rows, back when seed.py wrote
+    # aux_data only on creation. seed now refreshes the seed-managed keys on every run
+    # (test_seed_refreshes_scopes_on_existing_client), but 0043 stays: it is the only thing
+    # that fixes a database still sitting behind it, and `migrate` is all a deploy runs.
+    #
+    # It filters on the *old* client name — it ran before 0046 renamed the row to
+    # "EHR Patient Portal", and applied migrations are frozen history. The row created below
+    # is named "Patient Access" for that reason, and must not be "tidied up".
     import importlib
 
     from django.apps import apps as django_apps
@@ -848,7 +854,7 @@ def test_scope_migration_matches_seed_and_updates_existing_clients(db):
     # Lockstep guard: the migration's scope list is a copy of seed.py's and must cover the pulls.
     assert set(re.findall(r"patient/(\w+)\.read", migration.NEW_SCOPES)) == _pulled_types()
     assert migration.NEW_SCOPES == "".join(
-        part.strip().strip('"') for part in _patient_access_seed_scopes().splitlines() if part.strip()
+        part.strip().strip('"') for part in _ehr_patient_portal_seed_scopes().splitlines() if part.strip()
     )
 
     # Functional guard: an existing deployed row gets the new scopes; its client_id survives.
@@ -860,6 +866,75 @@ def test_scope_migration_matches_seed_and_updates_existing_clients(db):
     aux = JheClient.objects.get(application=app).aux_data
     assert aux["scopes"] == migration.NEW_SCOPES
     assert aux["client_id"] == "deployed-epic-id"
+
+
+def test_seed_refreshes_scopes_on_existing_client_without_clobbering_client_id(db):
+    # The create-only `if created:` guard is what forced migration 0043 to exist: a deployed
+    # row could never pick a code-owned aux_data value up from seed. Seed now refreshes the
+    # seed-managed keys on every run, while deployment-specific ones (the EHR-registered
+    # client_id) still survive re-seeding.
+    import importlib
+
+    from oauth2_provider.models import get_application_model
+
+    from core.management.commands.seed import Command
+    from core.models import JheClient
+
+    migration = importlib.import_module("core.migrations.0043_patient_access_scopes")
+
+    app = get_application_model().objects.create(name="EHR Patient Portal", client_id="local-app-id")
+    JheClient.objects.create(
+        application=app,
+        invitation_url="https://deployed.example/invite/CODE",
+        aux_data={"client_id": "deployed-epic-id", "scopes": migration.OLD_SCOPES},
+    )
+
+    command = Command()
+    command.seed_codeable_concepts()
+    command.seed_data_sources()
+    command.seed_clients()
+
+    jhe_client = JheClient.objects.get(application=app)
+    assert jhe_client.aux_data["scopes"] == migration.NEW_SCOPES, "seed did not refresh the code-owned scopes"
+    assert jhe_client.aux_data["client_id"] == "deployed-epic-id", "seed clobbered a deployment-specific value"
+    assert jhe_client.invitation_url == "https://deployed.example/invite/CODE"
+
+
+def test_seed_links_the_portal_client_to_its_data_source(db):
+    # The connect page reads the data source id off this link. Seeding it is what replaced the
+    # view's request-time name lookup, so a missing link is a broken connect page.
+    from oauth2_provider.models import get_application_model
+
+    from core.management.commands.seed import Command
+    from core.models import ClientDataSource, DataSource
+
+    command = Command()
+    command.seed_codeable_concepts()
+    command.seed_data_sources()
+    command.seed_clients()
+
+    app = get_application_model().objects.get(name="EHR Patient Portal")
+    data_source = DataSource.objects.get(name="EHR Patient Portal")
+    assert ClientDataSource.objects.filter(client=app, data_source=data_source).exists()
+    # One product, one name -- and not a device.
+    assert data_source.type == "patient_app"
+
+
+def test_seed_data_sources_retype_updates_rather_than_duplicates(db):
+    # update_or_create matched on (name, type) before, so changing a type in the seed list
+    # created a second row and orphaned the FKs pointing at the original.
+    from core.management.commands.seed import Command
+    from core.models import DataSource
+
+    stale = DataSource.objects.create(name="EHR Patient Portal", type="medical_device")
+
+    command = Command()
+    command.seed_codeable_concepts()
+    command.seed_data_sources()
+
+    assert DataSource.objects.filter(name="EHR Patient Portal").count() == 1
+    stale.refresh_from_db()
+    assert stale.type == "patient_app"
 
 
 def test_import_condition_without_clinical_status_defaults_to_unknown(api_client, patient, fhir_source):
