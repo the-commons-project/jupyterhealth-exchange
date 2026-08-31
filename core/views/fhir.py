@@ -57,7 +57,7 @@ from core.fhir.config import (
     mapped_model_name,
 )
 from core.fhir.engine import build_fhir_resource, matches_criteria
-from core.fhir.fhir_validation import validate_fhir_resource
+from core.fhir.fhir_validation import supports_identifier, validate_fhir_resource
 from core.fhir.pagination import FHIRBundlePagination
 from core.fhir.search import apply_search_params, summary_count_requested
 from core.models import (
@@ -295,7 +295,7 @@ class AuxResourceHandler:
         # source, which must therefore be known before the body is validated.
         data = _camelized(data)
         _, fhir_source = self._write_context(data)
-        data, upstream_id = _extract_upstream_id(data, fhir_source)
+        data, upstream_id = _extract_upstream_id(self.resource_type, data, fhir_source)
         validate_fhir_resource(self.resource_type, data)
         return self.serialize(create_aux_resource(self.resource_type, data, fhir_source, upstream_id=upstream_id))
 
@@ -386,7 +386,7 @@ def _aux_body(data):
     return {key: value for key, value in dict(data).items() if key != "resourceType"}
 
 
-def _extract_upstream_id(data, fhir_source):
+def _extract_upstream_id(resource_type, data, fhir_source):
     """Move the upstream record's ``id`` out of the body and into an ``identifier``.
 
     On a FHIR create the logical ``id`` is the server's to assign and the client's is ignored, so
@@ -399,16 +399,22 @@ def _extract_upstream_id(data, fhir_source):
     FHIR IDs": ids over FHIR's 64-char limit would fail R5 validation in the body but are fine in
     an identifier, and ``fhir_resource_id`` (which the uniqueness constraint is enforced on) has
     no length limit either. Returns ``(possibly-copied data, upstream_id_or_None)``.
+
+    A resource type with no ``identifier`` element at all (Provenance; Binary, were it ever
+    configured) has nowhere to put it -- ``fhir.resources`` forbids extra fields, so writing one
+    would fail validation. The id still leaves the body and still keys uniqueness through the
+    ``fhir_resource_id`` column; it is simply not represented in the stored body.
     """
     upstream_id = data.get("id")
     if not (isinstance(upstream_id, str) and upstream_id):
         return data, None
     data = dict(data)
-    identifiers = list(data.get("identifier") or [])
-    stamp = {"system": fhir_source_uri(fhir_source.pk), "value": upstream_id}
-    if stamp not in identifiers:
-        identifiers.append(stamp)
-    data["identifier"] = identifiers
+    if supports_identifier(resource_type):
+        identifiers = list(data.get("identifier") or [])
+        stamp = {"system": fhir_source_uri(fhir_source.pk), "value": upstream_id}
+        if stamp not in identifiers:
+            identifiers.append(stamp)
+        data["identifier"] = identifiers
     del data["id"]
     return data, upstream_id
 

@@ -19,6 +19,21 @@ def fhir_model_class(resource_type):
         raise LookupError(resource_type)
 
 
+def supports_identifier(resource_type):
+    """True when ``resource_type``'s FHIR model actually has an ``identifier`` element.
+
+    A few resources have none at all (Provenance among the configured aux types; Binary is the
+    usual example elsewhere). ``fhir.resources`` forbids extra fields, so writing an identifier
+    onto one of those would fail validation. Unknown types answer False -- validation rejects
+    them on their own terms a moment later.
+    """
+    try:
+        model_cls = fhir_model_class(resource_type)
+    except LookupError:
+        return False
+    return "identifier" in (getattr(model_cls, "model_fields", None) or model_cls.__fields__)
+
+
 def validate_fhir_resource(resource_type, data):
     """Validate ``data`` (a FHIR resource dict) against ``resource_type``; raise DRF 400 on failure.
 
