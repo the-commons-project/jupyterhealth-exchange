@@ -1107,7 +1107,7 @@ class TestEdgeCases:
         client.force_authenticate(patient.jhe_user)
         r = client.post(
             "/api/v1/fhir_sources",
-            {"label": "Momentum App", "fhir_base_url": "https://momentum.example/app", "data_source": device.id},
+            {"label": "Momentum App", "data_source": device.id},
         )
         assert r.status_code == 201, r.content
         assert r.json()["id"]
@@ -1116,9 +1116,7 @@ class TestEdgeCases:
         """FHIR/Create QuestionnaireResponse.yml -- aux write with the X-JHE-FHIR-Source-ID header."""
         from core.models import FhirSource
 
-        source = FhirSource.objects.create(
-            patient=patient, data_source=device, label="Momentum App", fhir_base_url="https://momentum.example/app"
-        )
+        source = FhirSource.objects.create(patient=patient, data_source=device, label="Momentum App")
         client = APIClient()
         client.default_format = "json"
         client.force_authenticate(patient.jhe_user)

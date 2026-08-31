@@ -23,8 +23,11 @@ JHE_AUX_EXTENSION_URLS = (
 #   * JHE_FHIR_SOURCE_BASE/<id> -- stamped onto every aux row, identifying the FhirSource (by pk)
 #     it was ingested through. Imported rows all nest under this prefix so a single
 #     ``_source:below=<base>/`` (a string-prefix match) selects "everything imported", while an
-#     exact ``_source=<base>/<id>`` selects one source. A JHE-minted URI (not the upstream
-#     ``fhir_base_url``) is used so the values are homogeneous, collision-free, and groupable.
+#     exact ``_source=<base>/<id>`` selects one source. A JHE-minted URI is used so the values
+#     are homogeneous, collision-free, and groupable -- and a FhirSource has no upstream URL to
+#     use instead. The same URI is the ``identifier.system`` an imported record's upstream id is
+#     stamped with (_extract_upstream_id in core/views/fhir.py), so provenance and record
+#     identity speak one vocabulary.
 JHE_NATIVE_SOURCE = "https://jupyterhealth.org/jhe"
 JHE_FHIR_SOURCE_BASE = "https://jupyterhealth.org/fhir/fhir-source"
 

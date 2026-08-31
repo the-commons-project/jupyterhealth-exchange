@@ -274,6 +274,7 @@ describe("finishEhrPatientPortalConnect", () => {
 
   beforeEach(() => {
     sessionStorage.setItem("ehr_patient_portal_jhe_access_token", "tok");
+    sessionStorage.removeItem("ehr_patient_portal_brand_location_id");
     // No records to pull, so the run stops after identifier + FhirSource registration.
     const client = {
       state: { serverUrl: PICKED },
@@ -284,7 +285,28 @@ describe("finishEhrPatientPortalConnect", () => {
     global.fetch = jest.fn((url) => (String(url).includes("fhir_sources") ? jsonOk({ id: 9 }) : jsonOk({})));
   });
 
-  test("stamps the authorized server URL - not the configured default - on the identifier and FhirSource", async () => {
+  test("records the picked hospital location on the FhirSource", async () => {
+    // The picker stores the row id before the SMART redirect; registration reads it back. The
+    // server cannot re-derive it -- iss identifies a brand, and a brand has many locations.
+    window.eppStoreBrandLocationId(4242);
+    const out = { textContent: "" };
+
+    await window.finishEhrPatientPortalConnect(out, CONFIG);
+
+    const source = global.fetch.mock.calls.find(([url]) => String(url).includes("fhir_sources"));
+    expect(JSON.parse(source[1].body).ehr_brand_location).toBe(4242);
+  });
+
+  test("omits the location when the patient did not come through the picker", async () => {
+    const out = { textContent: "" };
+
+    await window.finishEhrPatientPortalConnect(out, CONFIG);
+
+    const source = global.fetch.mock.calls.find(([url]) => String(url).includes("fhir_sources"));
+    expect(JSON.parse(source[1].body)).not.toHaveProperty("ehr_brand_location");
+  });
+
+  test("stamps the authorized server URL - not the configured default - on the identifier and source label", async () => {
     const out = { textContent: "" };
 
     await window.finishEhrPatientPortalConnect(out, CONFIG);
@@ -294,7 +316,11 @@ describe("finishEhrPatientPortalConnect", () => {
     const source = calls.find(([url]) => String(url).includes("fhir_sources"));
 
     expect(JSON.parse(identifier[1].body).system).toBe(PICKED);
-    expect(JSON.parse(source[1].body).fhir_base_url).toBe(PICKED);
+    // A FhirSource holds no endpoint; the label is its only human-facing handle, so the
+    // authorized server URL goes there.
+    const sourceBody = JSON.parse(source[1].body);
+    expect(sourceBody.fhir_base_url).toBeUndefined();
+    expect(sourceBody.label).toContain(PICKED);
     expect(JSON.stringify(calls)).not.toContain(CONFIG.iss);
   });
 

@@ -17,6 +17,8 @@ from rest_framework.test import APIClient
 from core.models import (
     JHE_FHIR_SOURCE_BASE,
     JHE_NATIVE_SOURCE,
+    EhrBrand,
+    EhrBrandLocation,
     FhirAuxResource,
     FhirSource,
     Observation,
@@ -44,9 +46,7 @@ def _condition(patient_id, **extra):
 
 @pytest.fixture
 def fhir_source(patient, device):
-    return FhirSource.objects.create(
-        patient=patient, data_source=device, label="Patient EHR", fhir_base_url="https://ehr.example/fhir"
-    )
+    return FhirSource.objects.create(patient=patient, data_source=device, label="Patient EHR")
 
 
 def _src(fhir_source):
@@ -89,71 +89,100 @@ def _patient_client(patient):
     return client
 
 
-def test_fhir_source_registration_is_idempotent_per_endpoint(patient, device):
-    # The Connect flow registers its source on every run; the aux upsert is keyed on
-    # fhir_source, so re-registration must return the SAME source, not mint a new one.
+def test_fhir_source_registration_always_creates(patient, device):
+    # A source stores no endpoint and is identified by its pk, so there is nothing to match a
+    # previous registration against — and nothing needs to be. Every Connect gets its own source,
+    # which is its own identifier namespace, so upstream ids never collide across runs.
     client = _patient_client(patient)
-    body = {"label": "Epic / Patient Access", "fhir_base_url": "https://epic.example/FHIR/R4", "data_source": device.id}
+    body = {"label": "Epic / EHR Patient Portal", "data_source": device.id}
     first = client.post("/api/v1/fhir_sources", body)
-    again = client.post("/api/v1/fhir_sources", {**body, "label": "Epic / Patient Access (rerun)"})
+    again = client.post("/api/v1/fhir_sources", body)
     assert first.status_code == 201 and again.status_code == 201
-    assert again.json()["id"] == first.json()["id"]
-    assert FhirSource.objects.filter(patient=patient).count() == 1
-    # A different endpoint is a different source; an empty base URL identifies nothing.
-    other = client.post("/api/v1/fhir_sources", {**body, "fhir_base_url": "https://cerner.example/FHIR/R4"})
-    assert other.json()["id"] != first.json()["id"]
-    client.post("/api/v1/fhir_sources", {"label": "x", "fhir_base_url": "", "data_source": device.id})
-    client.post("/api/v1/fhir_sources", {"label": "y", "fhir_base_url": "", "data_source": device.id})
-    assert FhirSource.objects.filter(patient=patient).count() == 4
+    assert again.json()["id"] != first.json()["id"]
+    assert FhirSource.objects.filter(patient=patient).count() == 2
+    # The endpoint is not a field any more; a client that sends one is simply ignored.
+    assert "fhir_base_url" not in first.json()
 
 
-def test_aux_create_sanitizes_over_64_char_id_and_still_upserts(api_client, patient, fhir_source):
-    # Epic "Unconstrained FHIR IDs" exceed FHIR's 64-char id limit. The server moves the long
-    # id into an identifier (so validation passes) but still keys the upsert on it.
-    long_id = "e" + "x" * 70
-    body = _condition(patient.id, id=long_id, code={"text": "old"})
-    first = api_client.post("/FHIR/R5/Condition", body, **_src(fhir_source))
+def test_aux_create_moves_upstream_id_into_a_source_namespaced_identifier(api_client, patient, fhir_source):
+    # On a FHIR create the logical id is the server's to assign, so the EHR's own id moves into
+    # an identifier namespaced by the FhirSource — the same URI meta.source carries.
+    first = api_client.post("/FHIR/R5/Condition", _condition(patient.id, id="cond-9"), **_src(fhir_source))
     assert first.status_code == 201, first.text
-    row = FhirAuxResource.objects.get(pk=first.json()["id"])
-    assert row.fhir_resource_id == long_id
-    assert {"system": fhir_source.fhir_base_url, "value": long_id} in first.json()["identifier"]
-
-    again = api_client.post(
-        "/FHIR/R5/Condition", _condition(patient.id, id=long_id, code={"text": "new"}), **_src(fhir_source)
-    )
-    assert again.json()["id"] == first.json()["id"]
-    rows = FhirAuxResource.objects.filter(resource_type="Condition", fhir_resource_id=long_id)
-    assert rows.count() == 1
-    assert rows.get().fhir_data["code"] == {"text": "new"}
+    body = first.json()
+    assert {"system": fhir_source_uri(fhir_source.pk), "value": "cond-9"} in body["identifier"]
+    # The JHE UUID is the resource's id; the upstream id is kept on the row for uniqueness.
+    assert body["id"] != "cond-9"
+    assert FhirAuxResource.objects.get(pk=body["id"]).fhir_resource_id == "cond-9"
 
 
-def test_aux_create_upserts_on_same_source_and_upstream_id(api_client, patient, fhir_source):
-    # Re-importing the same upstream record (same source, same EHR id) refreshes the existing
-    # row in place — same JHE UUID, new body — instead of duplicating it.
+def test_aux_create_over_64_char_id_is_accepted_via_the_identifier(api_client, patient, fhir_source):
+    # Epic "Unconstrained FHIR IDs" exceed FHIR's 64-char id limit, which R5 validation would
+    # reject in the body. In an identifier there is no length limit, and neither has the
+    # fhir_resource_id column the uniqueness constraint is enforced on.
+    long_id = "e" + "x" * 70
+    first = api_client.post("/FHIR/R5/Condition", _condition(patient.id, id=long_id), **_src(fhir_source))
+    assert first.status_code == 201, first.text
+    assert FhirAuxResource.objects.get(pk=first.json()["id"]).fhir_resource_id == long_id
+    assert {"system": fhir_source_uri(fhir_source.pk), "value": long_id} in first.json()["identifier"]
+
+    again = api_client.post("/FHIR/R5/Condition", _condition(patient.id, id=long_id), **_src(fhir_source))
+    assert again.status_code == 409, again.text
+    assert FhirAuxResource.objects.filter(resource_type="Condition", fhir_resource_id=long_id).count() == 1
+
+
+def test_aux_create_refuses_a_record_already_stored_under_the_source(api_client, patient, fhir_source):
+    # A create never replaces an existing record. Re-posting one already stored under this
+    # source is a 409 naming the record it collided with, so the client can decide what to do.
     first = api_client.post(
         "/FHIR/R5/Condition", _condition(patient.id, id="cond-9", code={"text": "old"}), **_src(fhir_source)
     )
     again = api_client.post(
         "/FHIR/R5/Condition", _condition(patient.id, id="cond-9", code={"text": "new"}), **_src(fhir_source)
     )
-    assert first.status_code == 201 and again.status_code == 201
-    assert again.json()["id"] == first.json()["id"]
+    assert first.status_code == 201
+    assert again.status_code == 409, again.text
+    outcome = again.json()
+    assert outcome["resourceType"] == "OperationOutcome"
+    issue = outcome["issue"][0]
+    assert issue["severity"] == "error" and issue["code"] == "duplicate"
+    assert first.json()["id"] in issue["diagnostics"]
+    # The stored record is untouched: a refused create wrote nothing.
     rows = FhirAuxResource.objects.filter(resource_type="Condition", fhir_resource_id="cond-9")
     assert rows.count() == 1
-    assert rows.get().fhir_data["code"] == {"text": "new"}
+    assert rows.get().fhir_data["code"] == {"text": "old"}
+
+
+def test_aux_update_onto_a_taken_upstream_id_is_refused(api_client, patient, fhir_source):
+    # Uniqueness is a property of the source, not of the create path: moving a row onto an
+    # upstream id a sibling already holds is refused the same way, and neither row changes.
+    first = api_client.post("/FHIR/R5/Condition", _condition(patient.id, id="cond-1"), **_src(fhir_source))
+    second = api_client.post("/FHIR/R5/Condition", _condition(patient.id, id="cond-2"), **_src(fhir_source))
+    assert first.status_code == 201 and second.status_code == 201
+
+    clash = api_client.put(
+        f"/FHIR/R5/Condition/{second.json()['id']}",
+        _condition(patient.id, id="cond-1", code={"text": "moved"}),
+        **_src(fhir_source),
+    )
+    assert clash.status_code == 409, clash.text
+    issue = clash.json()["issue"][0]
+    assert issue["code"] == "duplicate"
+    assert first.json()["id"] in issue["diagnostics"]
+    assert FhirAuxResource.objects.get(pk=second.json()["id"]).fhir_resource_id == "cond-2"
 
 
 def test_aux_create_same_upstream_id_different_source_stays_separate(api_client, patient, device, fhir_source):
     # The same EHR id from two different sources is two records (two hospitals can both
     # have a "cond-9").
-    other = FhirSource.objects.create(patient=patient, data_source=device, label="o2", fhir_base_url="https://o2/fhir")
+    other = FhirSource.objects.create(patient=patient, data_source=device, label="o2")
     api_client.post("/FHIR/R5/Condition", _condition(patient.id, id="cond-9"), **_src(fhir_source))
     api_client.post("/FHIR/R5/Condition", _condition(patient.id, id="cond-9"), **_src(other))
     assert FhirAuxResource.objects.filter(resource_type="Condition", fhir_resource_id="cond-9").count() == 2
 
 
 def test_aux_create_without_upstream_id_always_creates(api_client, patient, fhir_source):
-    # No upstream id -> no cross-run identity -> both POSTs create.
+    # No upstream id -> nothing to be a duplicate of -> both POSTs create.
     for _ in range(2):
         assert api_client.post("/FHIR/R5/Condition", _condition(patient.id), **_src(fhir_source)).status_code == 201
     assert FhirAuxResource.objects.filter(resource_type="Condition").count() == 2
@@ -185,9 +214,7 @@ def test_aux_source_for_unauthorized_patient_403(api_client, device):
     other = Organization.objects.create(name="Other", type="other")
     stranger = JheUser.objects.create_user(email="stranger@example.org", user_type="patient").patient
     stranger.organizations.add(other)
-    stranger_source = FhirSource.objects.create(
-        patient=stranger, data_source=device, label="x", fhir_base_url="https://x/fhir"
-    )
+    stranger_source = FhirSource.objects.create(patient=stranger, data_source=device, label="x")
 
     r = api_client.post("/FHIR/R5/Condition", _condition(stranger.id), **_src(stranger_source))
     assert r.status_code == 403, r.text
@@ -515,9 +542,7 @@ def test_aux_create_via_meta_source_no_header(api_client, patient, fhir_source):
 
 def test_aux_write_header_wins_over_meta_source(api_client, patient, device, fhir_source):
     # Header and body name different sources -> the header is authoritative.
-    other = FhirSource.objects.create(
-        patient=patient, data_source=device, label="other", fhir_base_url="https://other/fhir"
-    )
+    other = FhirSource.objects.create(patient=patient, data_source=device, label="other")
     body = _condition(patient.id, meta={"source": fhir_source_uri(other.id)})
     r = api_client.post("/FHIR/R5/Condition", body, **_src(fhir_source))
     assert r.status_code == 201, r.text
@@ -557,7 +582,7 @@ def test_search_source_one_fhir_source_returns_that_aux_only(api_client, patient
 
 def test_search_source_below_returns_all_imported(api_client, patient, device, fhir_source):
     # Two sources, one Condition each; :below on the fhir-source base returns both.
-    other = FhirSource.objects.create(patient=patient, data_source=device, label="o2", fhir_base_url="https://o2/fhir")
+    other = FhirSource.objects.create(patient=patient, data_source=device, label="o2")
     api_client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "a"}), **_src(fhir_source))
     api_client.post("/FHIR/R5/Condition", _condition(patient.id, code={"text": "b"}), **_src(other))
     bundle = api_client.get("/FHIR/R5/Condition", {"_source:below": f"{JHE_FHIR_SOURCE_BASE}/"}).json()
@@ -627,9 +652,7 @@ def test_external_source_view_narrows_to_one_patient(api_client, patient, device
 
     other_patient = JheUser.objects.create_user(email="other-pt@example.org", user_type="patient").patient
     other_patient.organizations.add(*patient.organizations.all())
-    other_source = FhirSource.objects.create(
-        patient=other_patient, data_source=device, label="o2", fhir_base_url="https://o2/fhir"
-    )
+    other_source = FhirSource.objects.create(patient=other_patient, data_source=device, label="o2")
     mine = api_client.post("/FHIR/R5/Observation", _lab_observation(patient.id), **_src(fhir_source)).json()["id"]
     api_client.post("/FHIR/R5/Observation", _lab_observation(other_patient.id), **_src(other_source))
 
@@ -881,9 +904,7 @@ def test_aux_identifier_param_matches_value_and_system(api_client, patient, fhir
 
 
 def test_aux_search_combines_with_source_filter(api_client, patient, device, fhir_source):
-    other = FhirSource.objects.create(
-        patient=patient, data_source=device, label="Other", fhir_base_url="https://other.example/fhir"
-    )
+    other = FhirSource.objects.create(patient=patient, data_source=device, label="Other")
     here = _post_condition(api_client, fhir_source, patient, recordedDate="2021-01-01")
     api_client.post("/FHIR/R5/Condition", _condition(patient.id, recordedDate="2021-01-01"), **_src(other))
     # _source selects one source's rows; the JSONB filter narrows within it.
@@ -953,3 +974,97 @@ def test_mapped_observation_sort_pages_are_stable_on_ties(api_client, patient, h
         seen += [e["resource"]["id"] for e in bundle["entry"]]
     assert len(seen) == 4
     assert len(set(seen)) == 4
+
+
+def test_migration_0047_folds_the_dropped_base_url_into_the_label():
+    # The endpoint column is dropped, so deployed rows keep a human-readable trace of where they
+    # came from in the label -- the source's only human-facing handle once the URL is gone.
+    import importlib
+
+    folded_label = importlib.import_module("core.migrations.0047_drop_fhir_source_base_url").folded_label
+
+    assert (
+        folded_label("Epic / EHR Patient Portal", "https://e/FHIR/R4")
+        == "Epic / EHR Patient Portal — https://e/FHIR/R4"
+    )
+    assert folded_label("", "https://e/FHIR/R4") == "https://e/FHIR/R4"
+    # Already named (the client writes it into the label itself) -- do not append it twice.
+    assert folded_label("Epic — https://e/FHIR/R4", "https://e/FHIR/R4") == "Epic — https://e/FHIR/R4"
+    assert folded_label("Momentum App", "") == "Momentum App"
+
+
+def test_fhir_source_records_the_picked_ehr_brand_location(patient, device, db):
+    # The facility the patient picked is recorded on the source. It is descriptive: every
+    # location of a brand shares one fhir_base_url, so the connection cannot tell them apart.
+    brand = EhrBrand.objects.create(name="Mount Sinai", fhir_base_url="https://sinai.example.org/FHIR/R4")
+    location = EhrBrandLocation.objects.create(brand=brand, name="Mount Sinai West")
+    client = _patient_client(patient)
+
+    created = client.post(
+        "/api/v1/fhir_sources",
+        {"label": "Epic / EHR Patient Portal", "data_source": device.id, "ehr_brand_location": location.id},
+    )
+    assert created.status_code == 201, created.content
+    source = FhirSource.objects.get(pk=created.json()["id"])
+    assert source.ehr_brand_location_id == location.id
+
+    # Null is the honest value for a source that is not a supported EHR at a supported location.
+    plain = client.post("/api/v1/fhir_sources", {"label": "One-off import", "data_source": device.id})
+    assert FhirSource.objects.get(pk=plain.json()["id"]).ehr_brand_location_id is None
+
+
+def test_deleting_a_brand_keeps_the_fhir_source(patient, device, db):
+    # Deleting a brand cascades to its locations; the source (and every aux row under it) must
+    # survive, losing only the descriptive link.
+    brand = EhrBrand.objects.create(name="Mercy", fhir_base_url="https://mercy.example.org/FHIR/R4")
+    location = EhrBrandLocation.objects.create(brand=brand, name="Mercy STL")
+    source = FhirSource.objects.create(patient=patient, data_source=device, label="Mercy", ehr_brand_location=location)
+
+    brand.delete()
+
+    source.refresh_from_db()
+    assert source.ehr_brand_location_id is None
+    assert FhirSource.objects.filter(pk=source.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# Legacy lowercase base path
+# ---------------------------------------------------------------------------
+
+
+def test_legacy_lowercase_base_serves_reads_and_writes(api_client, patient, fhir_source):
+    # Clients written before the base was cased FHIR/R5/ still POST and GET against fhir/r5/.
+    # The alias serves the same views (not a redirect, which would drop a POST body).
+    created = api_client.post("/fhir/r5/Condition", _condition(patient.id, id="legacy-1"), **_src(fhir_source))
+    assert created.status_code == 201, created.text
+    row = FhirAuxResource.objects.get(pk=created.json()["id"])
+    assert row.fhir_resource_id == "legacy-1"
+
+    bundle = api_client.get("/fhir/r5/Condition", **_src(fhir_source)).json()
+    assert bundle["resourceType"] == "Bundle"
+    assert created.json()["id"] in [entry["resource"]["id"] for entry in bundle.get("entry") or []]
+
+    # Same row through the canonical path -- one store, two spellings.
+    assert api_client.get(f"/FHIR/R5/Condition/{created.json()['id']}").status_code == 200
+
+
+def test_legacy_lowercase_base_covers_the_batch_route_with_and_without_a_slash():
+    # The batch base is where a Bundle POST lands; both spellings must resolve to it, since
+    # APPEND_SLASH would 301 and drop the body.
+    from django.urls import resolve
+
+    # Each mount calls as_view() separately, so compare the view class, not the closure.
+    canonical = resolve("/FHIR/R5").func.cls
+    for path in ("/fhir/r5", "/fhir/r5/"):
+        match = resolve(path)
+        assert match.func.cls is canonical
+        assert match.url_name.endswith("-legacy")
+
+
+def test_legacy_lowercase_base_serves_discovery_and_points_at_the_canonical_base(api_client):
+    # A legacy client doing discovery gets the document, and it advertises the current base so
+    # the client has somewhere to migrate to.
+    metadata = api_client.get("/fhir/r5/metadata")
+    assert metadata.status_code == 200, metadata.text
+    assert metadata.json()["implementation"]["url"].endswith("/FHIR/R5/")
+    assert api_client.get("/fhir/r5/.well-known/smart-configuration").status_code == 200

@@ -10,14 +10,13 @@ class EhrBrand(models.Model):
     `{fhir_base_url}/.well-known/smart-configuration`.
     """
 
-    name = models.TextField()
+    name = models.CharField()
     vendor = models.CharField(default="epic")
     fhir_base_url = models.TextField(unique=True)
     fhir_version = models.CharField(null=True, blank=True)
     npi = models.CharField(null=True, blank=True)
     logo_url = models.TextField(null=True, blank=True)  # reserved; Epic brands file has no logo
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name or f"EhrBrand {self.pk}"
@@ -30,12 +29,13 @@ class EhrBrandLocation(models.Model):
     """
 
     brand = models.ForeignKey(EhrBrand, on_delete=models.CASCADE, related_name="locations")
-    name = models.TextField()
+    name = models.CharField()
     address_text = models.TextField(blank=True, default="")
     city = models.CharField(null=True, blank=True)
     state = models.CharField(null=True, blank=True)
     postal_code = models.CharField(null=True, blank=True)
     country = models.CharField(null=True, blank=True)
+    last_updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [

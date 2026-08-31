@@ -208,9 +208,9 @@ class JheSettingAdmin(admin.ModelAdmin):
 # records we create/inspect remotely instead of asking the operator to run a SQL script.
 @admin.register(FhirSource)
 class FhirSourceAdmin(admin.ModelAdmin):
-    list_display = ("id", "label", "patient", "data_source", "fhir_base_url", "last_updated")
-    search_fields = ("label", "fhir_base_url", "patient__name_family", "patient__name_given")
-    raw_id_fields = ("patient", "data_source")
+    list_display = ("id", "label", "patient", "data_source", "ehr_brand_location", "last_updated")
+    search_fields = ("label", "patient__name_family", "patient__name_given")
+    raw_id_fields = ("patient", "data_source", "ehr_brand_location")
 
 
 @admin.register(FhirAuxResource)

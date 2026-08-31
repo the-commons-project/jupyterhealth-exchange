@@ -10,6 +10,9 @@ var API_ENDPOINT = window.location.origin + "/api/v1/";
 // R4->R5 (cross_version engine) then runs the normal create. It returns a batch-response Bundle.
 var IMPORT_ENDPOINT = window.location.origin + "/fhir-import/R4/";
 var JHE_TOKEN_KEY = "ehr_patient_portal_jhe_access_token";
+// The picked hospital row is chosen before the SMART redirect and needed after it, and the
+// server cannot re-derive it: iss identifies a brand, and a brand has many locations.
+var BRAND_LOCATION_KEY = "ehr_patient_portal_brand_location_id";
 
 function eppStoreToken(token) {
   sessionStorage.setItem(JHE_TOKEN_KEY, token);
@@ -17,6 +20,15 @@ function eppStoreToken(token) {
 
 function eppGetToken() {
   return sessionStorage.getItem(JHE_TOKEN_KEY);
+}
+
+function eppStoreBrandLocationId(id) {
+  if (id === undefined || id === null) return;
+  sessionStorage.setItem(BRAND_LOCATION_KEY, String(id));
+}
+
+function eppGetBrandLocationId() {
+  return sessionStorage.getItem(BRAND_LOCATION_KEY);
 }
 
 // Exchange a JHE invitation auth code for a JHE access token (PKCE verifier = the token).
@@ -89,6 +101,19 @@ async function eppSavePatientIdentifier(jheToken, system, value) {
 // A FhirSource requires a DataSource. The page config carries its id, resolved server-side
 // from this client's ClientDataSource link (the seeded "EHR Patient Portal" source); the
 // client never names or looks up a data source itself.
+//
+// Every Connect registers a NEW source, by design: a source stores no endpoint and is identified
+// by its pk, so nothing could match a previous run's source and nothing needs to -- each run gets
+// its own identifier namespace. The endpoint goes in the label, the only human-facing handle.
+function eppFhirSourceBody(fhirBaseUrl, dataSourceId) {
+  var body = { label: "Epic / EHR Patient Portal — " + fhirBaseUrl, data_source: dataSourceId };
+  // Only when the patient reached here through the picker; a launch by any other route has no
+  // facility to record, and the field is nullable for exactly that case.
+  var locationId = eppGetBrandLocationId();
+  if (locationId) body.ehr_brand_location = Number(locationId);
+  return body;
+}
+
 async function eppCreateFhirSource(jheToken, fhirBaseUrl, dataSourceId) {
   var response = await fetch(API_ENDPOINT + "fhir_sources", {
     method: "POST",
@@ -97,7 +122,7 @@ async function eppCreateFhirSource(jheToken, fhirBaseUrl, dataSourceId) {
       "Content-Type": "application/json",
       "Cache-Control": "no-cache",
     },
-    body: JSON.stringify({ label: "Epic / EHR Patient Portal", fhir_base_url: fhirBaseUrl, data_source: dataSourceId }),
+    body: JSON.stringify(eppFhirSourceBody(fhirBaseUrl, dataSourceId)),
   });
   if (!response.ok) return null;
   var data = await response.json();
@@ -381,6 +406,7 @@ async function startEhrPatientPortalConnect(out, config, picker) {
   var jheToken = eppGetToken();
   var onSelect = function (row) {
     out.textContent += "\n\nRedirecting to " + row.brandName + " login...";
+    eppStoreBrandLocationId(row.id);
     eppAuthorizeWithIss(config, row.fhirBaseUrl);
   };
 
@@ -521,5 +547,6 @@ if (typeof window !== "undefined") {
   window.eppAuthorizeWithIss = eppAuthorizeWithIss;
   window.eppRenderBrandResults = eppRenderBrandResults;
   window.eppSavePatientIdentifier = eppSavePatientIdentifier;
+  window.eppStoreBrandLocationId = eppStoreBrandLocationId;
   window.finishEhrPatientPortalConnect = finishEhrPatientPortalConnect;
 }

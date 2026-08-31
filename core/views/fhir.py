@@ -28,6 +28,7 @@ import uuid
 from django.core.exceptions import BadRequest as DjangoBadRequest
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.utils import IntegrityError
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -290,13 +291,13 @@ class AuxResourceHandler:
     def create(self, data):
         # The camel-case parser snake-cases incoming JSON; restore FHIR camelCase before
         # validating and storing so fhir_data round-trips as valid FHIR. The write context
-        # resolves first so an over-long id can be sanitized (it needs the source) before
-        # validation would reject it.
+        # resolves first because the upstream id moves into an identifier namespaced by the
+        # source, which must therefore be known before the body is validated.
         data = _camelized(data)
         _, fhir_source = self._write_context(data)
-        data, long_id = _sanitize_long_id(data, fhir_source)
+        data, upstream_id = _extract_upstream_id(data, fhir_source)
         validate_fhir_resource(self.resource_type, data)
-        return self.serialize(create_aux_resource(self.resource_type, data, fhir_source, upstream_id=long_id))
+        return self.serialize(create_aux_resource(self.resource_type, data, fhir_source, upstream_id=upstream_id))
 
     def update(self, fhir_id, data, partial=False):
         camel = _camelized(data)
@@ -308,7 +309,18 @@ class AuxResourceHandler:
             merged.update(body)
             body = merged
         validate_fhir_resource(self.resource_type, {**body, "resourceType": self.resource_type})
-        return self.serialize(_persist_aux(instance, self.resource_type, body, fhir_source))
+        # An update may move this row onto an upstream id a sibling already holds; that is the same
+        # uniqueness violation a create hits and is reported the same way.
+        return self.serialize(
+            _save_aux(
+                instance,
+                self.resource_type,
+                body,
+                fhir_source,
+                None,
+                "Update that record instead, or use an upstream id not already taken under this source.",
+            )
+        )
 
     def delete(self, fhir_id):
         patient, _ = self._write_context()
@@ -374,29 +386,39 @@ def _aux_body(data):
     return {key: value for key, value in dict(data).items() if key != "resourceType"}
 
 
-def _sanitize_long_id(data, fhir_source):
-    """Move a spec-violating over-64-char resource id into an identifier.
+def _extract_upstream_id(data, fhir_source):
+    """Move the upstream record's ``id`` out of the body and into an ``identifier``.
 
-    Epic's "Unconstrained FHIR IDs" exceed FHIR's 64-char ``id`` limit, which R5 validation
-    rejects. Provenance is kept as an identifier (system = the source's base URL) and the long
-    id is returned so it still keys the upsert -- ``fhir_resource_id`` has no length limit.
-    Returns ``(possibly-copied data, long_id_or_None)``.
+    On a FHIR create the logical ``id`` is the server's to assign and the client's is ignored, so
+    an incoming ``id`` (an EHR record arrives carrying the id its own server minted) belongs in
+    ``identifier``, the cross-system business identifier. The namespace is the FhirSource's URI --
+    the same value stamped onto ``meta.source`` -- because an upstream id is only unique *within*
+    the source it came from, and a source is identified by its pk and nothing else.
+
+    Doing this for every id, not just spec-violating ones, also side-steps Epic's "Unconstrained
+    FHIR IDs": ids over FHIR's 64-char limit would fail R5 validation in the body but are fine in
+    an identifier, and ``fhir_resource_id`` (which the uniqueness constraint is enforced on) has
+    no length limit either. Returns ``(possibly-copied data, upstream_id_or_None)``.
     """
     upstream_id = data.get("id")
-    if not (isinstance(upstream_id, str) and len(upstream_id) > 64):
+    if not (isinstance(upstream_id, str) and upstream_id):
         return data, None
     data = dict(data)
-    data["identifier"] = list(data.get("identifier") or []) + [
-        {"system": fhir_source.fhir_base_url or fhir_source_uri(fhir_source.pk), "value": upstream_id}
-    ]
+    identifiers = list(data.get("identifier") or [])
+    stamp = {"system": fhir_source_uri(fhir_source.pk), "value": upstream_id}
+    if stamp not in identifiers:
+        identifiers.append(stamp)
+    data["identifier"] = identifiers
     del data["id"]
     return data, upstream_id
 
 
-def _derive_patient_fhir_id(resource_type, body):
+def _derive_patient_fhir_id(resource_type, body, upstream_id=None):
     # Best-effort extraction of the resource's referenced Patient id (may be None).
     if resource_type == "Patient":
-        return body.get("id")
+        # On a create the resource's own id has been moved into an identifier, so it arrives as
+        # ``upstream_id``; on an update the (already-merged) body still carries it.
+        return upstream_id or body.get("id")
     for key in ("subject", "patient", "beneficiary"):
         node = body.get(key)
         reference = node.get("reference") if isinstance(node, dict) else None
@@ -409,14 +431,14 @@ def _persist_aux(instance, resource_type, body, fhir_source, upstream_id=None):
     body = apply_jhe_extensions(_aux_body(body), fhir_source)
     instance.resource_type = resource_type
     instance.fhir_source = fhir_source
-    instance.patient_fhir_id = _derive_patient_fhir_id(resource_type, body)
+    instance.patient_fhir_id = _derive_patient_fhir_id(resource_type, body, upstream_id)
     # Preserve the upstream id, then expose the JHE UUID as the body's own id so the stored body
     # matches its JHE-facing id (issue #584). The pk exists pre-save (UUID default at init).
     # On update the incoming id is already this row's JHE UUID (written on create, or merged from
     # the stored body on a PATCH), so only capture it as the upstream id when it differs from the
-    # pk -- otherwise an update would clobber the real upstream id with our own UUID. An
-    # over-64-char id was already moved out of the body by _sanitize_long_id and arrives as
-    # ``upstream_id``.
+    # pk -- otherwise an update would clobber the real upstream id with our own UUID. On a
+    # create the id has already been moved out of the body into an identifier by
+    # _extract_upstream_id and arrives here as ``upstream_id``.
     incoming_id = upstream_id or body.get("id")
     if incoming_id and incoming_id != str(instance.pk):
         instance.fhir_resource_id = incoming_id
@@ -432,23 +454,73 @@ def _persist_aux(instance, resource_type, body, fhir_source, upstream_id=None):
     return instance
 
 
-def create_aux_resource(resource_type, data, fhir_source, upstream_id=None):
-    """Create -- or refresh -- the FhirAuxResource for this body under ``fhir_source``.
+class DuplicateAuxResource(APIException):
+    """409 for a write whose upstream record id is already taken under this FhirSource.
 
-    Imports are idempotent per upstream record: when the body carries the EHR's own ``id`` and a
-    row for (source, type, that id) already exists, that row is updated in place -- re-running a
-    EHR Patient Portal Connect refreshes records instead of duplicating them -- keeping its JHE UUID
-    so stored references to it stay valid. A body with no upstream id cannot be recognised across
-    runs and always creates. Backed by the conditional unique constraint on FhirAuxResource.
+    Upstream record ids are unique within a source, so a create can never land on an existing
+    record and an update can never take another row's id. The client is told which row it
+    collided with and decides what to do.
     """
-    body = _aux_body(data)
+
+    status_code = http_status.HTTP_409_CONFLICT
+    default_code = "duplicate"
+
+    def __init__(self, resource_type, upstream_id, fhir_source, existing_id, remedy):
+        super().__init__(
+            {
+                "resourceType": "OperationOutcome",
+                "issue": [
+                    {
+                        "severity": "error",
+                        "code": "duplicate",
+                        "diagnostics": (
+                            f"{resource_type} with upstream id '{upstream_id}' is already stored under "
+                            f"FhirSource {fhir_source.pk} as {resource_type}/{existing_id}. Upstream record "
+                            f"ids are unique within a source. {remedy}"
+                        ),
+                    }
+                ],
+            }
+        )
+
+
+def _save_aux(instance, resource_type, body, fhir_source, upstream_id, remedy):
+    """Persist an aux row, turning a uniqueness violation into a 409 that names the collision."""
+    # Mirrors how _persist_aux picks the upstream id: a create passes it in (the body's own id was
+    # already moved into an identifier), an update leaves it in the body.
     upstream_id = upstream_id or body.get("id")
-    instance = None
-    if upstream_id:
-        instance = FhirAuxResource.objects.filter(
-            fhir_source=fhir_source, resource_type=resource_type, fhir_resource_id=upstream_id
-        ).first()
-    return _persist_aux(instance or FhirAuxResource(), resource_type, body, fhir_source, upstream_id=upstream_id)
+    try:
+        # Atomic so a rejected write cannot poison a transaction the caller is running in.
+        with transaction.atomic():
+            return _persist_aux(instance, resource_type, body, fhir_source, upstream_id=upstream_id)
+    except IntegrityError:
+        existing = (
+            FhirAuxResource.objects.filter(
+                fhir_source=fhir_source, resource_type=resource_type, fhir_resource_id=upstream_id
+            )
+            .exclude(pk=instance.pk)
+            .first()
+            if upstream_id
+            else None
+        )
+        if existing is None:
+            raise  # Not the uniqueness constraint -- a real database error, not a duplicate.
+        raise DuplicateAuxResource(resource_type, upstream_id, fhir_source, existing.pk, remedy)
+
+
+def create_aux_resource(resource_type, data, fhir_source, upstream_id=None):
+    """Create a FhirAuxResource of ``resource_type`` linked to ``fhir_source`` (and its patient).
+
+    A create always creates. Re-posting a record already stored under this source is refused with
+    409 rather than silently refreshing it or silently duplicating it -- POST is a FHIR create, not
+    an upsert, and the caller is the one who knows whether it meant to update. Uniqueness is per
+    (source, type, upstream id) and enforced by the constraint on FhirAuxResource; a body with no
+    upstream id cannot be recognised at all and always creates.
+    """
+    remedy = (
+        "A create never replaces an existing record: update that record instead, or register a separate FhirSource."
+    )
+    return _save_aux(FhirAuxResource(), resource_type, _aux_body(data), fhir_source, upstream_id, remedy)
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +770,12 @@ class FHIRResourceView(APIView):
 
     @staticmethod
     def _outcome(status_code, exc):
+        # An exception may already carry a whole OperationOutcome as its detail (a duplicate
+        # create does, so its issue keeps the FHIR `duplicate` code rather than the generic
+        # `processing` one); render that as-is instead of stringifying it.
+        detail = getattr(exc, "detail", None)
+        if isinstance(detail, dict) and detail.get("resourceType") == "OperationOutcome":
+            return Response(detail, status=status_code)
         return Response(FHIRBase.error_outcome(str(exc)), status=status_code)
 
 
