@@ -126,7 +126,7 @@ class FHIRBase(viewsets.GenericViewSet):
         _, fhir_source = resolve_fhir_source_context(request, user, camelized)
         # Same identity handling as the single-resource create: the upstream id moves into an
         # identifier namespaced by the source, and a record already stored there is a 409.
-        camelized, upstream_id = _extract_upstream_id(camelized, fhir_source)
+        camelized, upstream_id = _extract_upstream_id("Observation", camelized, fhir_source)
         return create_aux_resource("Observation", camelized, fhir_source, upstream_id=upstream_id)
 
     @staticmethod

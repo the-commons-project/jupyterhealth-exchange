@@ -116,6 +116,35 @@ def test_aux_create_moves_upstream_id_into_a_source_namespaced_identifier(api_cl
     assert FhirAuxResource.objects.get(pk=body["id"]).fhir_resource_id == "cond-9"
 
 
+def _provenance(patient_id, resource_id=None):
+    body = {
+        "resourceType": "Provenance",
+        "target": [{"reference": f"Patient/{patient_id}"}],
+        "recorded": "2026-01-01T00:00:00Z",
+        "agent": [{"who": {"reference": "Practitioner/1"}}],
+    }
+    if resource_id:
+        body["id"] = resource_id
+    return body
+
+
+def test_aux_create_for_a_type_with_no_identifier_element(api_client, patient, fhir_source):
+    # Provenance has no `identifier` element at all, and fhir.resources forbids extra fields, so
+    # the upstream id has nowhere to go in the body. It must still leave the body (the stored id
+    # is the JHE UUID) and still key uniqueness through the fhir_resource_id column.
+    first = api_client.post("/FHIR/R5/Provenance", _provenance(patient.id, "prov-1"), **_src(fhir_source))
+    assert first.status_code == 201, first.text
+    assert "identifier" not in first.json()
+    row = FhirAuxResource.objects.get(pk=first.json()["id"])
+    assert row.fhir_resource_id == "prov-1"
+    assert row.fhir_data["id"] == str(row.pk)
+
+    again = api_client.post("/FHIR/R5/Provenance", _provenance(patient.id, "prov-1"), **_src(fhir_source))
+    assert again.status_code == 409, again.text
+    assert again.json()["issue"][0]["code"] == "duplicate"
+    assert FhirAuxResource.objects.filter(resource_type="Provenance", fhir_resource_id="prov-1").count() == 1
+
+
 def test_aux_create_over_64_char_id_is_accepted_via_the_identifier(api_client, patient, fhir_source):
     # Epic "Unconstrained FHIR IDs" exceed FHIR's 64-char id limit, which R5 validation would
     # reject in the body. In an identifier there is no length limit, and neither has the
