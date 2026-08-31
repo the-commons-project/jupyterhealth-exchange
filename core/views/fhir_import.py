@@ -215,10 +215,15 @@ def _outcome(resource_type, dropped, enriched=None):
 
 def _error_entry(exc, resource_type=None, dropped=None, enriched=None):
     detail = getattr(exc, "detail", None) or str(exc)
-    code = getattr(exc, "status_code", http_status.HTTP_400_BAD_REQUEST)
     # The error first, then enrichment + dropped-field warnings (a dropped required field is
     # often the cause, and a defaulted field narrows what was attempted).
-    issues = [{"severity": "error", "code": "processing", "diagnostics": str(detail)}]
+    code = getattr(exc, "status_code", http_status.HTTP_400_BAD_REQUEST)
+    # An exception may carry a whole OperationOutcome as its detail (a duplicate create does, so
+    # the issue keeps its FHIR `duplicate` code); use its issues rather than stringifying it.
+    if isinstance(detail, dict) and detail.get("resourceType") == "OperationOutcome":
+        issues = [dict(issue) for issue in detail.get("issue") or []]
+    else:
+        issues = [{"severity": "error", "code": "processing", "diagnostics": str(detail)}]
     issues += enriched or []
     issues += _dropped_issues(resource_type, dropped)
     return {

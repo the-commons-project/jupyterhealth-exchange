@@ -115,7 +115,7 @@ class FHIRBase(viewsets.GenericViewSet):
         # meta.source (and its patient).
         from core.fhir.config import mapped_criteria
         from core.fhir.engine import matches_criteria
-        from core.views.fhir import create_aux_resource, resolve_fhir_source_context
+        from core.views.fhir import _extract_upstream_id, create_aux_resource, resolve_fhir_source_context
 
         user = request.user
         camelized = humps.camelize(resource)
@@ -124,7 +124,10 @@ class FHIRBase(viewsets.GenericViewSet):
             return Observation.fhir_create(resource, user)
 
         _, fhir_source = resolve_fhir_source_context(request, user, camelized)
-        return create_aux_resource("Observation", camelized, fhir_source)
+        # Same identity handling as the single-resource create: the upstream id moves into an
+        # identifier namespaced by the source, and a record already stored there is a 409.
+        camelized, upstream_id = _extract_upstream_id(camelized, fhir_source)
+        return create_aux_resource("Observation", camelized, fhir_source, upstream_id=upstream_id)
 
     @staticmethod
     def error_outcome(message):

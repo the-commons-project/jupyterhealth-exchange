@@ -11,22 +11,27 @@ from .views.fhir import FHIRResourceView, capability_statement, smart_configurat
 from .views.fhir_import import FHIRImportView
 
 
-def fhir_urls(prefix):
+def fhir_urls(prefix, suffix=""):
     """Routes (batch / collection / instance) for a FHIR base path `prefix`.
 
     `prefix` ends in a slash (e.g. "FHIR/R5/"). The bundle-batch base is registered both
     with and without the trailing slash so POST /FHIR/R5 and POST /FHIR/R5/ both work
-    (APPEND_SLASH only 301-redirects, which drops the POST body).
+    (APPEND_SLASH only 301-redirects, which drops the POST body). `suffix` keeps the URL
+    names unique across the canonical and legacy mounts.
     """
     batch = views.FHIRBase.as_view({"post": "create"})
     return [
         # The discovery documents precede <str:resource> so they can never be shadowed.
-        path(f"{prefix}metadata", capability_statement, name="fhir-metadata"),
-        path(f"{prefix}.well-known/smart-configuration", smart_configuration, name="fhir-smart-configuration"),
-        path(prefix, batch, name="fhir-batch"),
-        path(prefix.rstrip("/"), batch, name="fhir-batch-no-slash"),
-        path(f"{prefix}<str:resource>", FHIRResourceView.as_view(), name="fhir-resource"),
-        path(f"{prefix}<str:resource>/<str:id>", FHIRResourceView.as_view(), name="fhir-resource-instance"),
+        path(f"{prefix}metadata", capability_statement, name=f"fhir-metadata{suffix}"),
+        path(
+            f"{prefix}.well-known/smart-configuration",
+            smart_configuration,
+            name=f"fhir-smart-configuration{suffix}",
+        ),
+        path(prefix, batch, name=f"fhir-batch{suffix}"),
+        path(prefix.rstrip("/"), batch, name=f"fhir-batch-no-slash{suffix}"),
+        path(f"{prefix}<str:resource>", FHIRResourceView.as_view(), name=f"fhir-resource{suffix}"),
+        path(f"{prefix}<str:resource>/<str:id>", FHIRResourceView.as_view(), name=f"fhir-resource-instance{suffix}"),
     ]
 
 
@@ -133,6 +138,12 @@ urlpatterns = [
     # the base (registered with and without a trailing slash). The base is FHIR/<version>/
     # (version from the config).
     *fhir_urls(f"FHIR/{FHIR_VERSION}/"),
+    # Backward-compatible alias for clients written against the pre-#661 lowercase path. It
+    # serves the same views rather than redirecting: a 301/302 drops the body of a POST, and
+    # even a 307/308 needs a client that follows redirects on writes. The spelling is frozen at
+    # what those clients shipped with, so it does not track FHIR_VERSION. The CapabilityStatement
+    # served here still advertises the canonical FHIR/<version>/ base.
+    *fhir_urls("fhir/r5/", suffix="-legacy"),
     # R4 ingestion: convert an R4 body (or Bundle) to R5, then reuse the normal create routing.
     # The base (with and without trailing slash) takes a Bundle; the collection path takes one
     # resource. See core/views/fhir_import.py.

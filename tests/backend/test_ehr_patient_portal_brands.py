@@ -92,3 +92,12 @@ def test_brands_empty_query_returns_all(seeded_brands, patient_client):
 def test_brands_limit_is_capped(seeded_brands, patient_client):
     resp = patient_client.get(URL, {"limit": "1"})
     assert len(resp.json()["results"]) == 1
+
+
+def test_search_returns_the_location_id(patient_client, seeded_brands):
+    # The client sends this back as FhirSource.ehr_brand_location; without it the picked facility
+    # could not be recorded, since every location of a brand shares one fhir_base_url.
+    results = patient_client.get(URL, {"q": "Mount Sinai"}).json()["results"]
+    assert results
+    ids = {row["id"] for row in results}
+    assert ids == set(EhrBrandLocation.objects.filter(brand__name="Mount Sinai").values_list("id", flat=True))

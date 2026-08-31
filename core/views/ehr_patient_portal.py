@@ -90,6 +90,9 @@ def brands_search(request):
 
     results = [
         {
+            # The id is what the client sends back as FhirSource.ehr_brand_location, recording
+            # which facility the patient picked (the connection itself cannot tell them apart).
+            "id": loc.id,
             "facility_name": loc.name,
             "address_text": loc.address_text,
             "city": loc.city,

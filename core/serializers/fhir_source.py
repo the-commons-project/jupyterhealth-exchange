@@ -9,5 +9,5 @@ class FhirSourceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FhirSource
-        fields = ["id", "patient", "data_source", "label", "fhir_base_url", "last_updated"]
+        fields = ["id", "patient", "data_source", "label", "ehr_brand_location", "last_updated"]
         read_only_fields = ["id", "patient", "last_updated"]

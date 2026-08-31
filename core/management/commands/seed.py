@@ -635,13 +635,11 @@ class Command(BaseCommand):
             patient=ll_patient_pete,
             data_source=questionnaire_ds,
             label="Records from Halo Health System",
-            fhir_base_url="https://fhir.halo.org/api/FHIR/R4",
         )
         pamela_fhir_source = FhirSource.objects.create(
             patient=ll_patient_pamela,
             data_source=questionnaire_ds,
             label="Chart from Comet Clinic",
-            fhir_base_url="https://fhir.comet.org/api/FHIR/R4",
         )
 
         peter_patient_fhir_id = "a1b2c3d4e5f6"
