@@ -1,0 +1,42 @@
+/* patient-facing.css — themeable layer for the patient journey.
+   Rebrand by overriding the :root tokens below + swapping logo + product name.
+   Every color/type/radius the UI renders comes from a token here; nothing visual is hardcoded. */
+
+/* Inter, vendored locally so it works under strict CSP (no font CDN). */
+@font-face { font-family: "Inter"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/inter/inter-400.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 500; font-style: normal; font-display: swap; src: url("fonts/inter/inter-500.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/inter/inter-600.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/inter/inter-700.woff2") format("woff2"); }
+
+:root {
+  --pf-bg: #f4f2ee;          /* page background — warm off-white behind every screen */
+  --pf-surface: #ffffff;     /* cards/inputs — white surface lifted off the page */
+  --pf-ink: #1c1a17;         /* primary text — near-black headings and body */
+  --pf-muted: #6b655d;       /* secondary text — ledes, captions, meta */
+  --pf-accent: #e5642c;      /* brand accent — primary buttons, eyebrow, progress */
+  --pf-accent-ink: #ffffff;  /* text on accent — label color inside accent buttons */
+  --pf-line: #e6e1d8;        /* hairlines — card borders and row dividers */
+  --pf-radius: 10px;         /* default corner radius — inputs, rows */
+  --pf-radius-lg: 16px;      /* large corner radius — cards, primary buttons */
+  --pf-font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; /* type family — Inter with system fallback */
+  --pf-maxw: 620px;          /* content measure — max width of the centered column */
+}
+
+.pf-page { min-height: 100%; background: var(--pf-bg); color: var(--pf-ink); font-family: var(--pf-font); } /* base canvas — brand bg + ink + Inter on the whole page */
+.pf-page__inner { max-width: var(--pf-maxw); margin: 0 auto; padding: 40px 20px 64px; } /* content column — centered, constrained measure */
+.pf-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--pf-line); } /* brand bar — logo left, secure marker right, hairline under */
+.pf-header__brand { display: flex; align-items: center; gap: 10px; font-weight: 700; } /* brand lockup — logo + product name, bold */
+.pf-header__logo { width: 26px; height: 26px; } /* logo mark — fixed square so any brand image sits consistently */
+.pf-header__secure { color: var(--pf-muted); font-size: 14px; } /* secure marker — muted lock + label, reassurance not emphasis */
+.pf-eyebrow { margin-top: 40px; color: var(--pf-accent); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; } /* eyebrow — accent-colored context label above the H1 */
+.pf-h1 { margin: 8px 0 12px; font-weight: 700; font-size: 34px; line-height: 1.1; letter-spacing: -.01em; } /* page title — large tight Inter bold */
+.pf-lede { margin: 0 0 28px; color: var(--pf-muted); font-size: 17px; line-height: 1.5; } /* lede — muted supporting paragraph under the title */
+.pf-card { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); padding: 18px 20px; display: flex; align-items: center; gap: 16px; } /* card — white rounded source/summary row */
+.pf-card + .pf-card { margin-top: 14px; } /* card stack — even vertical rhythm between cards */
+.pf-card__body { flex: 1; } /* card body — takes remaining width so the badge slot sits right */
+.pf-card__title { font-weight: 600; font-size: 17px; } /* card title — source name, semibold */
+.pf-card__desc { color: var(--pf-muted); font-size: 14px; line-height: 1.4; } /* card description — muted one-liner about the source */
+.pf-card__badge:empty { display: none; } /* badge slot — reserved for deferred connection status; hidden until populated */
+.pf-btn { display: inline-block; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; text-decoration: none; cursor: pointer; } /* primary button — accent fill, uppercase label */
+.pf-input { width: 100%; box-sizing: border-box; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); font: inherit; padding: 13px 14px; } /* text input — white field matching card radius */
+.pf-log { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); padding: 16px; color: var(--pf-ink); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; } /* import log — frames the flow JS's text output as an intentional receipt */

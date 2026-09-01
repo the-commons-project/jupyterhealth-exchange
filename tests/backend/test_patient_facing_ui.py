@@ -14,3 +14,21 @@ def test_inter_woff2_weights_are_vendored():
         # A real woff2 starts with the signature 'wOF2' and is not a tiny stub.
         assert f.read_bytes()[:4] == b"wOF2", f"{f} is not a woff2 file"
         assert f.stat().st_size > 10_000, f"{f} looks like a stub, not a real font"
+
+
+def test_patient_facing_css_defines_tokens_and_font():
+    css = (STATIC / "common" / "css" / "patient-facing.css").read_text()
+    # @font-face wired to the vendored files, no external URL.
+    assert "@font-face" in css and "fonts/inter/inter-400.woff2" in css
+    assert "https://" not in css, "no external fetches allowed under strict CSP"
+    # The rebrand surface: every token the templates rely on is declared once.
+    for token in (
+        "--pf-bg", "--pf-surface", "--pf-ink", "--pf-muted", "--pf-accent",
+        "--pf-accent-ink", "--pf-line", "--pf-radius", "--pf-radius-lg",
+        "--pf-font", "--pf-maxw",
+    ):
+        assert token in css, f"missing design token {token}"
+    # Component hooks the templates use.
+    for cls in (".pf-page", ".pf-header", ".pf-eyebrow", ".pf-h1", ".pf-lede",
+                ".pf-card", ".pf-card__badge", ".pf-log"):
+        assert cls in css, f"missing component class {cls}"
