@@ -43,3 +43,24 @@ def test_patient_facing_base_links_stylesheet_and_wraps_page():
     assert "common/css/patient-facing.css" in html
     assert 'class="pf-page"' in html
     assert "PROBE-CONTENT" in html
+
+
+def test_header_component_renders_brand_and_secure_marker():
+    html = render_to_string(
+        "common/patient_facing/components/header.html",
+        {"brand_name": "JupyterHealth", "brand_logo": "common/images/jupyterhealth-logo.jpg"},
+    )
+    assert "JupyterHealth" in html
+    assert "pf-header" in html
+    assert "Secure" in html
+
+
+def test_source_card_keeps_empty_badge_slot():
+    html = render_to_string(
+        "common/patient_facing/components/source_card.html",
+        {"card": {"title": "Clinical records", "desc": "Labs, conditions, medications and more."}},
+    )
+    assert "Clinical records" in html
+    assert "pf-card__badge" in html  # slot present in markup...
+    # ...but empty (no status text), per the deferred connection-status decision (§6).
+    assert "CONNECTED" not in html and "NOT CONNECTED" not in html
