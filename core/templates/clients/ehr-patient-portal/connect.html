@@ -1,22 +1,19 @@
-{% extends "clients/ehr-patient-portal/base.html" %} {% block title %}Connect clinical records{% endblock %}
+{% extends "clients/ehr-patient-portal/base.html" %}
+{% block title %}Connect clinical records{% endblock %}
 
-{% block body_content %}
-<div class="w-100 text-center mt-5">
-  <h1>Connect clinical records</h1>
-  <pre id="out" class="text-start ms-5 me-5"></pre>
+{% block pf_content %}
+{% include "common/patient_facing/components/header.html" %}
 
-  <!-- Hospital picker: revealed after the invitation is redeemed. -->
-  <div id="hospital-picker" class="mx-auto mt-3" style="max-width: 640px" hidden>
-    <label for="hospital-search" class="form-label fw-bold">Find your hospital</label>
-    <input
-      id="hospital-search"
-      type="search"
-      class="form-control mb-3"
-      placeholder="Search by hospital name, city, or state"
-      autocomplete="off"
-    />
-    <div id="hospital-results"></div>
-  </div>
+<p class="pf-eyebrow">Clinical records</p>
+<h1 class="pf-h1">Share your medical records</h1>
+<p class="pf-lede">Connect your healthcare organization to securely share your clinical records with your provider: labs, conditions, medications and more.</p>
+
+<pre id="out" class="pf-log"></pre>
+
+<div id="hospital-picker" hidden>
+  <label for="hospital-search" class="pf-eyebrow" style="margin-top:0">Find your healthcare organization</label>
+  <input id="hospital-search" type="search" class="pf-input" placeholder="Search by hospital name, city, or state" autocomplete="off" />
+  <div id="hospital-results"></div>
 </div>
 {% endblock %}
 
@@ -28,8 +25,6 @@
     input: document.getElementById("hospital-search"),
     results: document.getElementById("hospital-results"),
   };
-  // Redeem the invitation for a JHE access token, then let the patient pick their
-  // hospital; selecting one launches the Epic SMART flow against that hospital.
   startEhrPatientPortalConnect(out, EHR_PATIENT_PORTAL_CONFIG, picker);
 </script>
 {% endblock %}

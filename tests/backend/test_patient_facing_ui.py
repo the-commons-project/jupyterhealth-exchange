@@ -3,6 +3,7 @@ from pathlib import Path
 import django
 from django.conf import settings
 from django.template.loader import render_to_string
+from django.test import Client
 
 STATIC = Path(settings.BASE_DIR) / "core" / "static"
 
@@ -89,3 +90,18 @@ def test_config_context_brand_from_aux_data(monkeypatch):
     ctx = epp._config_context()
     assert ctx["brand_name"] == "Meridian Health"
     assert ctx["brand_logo"] == "clients/ehr-patient-portal/images/meridian.svg"
+
+
+def test_connect_page_is_branded_and_preserves_js_hooks(db):
+    resp = Client().get("/clients/ehr-patient-portal/")
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "common/css/patient-facing.css" in html      # branded base applied
+    assert 'class="pf-page"' in html                     # page shell
+    assert 'id="hospital-picker"' in html                # JS/test hooks preserved
+    assert 'id="hospital-search"' in html
+    assert 'id="hospital-results"' in html
+    assert 'id="out"' in html
+    assert "EHR_PATIENT_PORTAL_CONFIG" in html           # flow config global intact
+    assert "startEhrPatientPortalConnect" in html        # flow entrypoint intact
+    assert "Share your medical records" in html          # pe-5 headline
