@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import django
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.test import Client
