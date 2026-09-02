@@ -115,3 +115,16 @@ def test_callback_page_frames_output_and_preserves_flow(db):
     assert 'id="out"' in html and "pf-log" in html      # output framed, not raw
     assert "finishEhrPatientPortalConnect" in html       # flow entrypoint intact
     assert "Importing your records" in html              # pe-6 headline
+
+
+def test_invitation_email_is_branded_and_typo_free():
+    html = render_to_string(
+        "registration/invitation_email.html",
+        {"patient_name": "Maria", "invitation_link": "https://jhe.example/redeem?code=abc"},
+    )
+    assert "JupyterHeath" not in html                  # typo fixed
+    assert "JupyterHealth" in html                     # correct brand
+    assert "Maria" in html                             # greeting preserved
+    assert "https://jhe.example/redeem?code=abc" in html  # link preserved
+    assert "Get started" in html or "GET STARTED" in html # pe-1 CTA
+    assert "style=" in html                            # inline-styled for email clients
