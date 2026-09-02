@@ -64,3 +64,28 @@ def test_source_card_keeps_empty_badge_slot():
     assert "pf-card__badge" in html  # slot present in markup...
     # ...but empty (no status text), per the deferred connection-status decision (§6).
     assert "CONNECTED" not in html and "NOT CONNECTED" not in html
+
+
+def test_config_context_brand_defaults(monkeypatch):
+    from core.views import ehr_patient_portal as epp
+
+    monkeypatch.setattr(epp, "_ehr_patient_portal_client", lambda: None)
+    ctx = epp._config_context()
+    assert ctx["brand_name"] == "JupyterHealth"
+    assert ctx["brand_logo"] == "common/images/jupyterhealth-logo.jpg"
+
+
+def test_config_context_brand_from_aux_data(monkeypatch):
+    from core.views import ehr_patient_portal as epp
+
+    class _Client:
+        aux_data = {"brand_name": "Meridian Health", "brand_logo": "clients/ehr-patient-portal/images/meridian.svg"}
+
+    class _App:
+        jhe_client = _Client()
+        data_sources = type("M", (), {"all": staticmethod(lambda: [])})()
+
+    monkeypatch.setattr(epp, "_ehr_patient_portal_client", lambda: _App())
+    ctx = epp._config_context()
+    assert ctx["brand_name"] == "Meridian Health"
+    assert ctx["brand_logo"] == "clients/ehr-patient-portal/images/meridian.svg"
