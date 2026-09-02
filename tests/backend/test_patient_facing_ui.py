@@ -2,6 +2,7 @@ from pathlib import Path
 
 import django
 from django.conf import settings
+from django.template.loader import render_to_string
 
 STATIC = Path(settings.BASE_DIR) / "core" / "static"
 
@@ -32,3 +33,13 @@ def test_patient_facing_css_defines_tokens_and_font():
     for cls in (".pf-page", ".pf-header", ".pf-eyebrow", ".pf-h1", ".pf-lede",
                 ".pf-card", ".pf-card__badge", ".pf-log"):
         assert cls in css, f"missing component class {cls}"
+
+
+def test_patient_facing_base_links_stylesheet_and_wraps_page():
+    html = render_to_string(
+        "common/patient_facing/_test_probe.html",
+        {"SITE_TITLE": "JupyterHealth Exchange"},
+    )
+    assert "common/css/patient-facing.css" in html
+    assert 'class="pf-page"' in html
+    assert "PROBE-CONTENT" in html

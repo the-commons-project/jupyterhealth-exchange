@@ -1,0 +1,15 @@
+{% extends "common/partials/base.html" %}
+{% load static %}
+
+{% block head %}
+  <link rel="stylesheet" href="{% static 'common/css/patient-facing.css' %}" />
+  {% block pf_head %}{% endblock %}
+{% endblock %}
+
+{% block body_content %}
+  <div class="pf-page">
+    <div class="pf-page__inner">
+      {% block pf_content %}{% endblock %}
+    </div>
+  </div>
+{% endblock %}
