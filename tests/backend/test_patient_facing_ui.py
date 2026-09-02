@@ -105,3 +105,13 @@ def test_connect_page_is_branded_and_preserves_js_hooks(db):
     assert "EHR_PATIENT_PORTAL_CONFIG" in html           # flow config global intact
     assert "startEhrPatientPortalConnect" in html        # flow entrypoint intact
     assert "Share your medical records" in html          # pe-5 headline
+
+
+def test_callback_page_frames_output_and_preserves_flow(db):
+    resp = Client().get("/clients/ehr-patient-portal/callback")
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert 'class="pf-page"' in html
+    assert 'id="out"' in html and "pf-log" in html      # output framed, not raw
+    assert "finishEhrPatientPortalConnect" in html       # flow entrypoint intact
+    assert "Importing your records" in html              # pe-6 headline
