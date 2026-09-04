@@ -23,7 +23,7 @@ from core.models import (
     StudyPatientScopeConsent,
     StudyScopeRequest,
 )
-from core.views.patient_portal import SESSION_INVITATION_KEY, _invitation_from_code, _sources
+from core.views.patient_portal import SESSION_INVITATION_KEY, _invitation_from_code, _scope_detail, _sources
 
 Application = get_application_model()
 
@@ -268,6 +268,33 @@ def test_consent_get_lists_pending_clinical_records_row(db):
     assert "csrfmiddlewaretoken" in html
     assert "pf-card__icon" in html and "pf-actions" in html
     assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
+
+
+def test_consent_get_shows_data_driven_scope_subtext(db):
+    """The scope-row subtext is the humanized list of resource types the EHR Patient Portal's
+    SMART scopes promise to sync (pe-*), not the old placeholder "Included"."""
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+
+    resp = Client().get(f"/patient/consent/{ds.id}/?code={code}")
+
+    html = resp.content.decode()
+    assert "Demographics, " in html
+    assert "observations" in html
+    assert "Included" not in html
+
+
+def test_scope_detail_is_empty_for_a_client_with_no_scopes(db):
+    """Open Wearables carries no SMART "scopes" in its aux_data (Oura is polled server-side, not
+    synced via patient/*.read grants), so its subtext must be empty -- the template then omits
+    the subtext element entirely rather than rendering a blank row."""
+    call_command("seed", stdout=io.StringIO())
+    oura_ds = DataSource.objects.get(name="Oura")
+
+    assert _scope_detail(oura_ds.id) == ""
 
 
 def test_consent_get_rejects_source_with_nothing_pending(db):

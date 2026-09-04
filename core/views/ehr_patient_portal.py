@@ -18,6 +18,62 @@ EHR_PATIENT_PORTAL_CLIENT_NAME = "EHR Patient Portal"
 BRANDS_DEFAULT_LIMIT = 25
 BRANDS_MAX_LIMIT = 100
 
+# Full state/territory name (lowercase) -> USPS abbreviation, so the free-text `q` search in
+# brands_search can match either ("Wisconsin" or "WI") against EhrBrandLocation.state.
+US_STATES = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "district of columbia": "DC",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+}
+
 
 def _ehr_patient_portal_client():
     """The seeded EHR Patient Portal Application, with its JheClient and data-source links."""
@@ -84,7 +140,15 @@ def brands_search(request):
 
     q = (request.query_params.get("q") or "").strip()
     if q:
-        qs = qs.filter(Q(name__icontains=q) | Q(city__icontains=q) | Q(brand__name__icontains=q))
+        # Also match state by full name or abbreviation and by ZIP prefix, so "WI", "Wisconsin"
+        # and "53593" all find a facility, not just its name/city/brand.
+        state_filter = Q(state__iexact=q)
+        if q.lower() in US_STATES:
+            state_filter |= Q(state__iexact=US_STATES[q.lower()])
+        qs = qs.filter(
+            Q(name__icontains=q) | Q(city__icontains=q) | Q(brand__name__icontains=q) | state_filter
+            | Q(postal_code__startswith=q)
+        )
     state = (request.query_params.get("state") or "").strip()
     if state:
         qs = qs.filter(state__iexact=state)

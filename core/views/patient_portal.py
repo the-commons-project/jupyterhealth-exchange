@@ -129,13 +129,13 @@ def _resource_label(resource_type):
     return " ".join(re.findall(r"[A-Z][a-z0-9]*", resource_type) or [resource_type]) + "s"
 
 
-def _expected_scope_types(fhir_source):
+def _expected_scope_types(data_source_id):
     """Resource types the linked client's SMART scopes promise to sync (§I) -- parsed from
     "patient/<Type>.read" entries in its aux_data["scopes"]; empty when the client carries no
     scopes, in which case the receipt shows only what's actually landed, with no "Not synced"
     section."""
     link = (
-        ClientDataSource.objects.filter(data_source_id=fhir_source.data_source_id)
+        ClientDataSource.objects.filter(data_source_id=data_source_id)
         .select_related("client__jhe_client")
         .order_by("id")
         .first()
@@ -150,6 +150,20 @@ def _expected_scope_types(fhir_source):
     }
 
 
+def _scope_detail(data_source_id):
+    """Consent-screen subtext (pe-*): the humanized expected resource types for this data
+    source's linked client, as a lowercase sentence fragment ("Demographics, conditions,
+    medications, ...") with "Demographics" kept first when present; "" when the client carries
+    no scopes, so the template renders no subtext at all."""
+    labels = sorted(_resource_label(rt) for rt in _expected_scope_types(data_source_id))
+    if not labels:
+        return ""
+    if "Demographics" in labels:
+        labels.remove("Demographics")
+        labels.insert(0, "Demographics")
+    return ", ".join([labels[0]] + [label.lower() for label in labels[1:]])
+
+
 def _receipt(fhir_source):
     """The per-type sync receipt for a connected FhirSource (pa-05): synced counts (highest
     first, then label) plus a zero row for any type the client's scopes promised that hasn't
@@ -161,7 +175,7 @@ def _receipt(fhir_source):
         .values_list("resource_type", "n")
     )
     synced = sorted(((_resource_label(rt), n) for rt, n in counts.items()), key=lambda row: (-row[1], row[0]))
-    not_synced = sorted(_resource_label(rt) for rt in _expected_scope_types(fhir_source) - counts.keys())
+    not_synced = sorted(_resource_label(rt) for rt in _expected_scope_types(fhir_source.data_source_id) - counts.keys())
     return {"synced": synced, "not_synced": [(label, 0) for label in not_synced], "total": sum(counts.values())}
 
 
@@ -356,6 +370,7 @@ def consent(request, data_source_id):
         "rows": [c for _study, c in pairs],
         "code": code,
         "icon_class": _icon_for(ds),
+        "scope_detail": _scope_detail(ds.id),
     }
     return render(request, "patient/consent.html", context)
 
