@@ -378,7 +378,6 @@ def consent(request, data_source_id):
         "eyebrow": f"{ds.name} · {' · '.join(studies)}",
         "rows": [_patient_label(c["code"]["text"]) for _study, c in pairs],
         "code": code,
-        "icon_class": _icon_for(ds),
         "scope_detail": _scope_detail(ds.id),
     }
     return render(request, "patient/consent.html", context)
