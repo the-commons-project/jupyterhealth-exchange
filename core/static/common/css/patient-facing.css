@@ -22,6 +22,8 @@
   --pf-maxw: 620px;          /* content measure — max width of the centered column */
   --pf-accent-soft: #fbe4d5;      /* light accent tint — done bars, callout/avatar backgrounds */
   --pf-accent-ink-soft: #9a3412;  /* accent-dark text — readable on the soft accent tint */
+  --pf-badge-on-bg: #dcefdf;      /* connected pill background — soft green tint */
+  --pf-badge-on-ink: #1f7a3c;     /* connected pill text — readable green on the soft tint */
 }
 
 .pf-page { min-height: 100%; background: var(--pf-bg); color: var(--pf-ink); font-family: var(--pf-font); } /* base canvas — brand bg + ink + Inter on the whole page */
@@ -39,6 +41,11 @@
 .pf-card__title { font-weight: 600; font-size: 17px; } /* card title — source name, semibold */
 .pf-card__desc { color: var(--pf-muted); font-size: 14px; line-height: 1.4; } /* card description — muted one-liner about the source */
 .pf-card__badge:empty { display: none; } /* badge slot — reserved for deferred connection status; hidden until populated */
+.pf-card__badge { display: inline-block; padding: 6px 12px; border-radius: 999px; background: var(--pf-line); color: var(--pf-muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; } /* badge pill — neutral fill for "not connected" */
+.pf-card__badge--on { background: var(--pf-badge-on-bg); color: var(--pf-badge-on-ink); } /* badge pill — green tint once connected */
+.pf-card-link { display: block; color: inherit; text-decoration: none; position: relative; } /* card link — full-card tap target, no underline, inherits card ink */
+.pf-card-link .pf-card { padding-right: 44px; } /* card link — clears room for the trailing chevron */
+.pf-card-link::after { content: "\f285"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; position: absolute; right: 20px; top: 50%; transform: translateY(-50%); color: var(--pf-muted); } /* chevron — trailing affordance, matches #hospital-results rows */
 .pf-btn { display: inline-block; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; text-decoration: none; cursor: pointer; } /* primary button — accent fill, uppercase label */
 .pf-input { width: 100%; box-sizing: border-box; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); font: inherit; padding: 13px 14px; } /* text input — white field matching card radius */
 .pf-log { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); padding: 16px; color: var(--pf-ink); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; } /* import log — frames the flow JS's text output as an intentional receipt */

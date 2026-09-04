@@ -3,6 +3,5 @@
     <div class="pf-card__title">{{ card.title }}</div>
     <div class="pf-card__desc">{{ card.desc }}</div>
   </div>
-  {# Badge slot: intentionally empty for the demo; a later connection-status badge fills it (§6). #}
-  <span class="pf-card__badge"></span>
+  <span class="pf-card__badge{% if card.badge == 'Connected' %} pf-card__badge--on{% endif %}">{{ card.badge }}</span>
 </div>

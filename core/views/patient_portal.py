@@ -1,6 +1,7 @@
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from django.shortcuts import render
+from django.urls import reverse
 
 from core.models import Patient, PatientInvitation, Study
 
@@ -69,11 +70,31 @@ def _render_invalid(request):
 
 
 def landing(request):
-    """Stub: the "Choose how to share your data" hub (pe-2) lands in Task 13."""
-    patient, _invitation, _code = _resolve_patient(request)
+    """The "Choose how to share your data" hub (pe-2): one card per source, badged by consent state."""
+    patient, _invitation, code = _resolve_patient(request)
     if patient is None:
         return _render_invalid(request)
-    return _render_invalid(request)
+
+    sources = _sources(patient)
+    study_names = {name for source in sources for name in source["studies"]}
+    eyebrow = next(iter(study_names)) if len(study_names) == 1 else "Your studies"
+
+    cards = []
+    for source in sources:
+        route = "patient-manage" if source["connected"] else "patient-consent"
+        url = reverse(route, args=[source["id"]])
+        if code:
+            url = f"{url}?code={quote(code, safe='')}"
+        cards.append(
+            {
+                "title": source["name"],
+                "desc": ", ".join(source["labels"]),
+                "badge": "Connected" if source["connected"] else "Not connected",
+                "url": url,
+            }
+        )
+
+    return render(request, "patient/landing.html", {"eyebrow": eyebrow, "cards": cards})
 
 
 def consent(request, data_source_id):
