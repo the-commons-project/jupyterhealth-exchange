@@ -104,12 +104,13 @@ def test_landing_lists_ehr_source_as_not_connected(db):
     assert "Choose how to share your data" in html
     assert "EHR Patient Portal" in html
     assert "Clinical records" in html
-    assert "Not connected" in html
+    assert "Not consented" in html
     assert "pf-card__badge" in html
     assert f"/patient/consent/{ds.id}/?code={code}" in html
+    assert "pf-back" not in html  # the hub itself gets no back link (§H)
 
     card = _card_block(html, "EHR Patient Portal")
-    assert "Not connected" in card
+    assert "Not consented" in card
     assert "pf-card__badge--on" not in card
 
 
@@ -173,9 +174,32 @@ def test_landing_shows_connected_after_consenting_clinical_records(db):
 
     assert resp.status_code == 200
     card = _card_block(resp.content.decode(), "EHR Patient Portal")
-    assert "Connected" in card
+    assert "Consented" in card
     assert "pf-card__badge--on" in card
     assert f"/patient/manage/{ds.id}/?code={code}" in card
+
+
+def test_landing_shows_fhir_source_facility_and_record_count(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+    client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    location = EhrBrandLocation.objects.get(name="Epic Sandbox - Madison Campus")
+    fhir_source = FhirSource.objects.create(patient=pamela, data_source=ds, ehr_brand_location=location)
+    for _ in range(3):
+        FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type="Observation")
+
+    resp = client.get(f"/patient/?code={code}")
+
+    assert resp.status_code == 200
+    card = _card_block(resp.content.decode(), "EHR Patient Portal")
+    assert "Epic Sandbox - Madison Campus" in card
+    assert "3 records" in card
 
 
 def test_peters_landing_shows_oura_and_your_studies_eyebrow(db):
@@ -192,9 +216,38 @@ def test_peters_landing_shows_oura_and_your_studies_eyebrow(db):
     card = _card_block(html, "Oura")
     # Peter is seeded already consenting the Sleep episode (IEEE) scope Oura supports, with
     # nothing pending for that source, so -- unlike the EHR Patient Portal card -- Oura shows
-    # Connected here; verified against the actual seeded consent rows, not assumed.
+    # Consented here; verified against the actual seeded consent rows, not assumed.
     assert "pf-card__badge--on" in card
-    assert "Connected" in card
+    assert "Consented" in card
+
+
+def test_landing_hides_non_patient_facing_sources(db):
+    """CareX and Questionnaire are direct-to-API integrations with no patient-facing flow of
+    their own (their client, CareX, carries no patient_facing aux_data flag), so item J keeps
+    them off the hub even though Peter has scopes seeded through both (§J)."""
+    call_command("seed", stdout=io.StringIO())
+    peter = Patient.objects.get(jhe_user__email="ll_patient_peter@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(peter, ehr_client)
+
+    resp = Client().get(f"/patient/?code={code}")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "EHR Patient Portal" in html
+    assert "Oura" in html
+    assert "CareX" not in html
+    assert "Questionnaire" not in html
+
+
+def test_seed_flags_ehr_and_ow_clients_as_patient_facing(db):
+    call_command("seed", stdout=io.StringIO())
+    ehr_client = JheClient.objects.get(application__name="EHR Patient Portal")
+    ow_client = JheClient.objects.get(application__name="Open Wearables")
+    carex_client = JheClient.objects.get(application__name="CareX")
+    assert ehr_client.aux_data.get("patient_facing") is True
+    assert ow_client.aux_data.get("patient_facing") is True
+    assert not (carex_client.aux_data or {}).get("patient_facing")
 
 
 def test_consent_get_lists_pending_clinical_records_row(db):
@@ -213,7 +266,8 @@ def test_consent_get_lists_pending_clinical_records_row(db):
     assert "Agree and share" in html
     assert 'name="code"' in html
     assert "csrfmiddlewaretoken" in html
-    assert "pf-consent-row" in html
+    assert "pf-card__icon" in html and "pf-actions" in html
+    assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
 
 
 def test_consent_get_rejects_source_with_nothing_pending(db):
@@ -276,29 +330,38 @@ def test_consent_post_is_idempotent(db):
     assert StudyPatientScopeConsent.objects.filter(study_patient=study_patient, scope_code=star).count() == 1
 
 
-def test_consent_post_cross_client_mints_carex_invitation(db):
+def test_consent_post_cross_client_mints_open_wearables_invitation(db):
+    """Cross-client routing (consenting a source whose client differs from the invitation's).
+    CareX no longer qualifies -- it isn't patient-facing (§J) and consent() no longer needs to
+    reach it via the hub flow -- so this now exercises Oura/Open Wearables against an
+    EHR Patient Portal invitation instead."""
     call_command("seed", stdout=io.StringIO())
     peter = Patient.objects.get(jhe_user__email="ll_patient_peter@example.com")
     ehr_client = Application.objects.get(name="EHR Patient Portal")
-    carex_client = Application.objects.get(name="CareX")
-    carex_ds = DataSource.objects.get(name="CareX")
+    ow_client = Application.objects.get(name="Open Wearables")
+    oura_ds = DataSource.objects.get(name="Oura")
+    study = Study.objects.get(name="Lifespan Study on Sleep & BP")
+    sleep_code = CodeableConcept.objects.get(coding_code="ieee:sleep-episode:1.0")
+
+    # Peter is seeded already consenting Oura's sleep scope -- revoke it so there's something
+    # pending to re-consent to via this (different) client's invitation code.
+    study_patient = StudyPatient.objects.get(study=study, patient=peter)
+    StudyPatientScopeConsent.objects.filter(study_patient=study_patient, scope_code=sleep_code).update(consented=False)
+
     code = _mint(peter, ehr_client)
 
-    resp = Client().post(f"/patient/consent/{carex_ds.id}/", {"code": code})
+    resp = Client().post(f"/patient/consent/{oura_ds.id}/", {"code": code})
 
     assert resp.status_code == 302
-    assert resp.url.startswith("https://carex.ai/invitation/")
+    assert resp.url.startswith("http://localhost:8001/clients/ow/launch?code=")
 
-    inv = PatientInvitation.objects.get(patient=peter, client=carex_client)
+    inv = PatientInvitation.objects.get(patient=peter, client=ow_client)
     assert inv.status == PatientInvitation.Status.ISSUED
 
-    study = Study.objects.get(name="Lifespan Study on Sleep & BP")
-    study_patient = StudyPatient.objects.get(study=study, patient=peter)
-    bp_code = CodeableConcept.objects.get(coding_code="omh:blood-pressure:4.0")
-    consent_row = StudyPatientScopeConsent.objects.get(study_patient=study_patient, scope_code=bp_code)
+    consent_row = StudyPatientScopeConsent.objects.get(study_patient=study_patient, scope_code=sleep_code)
     assert consent_row.consented is True
 
-    source = next(s for s in _sources(peter) if s["id"] == carex_ds.id)
+    source = next(s for s in _sources(peter) if s["id"] == oura_ds.id)
     assert source["pending"] == []
 
 
@@ -471,6 +534,33 @@ def test_done_lists_connected_source_after_consent(db):
     assert "EHR Patient Portal" in html
     assert "Manage sharing" in html
     assert 'href="/patient/"' in html
+    assert "pf-back" in html  # back link to the hub (§H)
+
+
+def test_done_shows_only_the_just_connected_source(db):
+    """Item G (amended): done() leads with -- and shows *only* -- the source consent() just
+    recorded into the session, not every connected source. Pamela is already seeded with Oura
+    fully consented (both its supported scopes, across her two studies), so it's a real
+    "other connected source" this must hide once she also consents the EHR Patient Portal."""
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+
+    # Confirm the premise against the actual seeded consent rows before asserting the hiding.
+    assert any(s["name"] == "Oura" and s["connected"] for s in _sources(pamela))
+
+    client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    resp = client.get("/patient/done/")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "EHR Patient Portal" in html
+    assert "Oura" not in html
 
 
 def test_done_shows_fhir_source_facility_and_record_count(db):
@@ -513,6 +603,33 @@ def test_manage_get_shows_consented_scopes(db):
     assert "You're sharing" in html
     assert "Clinical records" in html
     assert "Stop sharing" in html
+    assert "pf-card__icon" in html and "pf-actions" in html
+    assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
+
+
+def test_manage_shows_fhir_source_facility_and_record_count(db):
+    """Item D extended to manage(): a source with a registered FhirSource shows the facility
+    and record count there too, not just the bare scope label (§D amendment)."""
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+    client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    location = EhrBrandLocation.objects.get(name="Epic Sandbox - Madison Campus")
+    fhir_source = FhirSource.objects.create(patient=pamela, data_source=ds, ehr_brand_location=location)
+    for _ in range(3):
+        FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type="Observation")
+
+    resp = client.get(f"/patient/manage/{ds.id}/")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "Epic Sandbox - Madison Campus" in html
+    assert "3 records" in html
 
 
 def test_manage_get_rejects_source_with_nothing_consented(db):
@@ -553,7 +670,7 @@ def test_manage_post_revokes_and_source_is_reconsentable(db):
 
     landing = client.get("/patient/")
     card = _card_block(landing.content.decode(), "EHR Patient Portal")
-    assert "Not connected" in card
+    assert "Not consented" in card
     assert "pf-card__badge--on" not in card
     assert f"/patient/consent/{ds.id}/" in card
 
@@ -568,5 +685,5 @@ def test_manage_post_revokes_and_source_is_reconsentable(db):
 
     landing2 = client.get("/patient/")
     card2 = _card_block(landing2.content.decode(), "EHR Patient Portal")
-    assert "Connected" in card2
+    assert "Consented" in card2
     assert "pf-card__badge--on" in card2

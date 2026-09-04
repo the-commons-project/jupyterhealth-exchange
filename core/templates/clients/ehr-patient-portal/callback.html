@@ -3,13 +3,22 @@
 
 {% block pf_content %}
 {% include "common/patient_facing/components/header.html" %}
+{% url 'patient-landing' as hub_url %}
+{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
 {% include "common/patient_facing/components/progress_rail.html" with active_step=3 %}
 
 <p class="pf-eyebrow">Clinical records</p>
 <h1 class="pf-h1">Importing your records</h1>
-<p class="pf-lede">Securely copying your records into your study. Keep this page open while we finish.</p>
+<p class="pf-lede">Securely syncing your records into your study. Keep this page open while we finish.</p>
 
-<pre id="out" class="pf-log"></pre>
+<div class="pf-import">
+  <pre id="out" class="pf-log"></pre>
+  <div class="pf-import-card">
+    <div class="pf-import-card__title">Syncing your records…</div>
+    <div class="pf-progress"><div class="pf-progress__bar"></div></div>
+    <p class="pf-import-card__copy">This usually takes under a minute. Keep this page open; when it finishes, your summary is one tap away.</p>
+  </div>
+</div>
 <p class="pf-lede">When the log above shows the import is complete, view your summary.</p>
 <p><a class="pf-btn" href="{% url 'patient-done' %}">View summary</a></p>
 {% endblock %}

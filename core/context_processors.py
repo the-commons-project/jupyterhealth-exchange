@@ -1,9 +1,11 @@
 import json
 import logging
+import os
 from functools import lru_cache
 
 from allauth.socialaccount.models import SocialApp
 from django.conf import settings
+from django.contrib.staticfiles import finders
 from django.core.cache import cache
 from oauth2_provider.models import get_application_model
 
@@ -13,6 +15,22 @@ from core.permissions import ROLE_PERMISSIONS
 from core.services.jhe_settings import DEFAULT_CACHE_TTL, get_setting
 
 logger = logging.getLogger(__name__)
+
+
+def _pf_css_version():
+    """The patient-facing stylesheet's mtime, so the <link> can cache-bust on deploy instead of
+    a browser serving a stale copy forever (no Cache-Control tuning needed). Computed once at
+    import -- the file doesn't change without a restart -- with 0 as a harmless fallback."""
+    path = finders.find("common/css/patient-facing.css")
+    if not path:
+        return 0
+    try:
+        return int(os.path.getmtime(path))
+    except OSError:
+        return 0
+
+
+PF_CSS_VERSION = _pf_css_version()
 
 # The "exactly one SAML SocialApp" gate cached by _saml2_enabled(). A
 # post_save/post_delete receiver on SocialApp (core/signals.py) clears it so
@@ -67,4 +85,5 @@ def constants(request):
         "JHE_SETTING_VALUE_TYPES": json.dumps(JheSetting.JHE_SETTING_VALUE_TYPES),
         "ROLE_PERMISSIONS": json.dumps(ROLE_PERMISSIONS),
         "FHIR_RESOURCES": json.dumps(supported_resource_types()),
+        "PF_CSS_VERSION": PF_CSS_VERSION,
     }

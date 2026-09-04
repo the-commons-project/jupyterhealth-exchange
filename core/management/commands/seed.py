@@ -79,10 +79,11 @@ def sleep_episode_data_point(start, hours_asleep, awakenings):
 
 
 # aux_data keys seed owns outright: their value is derived from application code (the
-# scope list must match EHR_PATIENT_PORTAL_PULLS), so a stale deployed value is a bug and seed
-# overwrites it on every run. Every other key -- notably the EHR-registered `client_id`,
-# which differs per deployment -- belongs to whoever set it and is preserved.
-SEED_MANAGED_AUX_KEYS = frozenset({"scopes"})
+# scope list must match EHR_PATIENT_PORTAL_PULLS, and patient_facing must match which clients
+# actually have a patient-facing flow), so a stale deployed value is a bug and seed overwrites
+# it on every run. Every other key -- notably the EHR-registered `client_id`, which differs
+# per deployment -- belongs to whoever set it and is preserved.
+SEED_MANAGED_AUX_KEYS = frozenset({"scopes", "patient_facing"})
 
 
 def _merged_aux_data(existing, seeded):
@@ -386,6 +387,10 @@ class Command(BaseCommand):
                 "name": "Open Wearables",
                 "invitation_url": "http://localhost:8001/clients/ow/launch?code=CODE",
                 "data_sources": ["Oura"],
+                # Has its own patient-facing flow (/clients/ow/launch), unlike a direct-to-API
+                # integration such as CareX -- the hub (_sources in patient_portal.py) reads
+                # this to decide which sources a patient can discover there.
+                "aux_data": {"patient_facing": True},
             },
             {
                 # SMART on FHIR patient EHR-records client (issue #489). Served on JHE's
@@ -414,6 +419,11 @@ class Command(BaseCommand):
                 "data_sources": ["EHR Patient Portal"],
                 # No iss here: the hospital the patient picks supplies it (EhrBrand.fhir_base_url).
                 "aux_data": {
+                    # Has its own patient-facing flow (/clients/ehr-patient-portal/), unlike a
+                    # direct-to-API integration such as CareX -- the hub (_sources in
+                    # patient_portal.py) reads this to decide which sources a patient can
+                    # discover there.
+                    "patient_facing": True,
                     # Non-production client id of the Epic app "JupyterHealth Exchange -
                     # USCDI v3" (appId 55446), the app that has the localhost:8001 +
                     # jhe.fly.dev /clients/ehr-patient-portal/callback redirect URIs registered.

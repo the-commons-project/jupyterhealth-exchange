@@ -2,6 +2,8 @@
 
 {% block pf_content %}
 {% include "common/patient_facing/components/header.html" %}
+{% url 'patient-landing' as hub_url %}
+{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
 
 <p class="pf-eyebrow">{{ source_name }}</p>
 <h1 class="pf-h1">Connect your {{ source_name }}</h1>

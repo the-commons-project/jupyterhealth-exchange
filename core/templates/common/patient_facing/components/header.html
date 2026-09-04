@@ -1,8 +1,8 @@
 {% load static %}
 <header class="pf-header">
   <span class="pf-header__brand">
-    <img class="pf-header__logo" src="{% static brand_logo|default:'common/images/jupyterhealth-mark.png' %}" alt="{{ brand_name|default:'JupyterHealth' }}" />
-    {{ brand_name|default:"JupyterHealth" }}
+    <img class="pf-header__logo" src="{% static brand_logo|default:'common/images/jupyterhealth-logo.png' %}" alt="{{ brand_name|default:'JupyterHealth' }}" />
+    {% if brand_name_visible %}{{ brand_name|default:"JupyterHealth" }}{% endif %}
   </span>
   <span class="pf-header__secure"><i class="bi bi-lock"></i> Secure</span>
 </header>

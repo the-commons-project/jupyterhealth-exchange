@@ -18,6 +18,14 @@ from core.views.ehr_patient_portal import EHR_PATIENT_PORTAL_CLIENT_NAME
 
 SESSION_CODE_KEY = "patient_portal_code"
 SESSION_INVITATION_KEY = "patient_portal_invitation_id"
+SESSION_LAST_DS_KEY = "patient_portal_last_ds_id"
+
+# DataSource.type -> the bootstrap-icons glyph its icon card renders (§E).
+_TYPE_ICONS = {
+    "patient_app": "bi-file-earmark-text",
+    "medical_device": "bi-activity",
+    "personal_device": "bi-smartwatch",
+}
 
 
 def _invitation_is_valid(inv):
@@ -75,14 +83,46 @@ def _resolve_patient(request):
     return inv.patient, inv, request.session.get(SESSION_CODE_KEY, "")
 
 
+def _patient_facing_data_source_ids():
+    """DataSource ids reachable through a client whose aux_data flags patient_facing=True.
+
+    A DataSource with no such client (e.g. CareX, Questionnaire -- direct-to-API integrations
+    with no patient-facing flow of their own) must never appear on the hub. One query, so the
+    per-source loop in _sources() can filter by membership instead of hitting the DB per row.
+    """
+    return set(
+        ClientDataSource.objects.filter(client__jhe_client__aux_data__patient_facing=True).values_list(
+            "data_source_id", flat=True
+        )
+    )
+
+
+def _icon_for(ds):
+    """The bootstrap-icons glyph an icon card renders for this DataSource's type (§E)."""
+    return _TYPE_ICONS.get(ds.type, "bi-file-earmark-text")
+
+
+def _card_desc(source):
+    """The hub/done description for a source: "facility · labels · N records" once a FhirSource
+    with a facility exists, else just the comma-joined scope labels."""
+    labels = ", ".join(source["labels"])
+    if not source["detail"]:
+        return labels
+    facility, _sep, tail = source["detail"].partition(" · ")
+    return f"{facility} · {labels} · {tail}"
+
+
 def _sources(patient):
-    """One entry per DataSource across the patient's studies: pending + consented scope labels, studies.
+    """One entry per patient-facing DataSource across the patient's studies: pending +
+    consented scope labels, studies, and (when connected through a registered FhirSource) the
+    facility and record count the patient imported from.
 
     A revoked scope (a consent row with consented=False) is folded into "pending" rather than
     dropped -- it needs to be re-consentable, so the source must read as Not connected and its
     card must link back to consent, exactly like a scope that was never asked about.
     """
     out = {}
+    patient_facing_ids = _patient_facing_data_source_ids()
     for pending, studies in (
         (True, Study.studies_with_scopes(patient.id, pending=True)),
         (False, Study.studies_with_scopes(patient.id, pending=False)),
@@ -91,6 +131,8 @@ def _sources(patient):
             scopes = study.pending_scope_consents if pending else [c for c in study.scope_consents if c["consented"]]
             revoked = [] if pending else [c for c in study.scope_consents if c["consented"] is False]
             for ds in study.data_sources:
+                if ds.id not in patient_facing_ids:
+                    continue
                 supported = {s.id for s in ds.supported_scopes}
                 hits = [c for c in scopes if c["code"]["id"] in supported]
                 revoked_hits = [c for c in revoked if c["code"]["id"] in supported]
@@ -103,6 +145,18 @@ def _sources(patient):
     for e in out.values():
         e["connected"] = not e["pending"] and bool(e["consented"])  # badge = consent state (demo definition)
         e["labels"] = sorted({c["code"]["text"] for c in e["pending"] + e["consented"]})
+        e["detail"] = None
+        fs = (
+            FhirSource.objects.filter(patient=patient, data_source_id=e["id"])
+            .select_related("ehr_brand_location")
+            .order_by("-id")
+            .first()
+        )
+        if fs is not None:
+            facility = fs.ehr_brand_location.name if fs.ehr_brand_location else fs.label
+            if facility:
+                count = fs.aux_resources.count()
+                e["detail"] = f"{facility} · {count} records"
     return list(out.values())
 
 
@@ -129,8 +183,8 @@ def landing(request):
         cards.append(
             {
                 "title": source["name"],
-                "desc": ", ".join(source["labels"]),
-                "badge": "Connected" if source["connected"] else "Not connected",
+                "desc": _card_desc(source),
+                "badge": "Consented" if source["connected"] else "Not consented",
                 "url": url,
             }
         )
@@ -200,6 +254,8 @@ def consent(request, data_source_id):
                 obj.consented_time = now
                 obj.save()
 
+        request.session[SESSION_LAST_DS_KEY] = ds.id  # done() leads with this source (§G)
+
         link = (
             ClientDataSource.objects.filter(data_source=ds)
             .select_related("client__jhe_client")
@@ -229,6 +285,7 @@ def consent(request, data_source_id):
         "eyebrow": f"{ds.name} · {' · '.join(studies)}",
         "rows": [c for _study, c in pairs],
         "code": code,
+        "icon_class": _icon_for(ds),
     }
     return render(request, "patient/consent.html", context)
 
@@ -262,34 +319,34 @@ def manage(request, data_source_id):
         return redirect(reverse("patient-landing"))
 
     rows = sorted({c["code"]["text"] for c in entry["consented"]})
-    return render(request, "patient/manage.html", {"ds": ds, "rows": rows, "code": code})
+    context = {
+        "ds": ds,
+        "rows": rows,
+        "code": code,
+        "icon_class": _icon_for(ds),
+        # A registered FhirSource's facility/record-count line (§D), shown once above the
+        # per-scope rows; None when there's nothing more specific than the scopes already say.
+        "detail": _card_desc(entry) if entry["detail"] else None,
+    }
+    return render(request, "patient/manage.html", context)
 
 
 def done(request):
-    """"You're all set" (pe-7): the patient's connected sources and how to manage them."""
+    """"You're all set" (pe-7): leads with the source the patient just connected (the one
+    consent() recorded into the session), falling back to every connected source when there
+    is no such marker (e.g. a direct visit)."""
     patient, _invitation, _code = _resolve_patient(request)
     if patient is None:
         return _render_invalid(request)
 
     connected = [s for s in _sources(patient) if s["connected"]]
+    last_ds_id = request.session.get(SESSION_LAST_DS_KEY)
+    primary = next((s for s in connected if s["id"] == last_ds_id), None)
+    shown = [primary] if primary is not None else connected
 
-    rows = []
-    for s in connected:
-        detail = ", ".join(s["labels"])
-        fs = (
-            FhirSource.objects.filter(patient=patient, data_source_id=s["id"])
-            .select_related("ehr_brand_location__brand")
-            .order_by("-id")
-            .first()
-        )
-        if fs is not None:
-            facility = fs.ehr_brand_location.name if fs.ehr_brand_location else fs.label
-            if facility:
-                count = fs.aux_resources.count()
-                detail = f"{facility} · {detail} · {count} records"
-        rows.append({"name": s["name"], "detail": detail})
+    rows = [{"name": s["name"], "detail": _card_desc(s)} for s in shown]
 
-    study_names = {name for s in connected for name in s["studies"]}
+    study_names = primary["studies"] if primary is not None else {name for s in connected for name in s["studies"]}
     study = next(iter(study_names)) if len(study_names) == 1 else "your study team"
     lede = (
         f"Your selected data is now shared with {study}. You can manage or disconnect any source anytime."

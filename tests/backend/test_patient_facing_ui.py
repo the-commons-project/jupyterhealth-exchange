@@ -39,10 +39,28 @@ def test_patient_facing_css_defines_tokens_and_font():
     # Component hooks the templates use.
     for cls in (".pf-page", ".pf-header", ".pf-eyebrow", ".pf-h1", ".pf-lede",
                 ".pf-card", ".pf-card__badge", ".pf-log",
-                ".pf-rail", ".pf-callout", "#hospital-results"):
+                ".pf-rail", ".pf-callout", "#hospital-results",
+                ".pf-card__icon", ".pf-actions", ".pf-back"):
         assert cls in css, f"missing component class {cls}"
     # Status log stays visible until the hospital picker reveals (i.e. only hides on success).
     assert "#hospital-picker:not([hidden]) ~ #out" in css
+    # The lockup logo renders at legible size, no box/border/background around it.
+    assert "height: 32px" in css.split(".pf-header__logo", 1)[1].split("}", 1)[0]
+
+
+def test_patient_facing_css_hides_results_until_typing():
+    css = (STATIC / "common" / "css" / "patient-facing.css").read_text()
+    # The hospital results list only appears once the patient has typed something.
+    assert "#hospital-search:placeholder-shown ~ #hospital-results" in css
+
+
+def test_patient_facing_css_hides_import_log_behind_progress_card():
+    css = (STATIC / "common" / "css" / "patient-facing.css").read_text()
+    # The raw flow-JS log stays in the DOM (JS still writes to it) but is visually replaced
+    # by the branded importing card, scoped so it doesn't affect #out on other pages.
+    assert ".pf-import #out" in css
+    assert ".pf-progress__bar" in css
+    assert "@keyframes" in css
 
 
 def test_patient_facing_base_links_stylesheet_and_wraps_page():
@@ -55,6 +73,16 @@ def test_patient_facing_base_links_stylesheet_and_wraps_page():
     assert "PROBE-CONTENT" in html
 
 
+def test_base_template_cache_busts_the_stylesheet():
+    from core.context_processors import PF_CSS_VERSION
+
+    html = render_to_string(
+        "common/patient_facing/_test_probe.html",
+        {"SITE_TITLE": "JupyterHealth Exchange", "PF_CSS_VERSION": PF_CSS_VERSION},
+    )
+    assert re.search(r"patient-facing\.css\?v=\d+", html)
+
+
 def test_header_component_renders_brand_and_secure_marker():
     html = render_to_string(
         "common/patient_facing/components/header.html",
@@ -63,6 +91,28 @@ def test_header_component_renders_brand_and_secure_marker():
     assert "JupyterHealth" in html
     assert "pf-header" in html
     assert "Secure" in html
+
+
+def test_header_component_hides_brand_name_by_default_shows_it_when_flagged():
+    default_html = render_to_string(
+        "common/patient_facing/components/header.html",
+        {"brand_name": "JupyterHealth", "brand_logo": "common/images/jupyterhealth-logo.png"},
+    )
+    # The lockup already carries the name, so no adjacent brand-name text renders by default
+    # -- only the <img alt> attribute mentions it, not any visible text alongside it.
+    brand_span = re.sub(r"<img[^>]*>", "", default_html.split("pf-header__brand", 1)[1])
+    assert "JupyterHealth" not in brand_span
+
+    rebrand_html = render_to_string(
+        "common/patient_facing/components/header.html",
+        {
+            "brand_name": "Meridian Health",
+            "brand_logo": "clients/ehr-patient-portal/images/meridian.svg",
+            "brand_name_visible": True,
+        },
+    )
+    # A rebrand's own mark is not a lockup, so the name renders alongside it.
+    assert "Meridian Health" in rebrand_html.split("pf-header__secure", 1)[0]
 
 
 def test_source_card_keeps_empty_badge_slot():
@@ -98,18 +148,22 @@ def test_config_context_brand_defaults(monkeypatch):
     monkeypatch.setattr(epp, "_ehr_patient_portal_client", lambda: None)
     ctx = epp._config_context()
     assert ctx["brand_name"] == "JupyterHealth"
-    assert ctx["brand_logo"] == "common/images/jupyterhealth-mark.png"
+    assert ctx["brand_logo"] == "common/images/jupyterhealth-logo.png"
+    assert ctx["brand_name_visible"] is False
 
 
-def test_default_logo_is_the_square_mark(monkeypatch):
+def test_default_logo_is_the_full_lockup(monkeypatch):
     from core.views import ehr_patient_portal as epp
 
     monkeypatch.setattr(epp, "_ehr_patient_portal_client", lambda: None)
     ctx = epp._config_context()
-    assert ctx["brand_logo"] == "common/images/jupyterhealth-mark.png"
+    assert ctx["brand_logo"] == "common/images/jupyterhealth-logo.png"
+    logo = STATIC / "common" / "images" / "jupyterhealth-logo.png"
+    assert logo.exists()
+    assert logo.stat().st_size > 5000
+    # The square mark file stays vendored in place too, even though nothing defaults to it now.
     mark = STATIC / "common" / "images" / "jupyterhealth-mark.png"
     assert mark.exists()
-    assert mark.stat().st_size > 5000
 
 
 def test_config_context_brand_from_aux_data(monkeypatch):
@@ -126,6 +180,7 @@ def test_config_context_brand_from_aux_data(monkeypatch):
     ctx = epp._config_context()
     assert ctx["brand_name"] == "Meridian Health"
     assert ctx["brand_logo"] == "clients/ehr-patient-portal/images/meridian.svg"
+    assert ctx["brand_name_visible"] is True
 
 
 def test_connect_page_is_branded_and_preserves_js_hooks(db):
@@ -139,14 +194,19 @@ def test_connect_page_is_branded_and_preserves_js_hooks(db):
     assert 'id="hospital-results"' in html
     assert '<pre id="out" class="pf-log">' in html        # visible by default -- failures show up
     assert html.index('id="hospital-picker"') < html.index('id="out"')  # #out follows the picker in DOM order
+    # The results list now lives inside the search wrapper, right after the input (§F) --
+    # DOM position is free since the flow JS looks these up by id, not by nesting.
+    search_wrapper = html.split('class="pf-search"', 1)[1]
+    assert search_wrapper.index('id="hospital-search"') < search_wrapper.index('id="hospital-results"')
     assert "EHR_PATIENT_PORTAL_CONFIG" in html           # flow config global intact
     assert "startEhrPatientPortalConnect" in html        # flow entrypoint intact
     assert "Share your medical records" in html          # pe-5 headline
     assert "pf-rail" in html                              # progress rail present
     steps = _rail_step_classes(html)
     assert len(steps) == 3 and "is-active" in steps[0]    # step 1 active on connect
-    assert "We only copy the records you approve" in html  # info callout copy
+    assert "We only sync the records you approve" in html  # info callout copy
     assert "sign in with them directly" in html            # new lede copy
+    assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
 
 
 def test_callback_page_frames_output_and_preserves_flow(db):
@@ -154,14 +214,18 @@ def test_callback_page_frames_output_and_preserves_flow(db):
     assert resp.status_code == 200
     html = resp.content.decode()
     assert 'class="pf-page"' in html
-    assert 'id="out"' in html and "pf-log" in html      # output framed, not raw
+    assert 'id="out"' in html and "pf-log" in html      # the flow JS's log stays in the DOM...
     assert "finishEhrPatientPortalConnect" in html       # flow entrypoint intact
     assert "Importing your records" in html              # pe-6 headline
+    assert "Securely syncing your records into your study" in html  # sync-wording lede (copy amendment)
+    assert "pf-import-card" in html and "pf-progress" in html  # ...but is visually replaced by the progress card (§I)
+    assert "Syncing your records" in html                 # sync-wording card title
     assert "pf-rail" in html                              # progress rail present
     steps = _rail_step_classes(html)
     assert len(steps) == 3 and "is-active" in steps[2]    # step 3 active on callback
     assert 'href="/patient/done/"' in html and "View summary" in html  # pe-7 link (Task 15)
     assert "When the log above shows the import is complete, view your summary." in html  # guards mid-import taps
+    assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
 
 
 def test_ow_launch_is_branded_and_preserves_flow(db):
@@ -173,6 +237,7 @@ def test_ow_launch_is_branded_and_preserves_flow(db):
     assert "Connect your" in html                          # pe-4 headline
     assert 'id="out"' in html
     assert 'id="consent_form"' in html
+    assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
     for entrypoint in (
         "run(",
         "parseInvitationCode(",
@@ -232,7 +297,7 @@ def test_invitation_email_footer_mark_and_study():
         },
     )
     assert "You received this because a study team invited you" in html
-    assert "https://jhe.example/static/common/images/jupyterhealth-mark.png" in html
+    assert "https://jhe.example/static/common/images/jupyterhealth-logo.png" in html  # full lockup, not the mark
     assert "<strong>Cardiometabolic Health Study</strong>" in html
 
     html_no_study = render_to_string(

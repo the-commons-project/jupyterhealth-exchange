@@ -3,6 +3,8 @@
 
 {% block pf_content %}
 {% include "common/patient_facing/components/header.html" %}
+{% url 'patient-landing' as hub_url %}
+{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
 
 <div class="pf-check-circle"><i class="bi bi-check-lg"></i></div>
 <h1 class="pf-h1">You're all set</h1>

@@ -3,20 +3,22 @@
 
 {% block pf_content %}
 {% include "common/patient_facing/components/header.html" %}
+{% url 'patient-landing' as hub_url %}
+{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
 {% include "common/patient_facing/components/progress_rail.html" with active_step=1 %}
 
 <p class="pf-eyebrow">Clinical records</p>
 <h1 class="pf-h1">Share your medical records</h1>
 <p class="pf-lede">Connect your healthcare organization to securely share your clinical records with your provider: labs, conditions, medications and more. You choose your organization and sign in with them directly.</p>
 
-<div class="pf-callout">We only copy the records you approve, over an encrypted connection, and only into the study you were invited to. You can disconnect at any time.</div>
+<div class="pf-callout">We only sync the records you approve, over an encrypted connection, and only into the study you were invited to. You can disconnect at any time.</div>
 
 <div id="hospital-picker" hidden>
   <label for="hospital-search" class="pf-eyebrow" style="margin-top:0">Find your healthcare organization</label>
   <div class="pf-search">
     <input id="hospital-search" type="search" class="pf-input" placeholder="Search by hospital name, city, or state" autocomplete="off" />
+    <div id="hospital-results"></div>
   </div>
-  <div id="hospital-results"></div>
 </div>
 <pre id="out" class="pf-log"></pre>
 {% endblock %}
