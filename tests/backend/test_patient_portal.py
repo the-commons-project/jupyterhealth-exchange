@@ -23,7 +23,13 @@ from core.models import (
     StudyPatientScopeConsent,
     StudyScopeRequest,
 )
-from core.views.patient_portal import SESSION_INVITATION_KEY, _invitation_from_code, _scope_detail, _sources
+from core.views.patient_portal import (
+    SESSION_INVITATION_KEY,
+    _invitation_from_code,
+    _patient_label,
+    _scope_detail,
+    _sources,
+)
 
 Application = get_application_model()
 
@@ -44,6 +50,19 @@ def _card_block(html, title):
         if title in card:
             return card
     raise AssertionError(f"no pf-card-link block found for {title!r}")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Sleep episode (IEEE)", "Sleep episode"),
+        ("Heart Rate (OMH)", "Heart Rate"),
+        ("Clinical records", "Clinical records"),
+        ("A (b) c", "A (b) c"),
+    ],
+)
+def test_patient_label_strips_one_trailing_parenthetical(text, expected):
+    assert _patient_label(text) == expected
 
 
 def test_seed_requests_clinical_records_for_lifespan_bp_hr(db):
@@ -219,6 +238,8 @@ def test_peters_landing_shows_oura_and_your_studies_eyebrow(db):
     # Consented here; verified against the actual seeded consent rows, not assumed.
     assert "pf-card__badge--on" in card
     assert "Consented" in card
+    assert "Sleep episode" in card  # patient-facing label, coding-standard suffix stripped
+    assert "(IEEE)" not in card
 
 
 def test_landing_hides_non_patient_facing_sources(db):
@@ -285,6 +306,35 @@ def test_consent_get_shows_data_driven_scope_subtext(db):
     assert "Demographics, " in html
     assert "observations" in html
     assert "Included" not in html
+
+
+def test_consent_get_strips_coding_standard_suffix_from_scope_labels(db):
+    """Oura's scope-row titles are seeded as "Heart Rate (OMH)" / "Sleep episode (IEEE)" -- the
+    consent screen must show the patient-facing label only, not the developer-facing coding
+    system suffix."""
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    oura_ds = DataSource.objects.get(name="Oura")
+    hr_code = CodeableConcept.objects.get(coding_code="omh:heart-rate:2.0")
+    sleep_code = CodeableConcept.objects.get(coding_code="ieee:sleep-episode:1.0")
+
+    # Pamela is seeded already consenting both of Oura's scopes -- revoke them so there's
+    # something pending to show on the consent screen.
+    StudyPatientScopeConsent.objects.filter(
+        study_patient__patient=pamela, scope_code__in=[hr_code, sleep_code]
+    ).update(consented=False)
+
+    code = _mint(pamela, ehr_client)
+
+    resp = Client().get(f"/patient/consent/{oura_ds.id}/?code={code}")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "Heart Rate" in html
+    assert "Sleep episode" in html
+    assert "(OMH)" not in html
+    assert "(IEEE)" not in html
 
 
 def test_scope_detail_is_empty_for_a_client_with_no_scopes(db):

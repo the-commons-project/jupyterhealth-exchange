@@ -31,6 +31,13 @@ _TYPE_ICONS = {
 }
 
 
+def _patient_label(text):
+    """A scope's patient-facing label: its seeded CodeableConcept.text with one trailing
+    coding-standard parenthetical (e.g. " (OMH)", " (IEEE)") stripped -- developer-facing
+    plumbing patients don't need to see. Text without a trailing parenthetical is unchanged."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", text)
+
+
 def _invitation_is_valid(inv):
     """Mirrors PatientInvitation.redeem()'s validity window, without mutating status."""
     if inv.status == PatientInvitation.Status.ISSUED:
@@ -221,7 +228,7 @@ def _sources(patient):
                 e["studies"].add(study.name)
     for e in out.values():
         e["connected"] = not e["pending"] and bool(e["consented"])  # badge = consent state (demo definition)
-        e["labels"] = sorted({c["code"]["text"] for c in e["pending"] + e["consented"]})
+        e["labels"] = sorted({_patient_label(c["code"]["text"]) for c in e["pending"] + e["consented"]})
         e["detail"] = None
         e["fhir_source"] = None
         fs = (
@@ -367,7 +374,7 @@ def consent(request, data_source_id):
     context = {
         "ds": ds,
         "eyebrow": f"{ds.name} · {' · '.join(studies)}",
-        "rows": [c for _study, c in pairs],
+        "rows": [_patient_label(c["code"]["text"]) for _study, c in pairs],
         "code": code,
         "icon_class": _icon_for(ds),
         "scope_detail": _scope_detail(ds.id),
@@ -403,7 +410,7 @@ def manage(request, data_source_id):
             ).update(consented=False, consented_time=now)
         return redirect(reverse("patient-landing"))
 
-    rows = sorted({c["code"]["text"] for c in entry["consented"]})
+    rows = sorted({_patient_label(c["code"]["text"]) for c in entry["consented"]})
     context = {
         "ds": ds,
         "rows": rows,

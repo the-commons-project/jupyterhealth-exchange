@@ -323,6 +323,7 @@ def test_ow_launch_is_branded_and_preserves_flow(db):
     html = resp.content.decode()
     assert "Connect your Oura" in html                      # seeded OW DataSource name
     assert "Continue to Oura" in html                        # pe-4 button label
+    assert "(OMH)" not in html and "(IEEE)" not in html      # patient-facing labels, suffix stripped
 
 
 def test_ow_manage_and_complete_render_on_branded_base(db):
@@ -353,7 +354,8 @@ def test_invitation_email_is_branded_and_typo_free():
     assert "JupyterHeath" not in html                  # typo fixed
     assert "JupyterHealth" in html                     # correct brand
     assert "Maria" in html                             # greeting preserved
-    assert "https://jhe.example/redeem?code=abc" in html  # link preserved
+    assert 'href="https://jhe.example/redeem?code=abc"' in html  # link preserved on the button
+    assert ">https://jhe.example/redeem?code=abc<" not in html   # but not shown as raw visible text
     assert "Get started" in html or "GET STARTED" in html # pe-1 CTA
     assert "style=" in html                            # inline-styled for email clients
 

@@ -25,6 +25,7 @@ from oauthlib.common import Request
 from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
 from core.models import DataSource, JheUser
 from core.services.jhe_settings import get_setting
+from core.views.patient_portal import _patient_label
 
 from ..forms import UserRegistrationForm
 
@@ -231,7 +232,7 @@ def ow_launch(request):
     if link:
         sources = DataSource.data_sources_with_scopes(data_source_id=link.data_source_id)
         if sources:
-            source_labels = ", ".join(scope.text for scope in sources[0].supported_scopes if scope.text)
+            source_labels = ", ".join(_patient_label(scope.text) for scope in sources[0].supported_scopes if scope.text)
     return render(request, "clients/ow/launch.html", {"source_name": source_name, "source_labels": source_labels})
 
 
