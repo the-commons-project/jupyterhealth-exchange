@@ -1,0 +1,9 @@
+{% extends "common/patient_facing/base.html" %}
+{% block title %}Invitation not valid{% endblock %}
+
+{% block pf_content %}
+{% include "common/patient_facing/components/header.html" %}
+
+<h1 class="pf-h1">This invitation link isn't valid</h1>
+<p class="pf-lede">It may have expired or been replaced. Ask your study team for a new link.</p>
+{% endblock %}

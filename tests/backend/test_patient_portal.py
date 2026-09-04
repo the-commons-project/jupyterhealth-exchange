@@ -1,8 +1,30 @@
 import io
 
+import pytest
 from django.core.management import call_command
+from django.test import Client
+from oauth2_provider.models import get_application_model
 
-from core.models import CodeableConcept, DataSource, JheClient, Patient, Study, StudyDataSource, StudyScopeRequest
+from core.models import (
+    CodeableConcept,
+    DataSource,
+    JheClient,
+    Patient,
+    PatientInvitation,
+    Study,
+    StudyDataSource,
+    StudyScopeRequest,
+)
+from core.views.patient_portal import _invitation_from_code
+
+Application = get_application_model()
+
+
+def _mint(patient, client):
+    """Mint an invitation exactly as the API does, returning the wire-format code (the part
+    of the link after `code=`, still percent-encoded -- e.g. "localhost%3A8001_<token>")."""
+    _invitation, link = PatientInvitation.build_link(patient, client)
+    return link.split("code=", 1)[1]
 
 
 def test_seed_requests_clinical_records_for_lifespan_bp_hr(db):
@@ -23,3 +45,27 @@ def test_seed_requests_clinical_records_for_lifespan_bp_hr(db):
     )
 
     assert JheClient.objects.get(application__name="EHR Patient Portal").invitation_url.endswith("/patient/?code=CODE")
+
+
+def test_invitation_from_code_resolves_patient_without_redeeming(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+
+    inv = _invitation_from_code(code)
+
+    assert inv is not None
+    assert inv.patient_id == pamela.id
+    assert inv.client_id == ehr_client.id
+    assert inv.status == PatientInvitation.Status.ISSUED
+
+
+@pytest.mark.parametrize("code", ["", "garbage", "localhost%3A8001_nope"])
+def test_landing_rejects_invalid_codes(db, code):
+    call_command("seed", stdout=io.StringIO())
+
+    resp = Client().get(f"/patient/?code={code}")
+
+    assert resp.status_code == 400
+    assert "invitation" in resp.content.decode().lower()
