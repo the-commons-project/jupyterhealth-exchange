@@ -63,6 +63,26 @@ def test_patient_facing_css_hides_import_log_behind_progress_card():
     assert "@keyframes" in css
 
 
+def test_patient_facing_css_styles_back_as_a_ghost_button():
+    css = (STATIC / "common" / "css" / "patient-facing.css").read_text()
+    back_rule = css.split(".pf-back {", 1)[1].split("}", 1)[0]
+    assert "border: 1px solid var(--pf-line)" in back_rule
+    assert "border-radius: var(--pf-radius-lg)" in back_rule
+    assert "text-transform: uppercase" in back_rule
+    assert "padding: 10px 16px" in back_rule
+    # The check circle it sits above must be block-level (not inline-flex) so it always starts
+    # on its own line below the back button instead of crowding onto the same row (§H).
+    check_circle_rule = css.split(".pf-check-circle {", 1)[1].split("}", 1)[0]
+    assert "display: flex" in check_circle_rule
+    assert "inline-flex" not in check_circle_rule
+
+
+def test_patient_facing_css_defines_receipt_component():
+    css = (STATIC / "common" / "css" / "patient-facing.css").read_text()
+    for cls in (".pf-receipt", ".pf-receipt__row", ".pf-receipt__n", ".pf-receipt__heading"):
+        assert cls in css, f"missing component class {cls}"
+
+
 def test_patient_facing_base_links_stylesheet_and_wraps_page():
     html = render_to_string(
         "common/patient_facing/_test_probe.html",
@@ -224,7 +244,7 @@ def test_callback_page_frames_output_and_preserves_flow(db):
     steps = _rail_step_classes(html)
     assert len(steps) == 3 and "is-active" in steps[2]    # step 3 active on callback
     assert 'href="/patient/done/"' in html and "View summary" in html  # pe-7 link (Task 15)
-    assert "When the log above shows the import is complete, view your summary." in html  # guards mid-import taps
+    assert "When the sync finishes, view your summary." in html  # guards mid-import taps, log is hidden now
     assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
 
 

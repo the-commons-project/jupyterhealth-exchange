@@ -646,6 +646,136 @@ def test_manage_get_rejects_source_with_nothing_consented(db):
     assert resp.status_code == 400
 
 
+def test_consent_rejects_non_patient_facing_source(db):
+    """A direct /patient/consent/<id>/ hit for a source with no patient-facing client (CareX,
+    §J) must 400 -- consent() previously built its pending pairs straight off the DataSource,
+    bypassing the same patient_facing gate _sources()/manage() already enforce, which let a
+    crafted link consent to an excluded source."""
+    call_command("seed", stdout=io.StringIO())
+    peter = Patient.objects.get(jhe_user__email="ll_patient_peter@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    carex_ds = DataSource.objects.get(name="CareX")
+    code = _mint(peter, ehr_client)
+    study = Study.objects.get(name="Lifespan Study on Sleep & BP")
+    omh_bp = CodeableConcept.objects.get(coding_code="omh:blood-pressure:4.0")
+    study_patient = StudyPatient.objects.get(study=study, patient=peter)
+
+    get_resp = Client().get(f"/patient/consent/{carex_ds.id}/?code={code}")
+    assert get_resp.status_code == 400
+
+    post_resp = Client().post(f"/patient/consent/{carex_ds.id}/", {"code": code})
+    assert post_resp.status_code == 400
+    assert not StudyPatientScopeConsent.objects.filter(study_patient=study_patient, scope_code=omh_bp).exists()
+
+
+def test_manage_rejects_consented_but_non_patient_facing_source(db):
+    """CareX has no patient-facing client flow (§J), so a direct /patient/manage/<id>/ hit for
+    it must 400 even though CareX is (partly) consented for Peter -- manage() must not surface
+    a source _sources() itself excludes from the patient-facing hub."""
+    call_command("seed", stdout=io.StringIO())
+    peter = Patient.objects.get(jhe_user__email="ll_patient_peter@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    carex_ds = DataSource.objects.get(name="CareX")
+    code = _mint(peter, ehr_client)
+    study = Study.objects.get(name="Lifespan Study on Sleep & BP")
+    omh_bp = CodeableConcept.objects.get(coding_code="omh:blood-pressure:4.0")
+    study_patient = StudyPatient.objects.get(study=study, patient=peter)
+    StudyPatientScopeConsent.objects.create(
+        study_patient=study_patient, scope_code=omh_bp, consented=True, consented_time=timezone.now()
+    )
+
+    resp = Client().get(f"/patient/manage/{carex_ds.id}/?code={code}")
+
+    assert resp.status_code == 400
+
+
+def test_done_leads_with_most_recently_consented_source_without_session_marker(db):
+    """Item G: when the visiting session carries no usable last-connected-source marker (e.g.
+    it only ever hit the hub, never the consent POST that sets it), done() must not fall back to
+    "every connected source" -- it picks the one most recently consented, so Peter's seeded
+    Oura consent (older) must not leak in alongside a freshly-consented EHR Patient Portal."""
+    call_command("seed", stdout=io.StringIO())
+    peter = Patient.objects.get(jhe_user__email="ll_patient_peter@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(peter, ehr_client)
+    consenting_client = Client()
+    consenting_client.get(f"/patient/?code={code}")
+    consenting_client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    fresh_code = _mint(peter, ehr_client)
+    fresh_client = Client()
+    fresh_client.get(f"/patient/?code={fresh_code}")
+
+    resp = fresh_client.get("/patient/done/")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "EHR Patient Portal" in html
+    assert "Oura" not in html
+
+
+def test_manage_shows_single_card_for_fhir_source(db):
+    """Item B: once a FhirSource is registered, manage() renders exactly one .pf-card (icon +
+    source name + facility/record-count line) instead of one card per consented scope."""
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+    client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    location = EhrBrandLocation.objects.get(name="Epic Sandbox - Madison Campus")
+    fhir_source = FhirSource.objects.create(patient=pamela, data_source=ds, ehr_brand_location=location)
+    FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type="Observation")
+
+    resp = client.get(f"/patient/manage/{ds.id}/")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert html.count("pf-card__icon") == 1
+    assert "Epic Sandbox - Madison Campus" in html
+
+
+def test_done_and_manage_show_per_type_sync_receipt(db):
+    """Items D & I: once a FhirSource has aux resources, both done() and manage() render a
+    pf-receipt breakdown -- synced counts by type (desc, then label) plus a "Not synced"
+    section for any type the EHR client's SMART scopes promise but nothing has landed for yet,
+    and a closing total-synced row."""
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+    client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    location = EhrBrandLocation.objects.get(name="Epic Sandbox - Madison Campus")
+    fhir_source = FhirSource.objects.create(patient=pamela, data_source=ds, ehr_brand_location=location)
+    FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type="Observation")
+    FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type="Observation")
+    FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type="Condition")
+
+    for path in (f"/patient/manage/{ds.id}/", "/patient/done/"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "Observations" in html
+        assert "Conditions" in html
+        assert "Not synced" in html
+        assert "Devices" in html
+        assert "Total synced" in html
+        obs_row = html.split("Observations", 1)[1].split("</div>", 1)[0]
+        assert "2" in obs_row
+        cond_row = html.split("Conditions", 1)[1].split("</div>", 1)[0]
+        assert "1" in cond_row
+        total_row = html.split("Total synced", 1)[1].split("</div>", 1)[0]
+        assert "3" in total_row
+
+
 def test_manage_post_revokes_and_source_is_reconsentable(db):
     call_command("seed", stdout=io.StringIO())
     pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")

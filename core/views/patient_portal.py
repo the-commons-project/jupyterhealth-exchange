@@ -1,5 +1,7 @@
+import re
 from urllib.parse import quote, unquote
 
+from django.db.models import Count
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -7,6 +9,7 @@ from django.utils import timezone
 from core.models import (
     ClientDataSource,
     DataSource,
+    FhirAuxResource,
     FhirSource,
     PatientInvitation,
     Study,
@@ -102,6 +105,66 @@ def _icon_for(ds):
     return _TYPE_ICONS.get(ds.type, "bi-file-earmark-text")
 
 
+# FhirAuxResource.resource_type -> the receipt row label it renders as (§D). Anything not
+# listed here falls back to its CamelCase words pluralized (see _resource_label).
+_RESOURCE_LABEL_OVERRIDES = {
+    "Patient": "Demographics",
+    "MedicationRequest": "Medications",
+    "MedicationDispense": "Medication dispenses",
+    "AllergyIntolerance": "Allergies",
+    "DiagnosticReport": "Diagnostic reports",
+    "DocumentReference": "Documents",
+    "ServiceRequest": "Service requests",
+    "CarePlan": "Care plans",
+    "CareTeam": "Care teams",
+    "QuestionnaireResponse": "Questionnaire responses",
+}
+
+
+def _resource_label(resource_type):
+    """Human label for a receipt row (§D): an override, or the type's CamelCase words
+    pluralized (Observation -> Observations, Device -> Devices)."""
+    if resource_type in _RESOURCE_LABEL_OVERRIDES:
+        return _RESOURCE_LABEL_OVERRIDES[resource_type]
+    return " ".join(re.findall(r"[A-Z][a-z0-9]*", resource_type) or [resource_type]) + "s"
+
+
+def _expected_scope_types(fhir_source):
+    """Resource types the linked client's SMART scopes promise to sync (§I) -- parsed from
+    "patient/<Type>.read" entries in its aux_data["scopes"]; empty when the client carries no
+    scopes, in which case the receipt shows only what's actually landed, with no "Not synced"
+    section."""
+    link = (
+        ClientDataSource.objects.filter(data_source_id=fhir_source.data_source_id)
+        .select_related("client__jhe_client")
+        .order_by("id")
+        .first()
+    )
+    scopes = link.client.jhe_client.aux_data.get("scopes") if link else None
+    if not scopes:
+        return set()
+    return {
+        s.removeprefix("patient/").removesuffix(".read")
+        for s in scopes.split()
+        if s.startswith("patient/") and s.endswith(".read")
+    }
+
+
+def _receipt(fhir_source):
+    """The per-type sync receipt for a connected FhirSource (pa-05): synced counts (highest
+    first, then label) plus a zero row for any type the client's scopes promised that hasn't
+    landed yet, and the total count of resources actually synced."""
+    counts = dict(
+        FhirAuxResource.objects.filter(fhir_source=fhir_source)
+        .values("resource_type")
+        .annotate(n=Count("id"))
+        .values_list("resource_type", "n")
+    )
+    synced = sorted(((_resource_label(rt), n) for rt, n in counts.items()), key=lambda row: (-row[1], row[0]))
+    not_synced = sorted(_resource_label(rt) for rt in _expected_scope_types(fhir_source) - counts.keys())
+    return {"synced": synced, "not_synced": [(label, 0) for label in not_synced], "total": sum(counts.values())}
+
+
 def _card_desc(source):
     """The hub/done description for a source: "facility · labels · N records" once a FhirSource
     with a facility exists, else just the comma-joined scope labels."""
@@ -146,6 +209,7 @@ def _sources(patient):
         e["connected"] = not e["pending"] and bool(e["consented"])  # badge = consent state (demo definition)
         e["labels"] = sorted({c["code"]["text"] for c in e["pending"] + e["consented"]})
         e["detail"] = None
+        e["fhir_source"] = None
         fs = (
             FhirSource.objects.filter(patient=patient, data_source_id=e["id"])
             .select_related("ehr_brand_location")
@@ -157,6 +221,7 @@ def _sources(patient):
             if facility:
                 count = fs.aux_resources.count()
                 e["detail"] = f"{facility} · {count} records"
+                e["fhir_source"] = fs
     return list(out.values())
 
 
@@ -230,6 +295,11 @@ def consent(request, data_source_id):
     its code; a different client gets its own invitation minted server-side)."""
     patient, invitation, code = _resolve_patient(request)
     if patient is None:
+        return _render_invalid(request)
+
+    # Same patient_facing gate _sources()/manage() enforce -- without it a crafted link could
+    # consent to a source the hub never offers (e.g. CareX, a direct-to-API integration).
+    if data_source_id not in _patient_facing_data_source_ids():
         return _render_invalid(request)
 
     ds_list = DataSource.data_sources_with_scopes(data_source_id=data_source_id)
@@ -327,14 +397,16 @@ def manage(request, data_source_id):
         # A registered FhirSource's facility/record-count line (§D), shown once above the
         # per-scope rows; None when there's nothing more specific than the scopes already say.
         "detail": _card_desc(entry) if entry["detail"] else None,
+        "receipt": _receipt(entry["fhir_source"]) if entry["fhir_source"] else None,
     }
     return render(request, "patient/manage.html", context)
 
 
 def done(request):
-    """"You're all set" (pe-7): leads with the source the patient just connected (the one
-    consent() recorded into the session), falling back to every connected source when there
-    is no such marker (e.g. a direct visit)."""
+    """"You're all set" (pe-7): leads with -- and shows only -- the source the patient just
+    connected (the one consent() recorded into the session); with no such marker (e.g. this
+    session only ever hit the hub) it falls back to whichever connected source was consented
+    most recently, never "every connected source" (§G)."""
     patient, _invitation, _code = _resolve_patient(request)
     if patient is None:
         return _render_invalid(request)
@@ -342,16 +414,17 @@ def done(request):
     connected = [s for s in _sources(patient) if s["connected"]]
     last_ds_id = request.session.get(SESSION_LAST_DS_KEY)
     primary = next((s for s in connected if s["id"] == last_ds_id), None)
-    shown = [primary] if primary is not None else connected
+    if primary is None and connected:
+        primary = max(connected, key=lambda s: max(c["consented_time"] for c in s["consented"]))
 
-    rows = [{"name": s["name"], "detail": _card_desc(s)} for s in shown]
+    rows = [{"name": primary["name"], "detail": _card_desc(primary)}] if primary is not None else []
 
-    study_names = primary["studies"] if primary is not None else {name for s in connected for name in s["studies"]}
-    study = next(iter(study_names)) if len(study_names) == 1 else "your study team"
+    study = next(iter(primary["studies"])) if primary is not None and len(primary["studies"]) == 1 else "your study team"
     lede = (
         f"Your selected data is now shared with {study}. You can manage or disconnect any source anytime."
-        if connected
+        if primary is not None
         else "Nothing is shared yet."
     )
+    receipt = _receipt(primary["fhir_source"]) if primary is not None and primary["fhir_source"] else None
 
-    return render(request, "patient/done.html", {"rows": rows, "lede": lede})
+    return render(request, "patient/done.html", {"rows": rows, "lede": lede, "receipt": receipt})

@@ -52,8 +52,8 @@
 .pf-input { width: 100%; box-sizing: border-box; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); font: inherit; padding: 13px 14px; } /* text input — white field matching card radius */
 .pf-log { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); padding: 16px; color: var(--pf-ink); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; } /* import log — frames the flow JS's text output as an intentional receipt */
 #hospital-picker:not([hidden]) ~ #out { display: none; } /* status log — hidden once the picker reveals (success); stays visible on failure */
-.pf-back { display: inline-flex; align-items: center; gap: 6px; margin-top: 20px; color: var(--pf-muted); font-size: 14px; font-weight: 600; text-decoration: none; } /* back link — small muted wayfinding link under the header */
-.pf-back:hover { color: var(--pf-ink); } /* back link — darkens to ink on hover */
+.pf-back { display: inline-flex; align-items: center; gap: 6px; margin-top: 20px; margin-bottom: 20px; border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); padding: 10px 16px; color: var(--pf-muted); font-size: 13px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; } /* back button — outlined ghost button, arrow + label, wayfinding under the header */
+.pf-back:hover { color: var(--pf-ink); } /* back button — darkens to ink on hover */
 
 .pf-rail { display: flex; list-style: none; gap: 20px; margin: 24px 0 0; padding: 0; } /* rail — three steps laid out side by side */
 .pf-rail__step { flex: 1; position: relative; padding-top: 14px; } /* step slot — room above the label row for the top bar */
@@ -92,7 +92,7 @@
 #consent_form .form-check:last-of-type { border-bottom: 0; } /* last row in each study section — no trailing divider */
 #consent_form button[type="submit"] { display: block; width: 100%; box-sizing: border-box; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; cursor: pointer; } /* submit button — pf-btn look; label text ("Save") comes from client-ow.js */
 
-.pf-check-circle { width: 56px; height: 56px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px; border-radius: 50%; background: var(--pf-badge-on-bg); color: var(--pf-success); font-size: 26px; } /* success circle — soft green ring around the done-screen check mark */
+.pf-check-circle { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; border-radius: 50%; background: var(--pf-badge-on-bg); color: var(--pf-success); font-size: 26px; } /* success circle — block-level so it always starts a new line below the back button (§H), soft green ring around the done-screen check mark */
 .pf-btn--danger { background: var(--pf-danger); } /* danger button — red fill for the destructive "Stop sharing" action */
 .pf-btn--ghost { background: transparent; border: 1px solid var(--pf-line); color: var(--pf-ink); margin-top: 12px; } /* ghost button — outline style for a secondary action */
 
@@ -107,3 +107,12 @@
 .pf-progress { position: relative; height: 6px; border-radius: 999px; background: var(--pf-line); overflow: hidden; } /* progress track — neutral base bar, clips the animated segment */
 .pf-progress__bar { position: absolute; top: 0; left: 0; height: 100%; width: 40%; border-radius: 999px; background: var(--pf-accent); animation: pf-progress-indeterminate 1.4s ease-in-out infinite; } /* progress fill — animated accent segment sweeping the track, CSS-only */
 @keyframes pf-progress-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } } /* progress sweep — indeterminate left-to-right loop */
+
+.pf-receipt { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); margin-bottom: 28px; overflow: hidden; } /* receipt — white rounded frame around the per-type sync rows */
+.pf-receipt__row { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--pf-line); font-size: 15px; } /* receipt row — label left, count right-aligned, hairline under */
+.pf-receipt__row:last-child { border-bottom: 0; } /* receipt row — last row drops the trailing divider */
+.pf-receipt__n { font-weight: 600; color: var(--pf-ink); } /* receipt count — right-aligned, semibold */
+.pf-receipt__heading { padding: 12px 20px 4px; color: var(--pf-muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; } /* receipt heading — muted "Not synced" section label */
+.pf-receipt__row--pending .pf-receipt__n { color: var(--pf-muted); } /* pending row — zero count reads muted, not emphasized */
+.pf-receipt__row--total { background: var(--pf-bg); font-weight: 700; } /* total row — emphasized closing line */
+.pf-receipt__row--total .pf-receipt__n { color: var(--pf-accent); } /* total row — count in accent, matching the pa-05 mockup */
