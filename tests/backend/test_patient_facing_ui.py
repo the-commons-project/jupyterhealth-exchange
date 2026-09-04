@@ -303,7 +303,7 @@ def test_ow_launch_is_branded_and_preserves_flow(db):
     assert "We couldn't connect your wearable" in html      # pa-06 error title
     inside_error, outside_error = _pf_error_parts(html)
     assert "pf-btn" not in inside_error                     # buttons are NOT inside the red callout (pa-06 correction)
-    assert "Try again" in outside_error and "pf-actions" in outside_error
+    assert "Try again" not in html                          # the only action row is the card's Continue to Oura / Back
     assert 'id="ow_connect"' in html                         # pe-4 card + Continue, revealed after redeem (Task 21)
     assert 'id="ow_continue"' in html
     for entrypoint in (
