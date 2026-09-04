@@ -51,6 +51,7 @@
 .pf-btn { display: inline-block; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; text-decoration: none; cursor: pointer; } /* primary button — accent fill, uppercase label */
 .pf-input { width: 100%; box-sizing: border-box; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); font: inherit; padding: 13px 14px; } /* text input — white field matching card radius */
 .pf-log { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); padding: 16px; color: var(--pf-ink); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; } /* import log — frames the flow JS's text output as an intentional receipt */
+#hospital-picker:not([hidden]) ~ #out { display: none; } /* status log — hidden once the picker reveals (success); stays visible on failure */
 
 .pf-rail { display: flex; list-style: none; gap: 20px; margin: 24px 0 0; padding: 0; } /* rail — three steps laid out side by side */
 .pf-rail__step { flex: 1; position: relative; padding-top: 14px; } /* step slot — room above the label row for the top bar */

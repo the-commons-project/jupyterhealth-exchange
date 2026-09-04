@@ -41,6 +41,8 @@ def test_patient_facing_css_defines_tokens_and_font():
                 ".pf-card", ".pf-card__badge", ".pf-log",
                 ".pf-rail", ".pf-callout", "#hospital-results"):
         assert cls in css, f"missing component class {cls}"
+    # Status log stays visible until the hospital picker reveals (i.e. only hides on success).
+    assert "#hospital-picker:not([hidden]) ~ #out" in css
 
 
 def test_patient_facing_base_links_stylesheet_and_wraps_page():
@@ -135,7 +137,8 @@ def test_connect_page_is_branded_and_preserves_js_hooks(db):
     assert 'id="hospital-picker"' in html                # JS/test hooks preserved
     assert 'id="hospital-search"' in html
     assert 'id="hospital-results"' in html
-    assert '<pre id="out" class="pf-log" hidden>' in html  # kept for the flow JS, not shown
+    assert '<pre id="out" class="pf-log">' in html        # visible by default -- failures show up
+    assert html.index('id="hospital-picker"') < html.index('id="out"')  # #out follows the picker in DOM order
     assert "EHR_PATIENT_PORTAL_CONFIG" in html           # flow config global intact
     assert "startEhrPatientPortalConnect" in html        # flow entrypoint intact
     assert "Share your medical records" in html          # pe-5 headline
@@ -158,6 +161,7 @@ def test_callback_page_frames_output_and_preserves_flow(db):
     steps = _rail_step_classes(html)
     assert len(steps) == 3 and "is-active" in steps[2]    # step 3 active on callback
     assert 'href="/patient/done/"' in html and "View summary" in html  # pe-7 link (Task 15)
+    assert "When the log above shows the import is complete, view your summary." in html  # guards mid-import taps
 
 
 def test_ow_launch_is_branded_and_preserves_flow(db):

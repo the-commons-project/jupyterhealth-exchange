@@ -16,7 +16,6 @@ from core.models import (
 from core.services.jhe_settings import get_setting
 from core.views.ehr_patient_portal import EHR_PATIENT_PORTAL_CLIENT_NAME
 
-SESSION_KEY = "patient_portal_patient_id"
 SESSION_CODE_KEY = "patient_portal_code"
 SESSION_INVITATION_KEY = "patient_portal_invitation_id"
 
@@ -56,7 +55,7 @@ def _resolve_patient(request):
         inv = _invitation_from_code(code)
         if inv is None:
             return None, None, code
-        request.session[SESSION_KEY] = inv.patient_id
+        request.session.cycle_key()  # rotate the session id so a pre-auth session can't be fixated post-auth
         request.session[SESSION_CODE_KEY] = code
         request.session[SESSION_INVITATION_KEY] = inv.pk
         window_hours = get_setting("auth.patient.invitation_redemption_window_hours", 12)
@@ -70,7 +69,7 @@ def _resolve_patient(request):
         else None
     )
     if inv is None or not _invitation_is_valid(inv):  # re-check every codeless visit so revocation takes effect
-        for key in (SESSION_KEY, SESSION_CODE_KEY, SESSION_INVITATION_KEY):
+        for key in (SESSION_CODE_KEY, SESSION_INVITATION_KEY):
             request.session.pop(key, None)
         return None, None, ""
     return inv.patient, inv, request.session.get(SESSION_CODE_KEY, "")
@@ -201,7 +200,12 @@ def consent(request, data_source_id):
                 obj.consented_time = now
                 obj.save()
 
-        link = ClientDataSource.objects.filter(data_source=ds).select_related("client__jhe_client").first()
+        link = (
+            ClientDataSource.objects.filter(data_source=ds)
+            .select_related("client__jhe_client")
+            .order_by("id")  # deterministic pick if a DataSource is ever linked to more than one client
+            .first()
+        )
         if link is None:
             return redirect(reverse("patient-landing"))
         client = link.client
@@ -213,7 +217,7 @@ def consent(request, data_source_id):
             if client.name == EHR_PATIENT_PORTAL_CLIENT_NAME:
                 url = reverse("ehr-patient-portal-connect") + f"?code={quote(code, safe='')}"
             else:
-                url = client.jhe_client.invitation_url.replace("CODE", code)
+                url = client.jhe_client.invitation_url.replace("CODE", quote(code, safe=""))
         else:
             _new_invitation, url = PatientInvitation.build_link(patient, client)
 

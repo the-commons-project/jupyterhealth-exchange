@@ -23,7 +23,7 @@ from core.models import (
     StudyPatientScopeConsent,
     StudyScopeRequest,
 )
-from core.views.patient_portal import SESSION_KEY, _invitation_from_code, _sources
+from core.views.patient_portal import SESSION_INVITATION_KEY, _invitation_from_code, _sources
 
 Application = get_application_model()
 
@@ -123,12 +123,36 @@ def test_session_remembers_patient_for_a_codeless_visit(db):
     resp = client.get(f"/patient/?code={code}")
 
     assert resp.status_code == 200
-    assert client.session[SESSION_KEY] == pamela.id
+    inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client, status=PatientInvitation.Status.ISSUED)
+    assert client.session[SESSION_INVITATION_KEY] == inv.pk
 
     resp2 = client.get("/patient/")
 
     assert resp2.status_code == 200
     assert "EHR Patient Portal" in resp2.content.decode()
+
+
+def test_valid_code_cycles_the_session_key(db):
+    """A pre-existing (pre-auth) session must not survive redemption of a valid code --
+    otherwise an attacker who plants a session id in the victim's browser before they redeem
+    an invitation link could hijack the now-authenticated session (session fixation)."""
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+
+    client = Client()
+    s = client.session
+    s["x"] = 1
+    s.save()
+    old = s.session_key
+
+    resp = client.get(f"/patient/?code={code}")
+
+    assert resp.status_code == 200
+    assert client.session.session_key != old
+    inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client, status=PatientInvitation.Status.ISSUED)
+    assert client.session[SESSION_INVITATION_KEY] == inv.pk
 
 
 def test_landing_shows_connected_after_consenting_clinical_records(db):
@@ -278,6 +302,30 @@ def test_consent_post_cross_client_mints_carex_invitation(db):
     assert source["pending"] == []
 
 
+def test_consent_post_same_client_non_ehr_percent_encodes_code(db):
+    """The "same client as the invitation" routing branch for a non-EHR client (e.g. Open
+    Wearables) must percent-encode the code into its invitation_url, exactly like the EHR
+    self-link and cross-client (build_link) branches already do."""
+    call_command("seed", stdout=io.StringIO())
+    peter = Patient.objects.get(jhe_user__email="ll_patient_peter@example.com")
+    ow_client = Application.objects.get(name="Open Wearables")
+    oura_ds = DataSource.objects.get(name="Oura")
+    study = Study.objects.get(name="Lifespan Study on Sleep & BP")
+    sleep_code = CodeableConcept.objects.get(coding_code="ieee:sleep-episode:1.0")
+
+    # Peter is seeded already consenting Oura's sleep scope -- revoke it (same effect as the
+    # manage() "Stop sharing" POST) so there's something pending to re-consent to.
+    study_patient = StudyPatient.objects.get(study=study, patient=peter)
+    StudyPatientScopeConsent.objects.filter(study_patient=study_patient, scope_code=sleep_code).update(consented=False)
+
+    code = _mint(peter, ow_client)  # invitation minted by the *same* client the source routes back to
+
+    resp = Client().post(f"/patient/consent/{oura_ds.id}/", {"code": code})
+
+    assert resp.status_code == 302
+    assert resp.url == f"http://localhost:8001/clients/ow/launch?code={quote(code, safe='')}"
+
+
 def test_consent_post_without_code_or_session_is_invalid(db):
     call_command("seed", stdout=io.StringIO())
     ds = DataSource.objects.get(name="EHR Patient Portal")
@@ -338,7 +386,7 @@ def test_codeless_visit_after_cancellation_is_rejected_and_session_cleared(db):
     client = Client()
     resp = client.get(f"/patient/?code={code}")
     assert resp.status_code == 200
-    assert SESSION_KEY in client.session
+    assert SESSION_INVITATION_KEY in client.session
 
     inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client, status=PatientInvitation.Status.ISSUED)
     PatientInvitation.objects.filter(pk=inv.pk).update(status=PatientInvitation.Status.CANCELLED)
@@ -346,7 +394,7 @@ def test_codeless_visit_after_cancellation_is_rejected_and_session_cleared(db):
     resp2 = client.get("/patient/")
 
     assert resp2.status_code == 400
-    assert SESSION_KEY not in client.session
+    assert SESSION_INVITATION_KEY not in client.session
 
 
 def test_codeless_visit_after_reissue_with_old_session_is_rejected(db):
