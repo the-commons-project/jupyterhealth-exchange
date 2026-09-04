@@ -327,7 +327,7 @@ class Command(BaseCommand):
             # wildcard -- a data source scoped to it supplies FHIR resources of any type, which is
             # what an EHR patient-portal pull does (17 types today, all stored as aux rows).
             ("http://hl7.org/fhir/resource-types", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
-            ("http://hl7.org/fhir/resource-types", "*", "All FHIR Resources"),
+            ("http://hl7.org/fhir/resource-types", "*", "Clinical records"),
         ]
         # bulk create thing
         for system, code, text in codes:
@@ -403,7 +403,10 @@ class Command(BaseCommand):
                 # jhe.fly.dev equivalent) are registered separately on the Epic app at
                 # fhir.epic.com -- they must be updated there in step with this path.
                 "name": "EHR Patient Portal",
-                "invitation_url": "http://localhost:8001/clients/ehr-patient-portal/?code=CODE",
+                # The invitation lands on the "Choose how to share" patient portal landing
+                # page (/patient/), not directly on this client's connect page -- the patient
+                # picks which data to share (personal devices vs. clinical records) there first.
+                "invitation_url": "http://localhost:8001/patient/?code=CODE",
                 # The client and its DataSource are one and the same product (as with CareX),
                 # so they share a name and are linked here. That ClientDataSource row is the
                 # only link: the connect page reads the data source id through it, never by
@@ -514,6 +517,7 @@ class Command(BaseCommand):
         code_omh_hr = CodeableConcept.objects.get(coding_code="omh:heart-rate:2.0")
         code_ieee_sleep = CodeableConcept.objects.get(coding_code=SLEEP_EPISODE_CODE)
         code_fhir_qr = CodeableConcept.objects.get(coding_code="QuestionnaireResponse")
+        code_fhir_star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
 
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_omh_bp)
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_omh_hr)
@@ -541,6 +545,14 @@ class Command(BaseCommand):
         # This makes the EHR patient-portal end-to-end flow (#489) testable out of the box.
         ehr_patient_portal_client = get_application_model().objects.get(name="EHR Patient Portal")
         StudyClient.objects.create(study=lifespan_study_bp_hr, client=ehr_patient_portal_client)
+
+        # The study also requests clinical records via the EHR Patient Portal, so the
+        # "Choose how to share" landing page has a Clinical records card to show out of
+        # the box. Left PENDING below (excluded from the auto-consent loop) so the demo
+        # walkthrough starts from an unconsented state.
+        ehr_patient_portal_ds = DataSource.objects.get(name="EHR Patient Portal")
+        StudyDataSource.objects.create(study=lifespan_study_bp_hr, data_source=ehr_patient_portal_ds)
+        StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_fhir_star)
 
         # Seed EHR hospital brands so the EHR Patient Portal hospital picker (#489) has data to
         # search out of the box. Uses the curated sample bundle; production imports the
