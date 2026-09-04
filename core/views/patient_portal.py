@@ -35,6 +35,8 @@ def _patient_label(text):
     """A scope's patient-facing label: its seeded CodeableConcept.text with one trailing
     coding-standard parenthetical (e.g. " (OMH)", " (IEEE)") stripped -- developer-facing
     plumbing patients don't need to see. Text without a trailing parenthetical is unchanged."""
+    if not text:
+        return text or ""
     return re.sub(r"\s*\([^)]*\)\s*$", "", text)
 
 

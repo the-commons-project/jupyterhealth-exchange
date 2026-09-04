@@ -59,6 +59,8 @@ def _card_block(html, title):
         ("Heart Rate (OMH)", "Heart Rate"),
         ("Clinical records", "Clinical records"),
         ("A (b) c", "A (b) c"),
+        (None, ""),
+        ("", ""),
     ],
 )
 def test_patient_label_strips_one_trailing_parenthetical(text, expected):
