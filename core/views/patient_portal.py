@@ -224,7 +224,9 @@ def _sources(patient):
                 revoked_hits = [c for c in revoked if c["code"]["id"] in supported]
                 if not hits and not revoked_hits:
                     continue
-                e = out.setdefault(ds.id, {"id": ds.id, "name": ds.name, "pending": [], "consented": [], "studies": set()})
+                e = out.setdefault(
+                    ds.id, {"id": ds.id, "name": ds.name, "pending": [], "consented": [], "studies": set()}
+                )
                 e["pending" if pending else "consented"].extend(hits)
                 e["pending"].extend(revoked_hits)
                 e["studies"].add(study.name)
@@ -327,7 +329,7 @@ def _consented_pairs(patient, ds):
 
 
 def consent(request, data_source_id):
-    """"What you'll share" (pe-3): list this source's pending scopes; on POST record consent
+    """ "What you'll share" (pe-3): list this source's pending scopes; on POST record consent
     for each, then route into the source's own client (same client as the invitation reuses
     its code; a different client gets its own invitation minted server-side)."""
     patient, invitation, code = _resolve_patient(request)
@@ -398,7 +400,7 @@ def consent(request, data_source_id):
 
 
 def manage(request, data_source_id):
-    """"You're sharing" (manage/revoke): list this source's consented scopes; on POST revoke
+    """ "You're sharing" (manage/revoke): list this source's consented scopes; on POST revoke
     them all (consented=False) and send the patient back to the hub, where the source reads as
     Not connected again and is re-consentable. No vendor-side disconnect is attempted here --
     that's the API's best-effort hook, out of scope for this server-rendered flow."""
@@ -440,7 +442,7 @@ def manage(request, data_source_id):
 
 
 def done(request):
-    """"You're all set" (pe-7): leads with -- and shows only -- the source the patient just
+    """ "You're all set" (pe-7): leads with -- and shows only -- the source the patient just
     connected (the one consent() recorded into the session); with no such marker (e.g. this
     session only ever hit the hub) it falls back to whichever connected source was consented
     most recently, never "every connected source" (§G)."""
@@ -456,7 +458,9 @@ def done(request):
 
     rows = [{"name": primary["name"], "detail": _card_desc(primary)}] if primary is not None else []
 
-    study = next(iter(primary["studies"])) if primary is not None and len(primary["studies"]) == 1 else "your study team"
+    study = (
+        next(iter(primary["studies"])) if primary is not None and len(primary["studies"]) == 1 else "your study team"
+    )
     lede = (
         f"Your selected data is now shared with {study}. You can manage or disconnect any source anytime."
         if primary is not None

@@ -39,17 +39,38 @@ def test_patient_facing_css_defines_tokens_and_font():
     assert "https://" not in css, "no external fetches allowed under strict CSP"
     # The rebrand surface: every token the templates rely on is declared once.
     for token in (
-        "--pf-bg", "--pf-surface", "--pf-ink", "--pf-muted", "--pf-accent",
-        "--pf-accent-ink", "--pf-line", "--pf-radius", "--pf-radius-lg",
-        "--pf-font", "--pf-maxw",
+        "--pf-bg",
+        "--pf-surface",
+        "--pf-ink",
+        "--pf-muted",
+        "--pf-accent",
+        "--pf-accent-ink",
+        "--pf-line",
+        "--pf-radius",
+        "--pf-radius-lg",
+        "--pf-font",
+        "--pf-maxw",
     ):
         assert token in css, f"missing design token {token}"
     # Component hooks the templates use.
-    for cls in (".pf-page", ".pf-header", ".pf-eyebrow", ".pf-h1", ".pf-lede",
-                ".pf-card", ".pf-card__badge", ".pf-log",
-                ".pf-rail", ".pf-callout", "#hospital-results",
-                ".pf-card__icon", ".pf-actions", ".pf-back",
-                ".pf-error", ".pf-error__msg"):
+    for cls in (
+        ".pf-page",
+        ".pf-header",
+        ".pf-eyebrow",
+        ".pf-h1",
+        ".pf-lede",
+        ".pf-card",
+        ".pf-card__badge",
+        ".pf-log",
+        ".pf-rail",
+        ".pf-callout",
+        "#hospital-results",
+        ".pf-card__icon",
+        ".pf-actions",
+        ".pf-back",
+        ".pf-error",
+        ".pf-error__msg",
+    ):
         assert cls in css, f"missing component class {cls}"
     assert "--pf-danger-soft" in css  # error callout soft-red background token (pa-06)
     # The lockup logo renders at legible size, no box/border/background around it.
@@ -233,9 +254,9 @@ def test_connect_page_is_branded_and_preserves_js_hooks(db):
     resp = Client().get("/clients/ehr-patient-portal/")
     assert resp.status_code == 200
     html = resp.content.decode()
-    assert "common/css/patient-facing.css" in html      # branded base applied
-    assert 'class="pf-page"' in html                     # page shell
-    assert 'id="hospital-picker"' in html                # JS/test hooks preserved
+    assert "common/css/patient-facing.css" in html  # branded base applied
+    assert 'class="pf-page"' in html  # page shell
+    assert 'id="hospital-picker"' in html  # JS/test hooks preserved
     assert 'id="hospital-search"' in html
     assert 'id="hospital-results"' in html
     assert '<pre id="out" class="pf-log" hidden>' in html  # always hidden now -- errors surface via pf_error
@@ -244,21 +265,21 @@ def test_connect_page_is_branded_and_preserves_js_hooks(db):
     # DOM position is free since the flow JS looks these up by id, not by nesting.
     search_wrapper = html.split('class="pf-search"', 1)[1]
     assert search_wrapper.index('id="hospital-search"') < search_wrapper.index('id="hospital-results"')
-    assert "EHR_PATIENT_PORTAL_CONFIG" in html           # flow config global intact
-    assert "startEhrPatientPortalConnect" in html        # flow entrypoint intact
-    assert "Share your medical records" in html          # pe-5 headline
-    assert "pf-rail" in html                              # progress rail present
+    assert "EHR_PATIENT_PORTAL_CONFIG" in html  # flow config global intact
+    assert "startEhrPatientPortalConnect" in html  # flow entrypoint intact
+    assert "Share your medical records" in html  # pe-5 headline
+    assert "pf-rail" in html  # progress rail present
     steps = _rail_step_classes(html)
-    assert len(steps) == 3 and "is-active" in steps[0]    # step 1 active on connect
+    assert len(steps) == 3 and "is-active" in steps[0]  # step 1 active on connect
     assert "We only sync the records you approve" in html  # info callout copy
-    assert "sign in with them directly" in html            # new lede copy
+    assert "sign in with them directly" in html  # new lede copy
     assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
     assert 'id="pf_error_wrap"' in html and "hidden" in html.split('id="pf_error_wrap"', 1)[1].split(">", 1)[0]
-    assert "We couldn't process your invitation" in html   # pa-06 error title
+    assert "We couldn't process your invitation" in html  # pa-06 error title
     inside_error, outside_error = _pf_error_parts(html)
-    assert "pf-btn" not in inside_error                     # buttons are NOT inside the red callout (pa-06 correction)
+    assert "pf-btn" not in inside_error  # buttons are NOT inside the red callout (pa-06 correction)
     assert "Try again" in outside_error and "pf-actions" in outside_error
-    assert "showFlowError" in html                          # inline error-callout hook (Task 21)
+    assert "showFlowError" in html  # inline error-callout hook (Task 21)
 
 
 def test_callback_page_frames_output_and_preserves_flow(db):
@@ -266,22 +287,22 @@ def test_callback_page_frames_output_and_preserves_flow(db):
     assert resp.status_code == 200
     html = resp.content.decode()
     assert 'class="pf-page"' in html
-    assert 'id="out"' in html and "pf-log" in html      # the flow JS's log stays in the DOM...
-    assert "finishEhrPatientPortalConnect" in html       # flow entrypoint intact
-    assert "Importing your records" in html              # pe-6 headline
+    assert 'id="out"' in html and "pf-log" in html  # the flow JS's log stays in the DOM...
+    assert "finishEhrPatientPortalConnect" in html  # flow entrypoint intact
+    assert "Importing your records" in html  # pe-6 headline
     assert "Securely syncing your records into your study" in html  # sync-wording lede (copy amendment)
     assert "pf-import-card" in html and "pf-progress" in html  # ...but is visually replaced by the progress card (§I)
-    assert "Syncing your records" in html                 # sync-wording card title
-    assert "pf-rail" in html                              # progress rail present
+    assert "Syncing your records" in html  # sync-wording card title
+    assert "pf-rail" in html  # progress rail present
     steps = _rail_step_classes(html)
-    assert len(steps) == 3 and "is-active" in steps[2]    # step 3 active on callback
+    assert len(steps) == 3 and "is-active" in steps[2]  # step 3 active on callback
     assert 'href="/patient/done/"' in html and "View summary" in html  # pe-7 link (Task 15)
     assert "When the sync finishes, view your summary." in html  # guards mid-import taps, log is hidden now
     assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
     assert 'id="pf_error_wrap"' in html
     assert "We couldn't reach your healthcare organization" in html  # pa-06 error title
     inside_error, outside_error = _pf_error_parts(html)
-    assert "pf-btn" not in inside_error                     # buttons are NOT inside the red callout (pa-06 correction)
+    assert "pf-btn" not in inside_error  # buttons are NOT inside the red callout (pa-06 correction)
     assert "Try again" in outside_error and "pf-actions" in outside_error
     # The auto-advance script (Task 21) navigates to patient-done on a successful settle.
     script = html.split("finishEhrPatientPortalConnect", 1)[1]
@@ -293,18 +314,18 @@ def test_ow_launch_is_branded_and_preserves_flow(db):
     resp = Client().get("/clients/ow/launch")
     assert resp.status_code == 200
     html = resp.content.decode()
-    assert 'class="pf-page"' in html                      # branded base applied
-    assert "clients/ow/js/client-ow.js" in html            # flow JS loaded
-    assert "Connect your" in html                          # pe-4 headline
+    assert 'class="pf-page"' in html  # branded base applied
+    assert "clients/ow/js/client-ow.js" in html  # flow JS loaded
+    assert "Connect your" in html  # pe-4 headline
     assert 'id="out"' in html
     assert 'id="consent_form"' in html
     assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
     assert 'id="pf_error_wrap"' in html
-    assert "We couldn't connect your wearable" in html      # pa-06 error title
+    assert "We couldn't connect your wearable" in html  # pa-06 error title
     inside_error, outside_error = _pf_error_parts(html)
-    assert "pf-btn" not in inside_error                     # buttons are NOT inside the red callout (pa-06 correction)
-    assert "Try again" not in html                          # the only action row is the card's Continue to Oura / Back
-    assert 'id="ow_connect"' in html                         # pe-4 card + Continue, revealed after redeem (Task 21)
+    assert "pf-btn" not in inside_error  # buttons are NOT inside the red callout (pa-06 correction)
+    assert "Try again" not in html  # the only action row is the card's Continue to Oura / Back
+    assert 'id="ow_connect"' in html  # pe-4 card + Continue, revealed after redeem (Task 21)
     assert 'id="ow_continue"' in html
     for entrypoint in (
         "run(",
@@ -321,9 +342,9 @@ def test_ow_launch_is_branded_and_preserves_flow(db):
     call_command("seed", stdout=io.StringIO())
     resp = Client().get("/clients/ow/launch")
     html = resp.content.decode()
-    assert "Connect your Oura" in html                      # seeded OW DataSource name
-    assert "Continue to Oura" in html                        # pe-4 button label
-    assert "(OMH)" not in html and "(IEEE)" not in html      # patient-facing labels, suffix stripped
+    assert "Connect your Oura" in html  # seeded OW DataSource name
+    assert "Continue to Oura" in html  # pe-4 button label
+    assert "(OMH)" not in html and "(IEEE)" not in html  # patient-facing labels, suffix stripped
 
 
 def test_ow_manage_and_complete_render_on_branded_base(db):
@@ -358,13 +379,13 @@ def test_invitation_email_is_branded_and_typo_free():
             "site_url": "https://jhe.example",
         },
     )
-    assert "JupyterHeath" not in html                  # typo fixed
-    assert "JupyterHealth" in html                     # correct brand
-    assert "Maria" in html                             # greeting preserved
+    assert "JupyterHeath" not in html  # typo fixed
+    assert "JupyterHealth" in html  # correct brand
+    assert "Maria" in html  # greeting preserved
     assert 'href="https://jhe.example/redeem?code=abc"' in html  # link preserved on the button
-    assert ">https://jhe.example/redeem?code=abc<" not in html   # but not shown as raw visible text
-    assert "Get started" in html or "GET STARTED" in html # pe-1 CTA
-    assert "style=" in html                            # inline-styled for email clients
+    assert ">https://jhe.example/redeem?code=abc<" not in html  # but not shown as raw visible text
+    assert "Get started" in html or "GET STARTED" in html  # pe-1 CTA
+    assert "style=" in html  # inline-styled for email clients
 
 
 def test_invitation_email_footer_mark_and_study():

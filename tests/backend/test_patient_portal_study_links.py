@@ -37,7 +37,9 @@ def test_revoking_oura_leaves_heart_rate_requested_via_carex_consented(db):
     oura_ds = DataSource.objects.get(name="Oura")
     hr_code = CodeableConcept.objects.get(coding_code="omh:heart-rate:2.0")
     sleep_code = CodeableConcept.objects.get(coding_code="ieee:sleep-episode:1.0")
-    assert StudyPatientScopeConsent.objects.filter(study_patient__patient=pamela, scope_code=hr_code, consented=True).exists()
+    assert StudyPatientScopeConsent.objects.filter(
+        study_patient__patient=pamela, scope_code=hr_code, consented=True
+    ).exists()
 
     client = Client()
     client.get(f"/patient/?code={code}")

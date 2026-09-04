@@ -146,7 +146,10 @@ def brands_search(request):
         if q.lower() in US_STATES:
             state_filter |= Q(state__iexact=US_STATES[q.lower()])
         qs = qs.filter(
-            Q(name__icontains=q) | Q(city__icontains=q) | Q(brand__name__icontains=q) | state_filter
+            Q(name__icontains=q)
+            | Q(city__icontains=q)
+            | Q(brand__name__icontains=q)
+            | state_filter
             | Q(postal_code__startswith=q)
         )
     state = (request.query_params.get("state") or "").strip()

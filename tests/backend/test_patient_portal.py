@@ -323,9 +323,9 @@ def test_consent_get_strips_coding_standard_suffix_from_scope_labels(db):
 
     # Pamela is seeded already consenting both of Oura's scopes -- revoke them so there's
     # something pending to show on the consent screen.
-    StudyPatientScopeConsent.objects.filter(
-        study_patient__patient=pamela, scope_code__in=[hr_code, sleep_code]
-    ).update(consented=False)
+    StudyPatientScopeConsent.objects.filter(study_patient__patient=pamela, scope_code__in=[hr_code, sleep_code]).update(
+        consented=False
+    )
 
     code = _mint(pamela, ehr_client)
 

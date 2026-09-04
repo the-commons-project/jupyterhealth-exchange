@@ -527,7 +527,9 @@ class Command(BaseCommand):
         code_omh_hr = CodeableConcept.objects.get(coding_code="omh:heart-rate:2.0")
         code_ieee_sleep = CodeableConcept.objects.get(coding_code=SLEEP_EPISODE_CODE)
         code_fhir_qr = CodeableConcept.objects.get(coding_code="QuestionnaireResponse")
-        code_fhir_star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
+        code_fhir_star = CodeableConcept.objects.get(
+            coding_system="http://hl7.org/fhir/resource-types", coding_code="*"
+        )
 
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_omh_bp)
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_omh_hr)
