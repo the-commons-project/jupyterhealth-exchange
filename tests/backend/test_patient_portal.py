@@ -333,10 +333,11 @@ def test_consent_get_strips_coding_standard_suffix_from_scope_labels(db):
 
     assert resp.status_code == 200
     html = resp.content.decode()
-    assert "Heart Rate" in html
     assert "Sleep episode" in html
-    assert "(OMH)" not in html
     assert "(IEEE)" not in html
+    # Heart Rate is requested by "Lifespan Study on BP & HR", which collects through CareX --
+    # not Oura -- so it is not Oura's to ask about even though Oura supports the scope.
+    assert "Heart Rate" not in html
 
 
 def test_scope_detail_is_empty_for_a_client_with_no_scopes(db):

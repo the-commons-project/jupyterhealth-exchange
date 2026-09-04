@@ -233,11 +233,15 @@ def _sources(patient):
         e["labels"] = sorted({_patient_label(c["code"]["text"]) for c in e["pending"] + e["consented"]})
         e["detail"] = None
         e["fhir_source"] = None
+        # A revoked source keeps its FhirSource and imported records, but its card must not
+        # keep advertising the facility and record count: Not consented reads as scopes only.
         fs = (
             FhirSource.objects.filter(patient=patient, data_source_id=e["id"])
             .select_related("ehr_brand_location")
             .order_by("-id")
             .first()
+            if e["connected"]
+            else None
         )
         if fs is not None:
             facility = fs.ehr_brand_location.name if fs.ehr_brand_location else fs.label
@@ -288,16 +292,25 @@ def _pending_pairs(patient, ds):
     pairs = [
         (study, c)
         for study in Study.studies_with_scopes(patient.id, pending=True)
+        if _study_uses(study, ds)
         for c in study.pending_scope_consents
         if c["code"]["id"] in supported
     ]
     pairs += [
         (study, c)
         for study in Study.studies_with_scopes(patient.id, pending=False)
+        if _study_uses(study, ds)
         for c in study.scope_consents
         if c["code"]["id"] in supported and c["consented"] is False
     ]
     return pairs
+
+
+def _study_uses(study, ds):
+    """Whether the study collects through this data source (StudyDataSource link) -- the same
+    rule _sources() applies, so a scope another study requests from a different source (e.g.
+    Heart Rate via CareX) never rides along on this source's consent or revoke."""
+    return any(d.id == ds.id for d in study.data_sources)
 
 
 def _consented_pairs(patient, ds):
@@ -307,6 +320,7 @@ def _consented_pairs(patient, ds):
     return [
         (study, c)
         for study in Study.studies_with_scopes(patient.id, pending=False)
+        if _study_uses(study, ds)
         for c in study.scope_consents
         if c["code"]["id"] in supported and c["consented"]
     ]

@@ -25,7 +25,7 @@ from oauthlib.common import Request
 from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
 from core.models import DataSource, JheUser
 from core.services.jhe_settings import get_setting
-from core.views.patient_portal import _patient_label
+from core.views.patient_portal import SESSION_LAST_DS_KEY, _patient_label
 
 from ..forms import UserRegistrationForm
 
@@ -65,7 +65,8 @@ def ow_client(request):
 
 
 def ow_client_complete(request):
-    return render(request, "clients/ow/complete.html")
+    # Legacy route name for the same path (registered first in urls.py); same behaviour.
+    return ow_complete(request)
 
 
 class LoginView(BaseLoginView):
@@ -237,7 +238,17 @@ def ow_launch(request):
 
 
 def ow_complete(request):
-    return render(request, "clients/ow/complete.html")
+    """Where Open Wearables sends the browser back after the vendor's OAuth. A success lands on
+    the same "You're all set" summary the EHR flow ends on (pe-7), led by the wearable's
+    DataSource; an error renders the pa-06 callout in place. No client script is involved."""
+    error = request.GET.get("error")
+    if not error:
+        app = get_application_model().objects.filter(name="Open Wearables").first()
+        link = app.data_sources.order_by("id").first() if app else None
+        if link:
+            request.session[SESSION_LAST_DS_KEY] = link.data_source_id
+        return redirect(reverse("patient-done"))
+    return render(request, "clients/ow/complete.html", {"error": error})
 
 
 def ow_manage(request):

@@ -334,12 +334,19 @@ def test_ow_manage_and_complete_render_on_branded_base(db):
     assert 'id="consent_form"' in html
     assert 'id="status_badge"' in html
 
-    resp = Client().get("/clients/ow/complete")
+    # A successful vendor return follows the EHR pattern: straight to the pe-7 summary.
+    resp = Client().get("/clients/ow/complete?provider=oura")
+    assert resp.status_code == 302
+    assert resp["Location"] == "/patient/done/"
+
+    # A vendor error renders the pa-06 callout in place, no legacy log/manage-consents link.
+    resp = Client().get("/clients/ow/complete?error=access_denied")
     assert resp.status_code == 200
     html = resp.content.decode()
     assert 'class="pf-page"' in html
-    assert 'id="out"' in html
-    assert 'id="manage_link"' in html
+    assert "We couldn't connect your wearable" in html and "access_denied" in html
+    assert 'id="out"' not in html and "Manage Consents" not in html
+    assert "pf-back" in html and 'href="/patient/"' in html
 
 
 def test_invitation_email_is_branded_and_typo_free():

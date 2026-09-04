@@ -1,33 +1,20 @@
-{% extends "clients/ow/base.html" %} {% block title %}Complete{% endblock %}
+{% extends "clients/ow/base.html" %}
+{% block title %}We couldn't connect your wearable{% endblock %}
 
 {% block pf_content %}
 {% include "common/patient_facing/components/header.html" %}
+{% url 'patient-landing' as hub_url %}
+{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
 
-<div class="w-100 text-center mt-5">
-  <h1>OW Client</h1>
-  <pre id="out" class="text-start ms-5 me-5">
-  </pre>
-  <div id="manage_link" class="mt-4" style="display:none;">
-    <a href="/clients/ow/manage" class="btn btn-outline-primary">Manage Consents</a>
+<div class="pf-error">
+  <div class="pf-error__icon"><i class="bi bi-exclamation-circle"></i></div>
+  <div class="pf-error__body">
+    <div class="pf-error__title">We couldn't connect your wearable</div>
+    <p class="pf-error__msg">{{ error }}</p>
   </div>
 </div>
-<script>
-    var out = document.getElementById("out");
-    var manageLink = document.getElementById("manage_link");
-    var params = new URLSearchParams(window.location.search);
-    var provider = params.get("provider");
-    var error = params.get("error");
-
-    if (error) {
-        out.textContent = "Error: " + error;
-    } else {
-        out.textContent = "Successfully Connected.";
-        if (provider) {
-            out.textContent += "\nProvider: " + provider;
-        }
-        out.textContent += "\n\nYou can manage your data sharing preferences at any time.";
-        manageLink.style.display = "block";
-    }
-</script>
-
+<div class="pf-actions">
+  <a class="pf-btn" href="{% url 'ow-launch' %}">Try again</a>
+  <a class="pf-btn pf-btn--ghost" href="{{ hub_url }}">Back</a>
+</div>
 {% endblock %}
