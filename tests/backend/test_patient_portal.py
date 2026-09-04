@@ -11,6 +11,9 @@ from oauth2_provider.models import get_application_model
 from core.models import (
     CodeableConcept,
     DataSource,
+    EhrBrandLocation,
+    FhirAuxResource,
+    FhirSource,
     JheClient,
     Patient,
     PatientInvitation,
@@ -392,3 +395,130 @@ def test_consent_post_rejects_expired_code_and_creates_no_consent(db):
     star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
     study_patient = StudyPatient.objects.get(study=study, patient=pamela)
     assert not StudyPatientScopeConsent.objects.filter(study_patient=study_patient, scope_code=star).exists()
+
+
+def test_done_without_session_is_invalid(db):
+    call_command("seed", stdout=io.StringIO())
+
+    resp = Client().get("/patient/done/")
+
+    assert resp.status_code == 400
+
+
+def test_done_lists_connected_source_after_consent(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    assert client.get(f"/patient/?code={code}").status_code == 200
+    assert client.post(f"/patient/consent/{ds.id}/", {"code": code}).status_code == 302
+
+    resp = client.get("/patient/done/")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "You're all set" in html
+    assert "EHR Patient Portal" in html
+    assert "Manage sharing" in html
+    assert 'href="/patient/"' in html
+
+
+def test_done_shows_fhir_source_facility_and_record_count(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+    client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    location = EhrBrandLocation.objects.get(name="Epic Sandbox - Madison Campus")
+    fhir_source = FhirSource.objects.create(patient=pamela, data_source=ds, ehr_brand_location=location)
+    for _ in range(3):
+        FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type="Observation")
+
+    resp = client.get("/patient/done/")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "Epic Sandbox - Madison Campus" in html
+    assert "3 records" in html
+
+
+def test_manage_get_shows_consented_scopes(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+    client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    resp = client.get(f"/patient/manage/{ds.id}/")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "You're sharing" in html
+    assert "Clinical records" in html
+    assert "Stop sharing" in html
+
+
+def test_manage_get_rejects_source_with_nothing_consented(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+
+    resp = client.get(f"/patient/manage/{ds.id}/")
+
+    assert resp.status_code == 400
+
+
+def test_manage_post_revokes_and_source_is_reconsentable(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    client.get(f"/patient/?code={code}")
+    client.post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    study = Study.objects.get(name="Lifespan Study on BP & HR")
+    star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
+    study_patient = StudyPatient.objects.get(study=study, patient=pamela)
+
+    resp = client.post(f"/patient/manage/{ds.id}/", {"code": code})
+
+    assert resp.status_code == 302
+    assert resp.url == "/patient/"
+
+    consent_row = StudyPatientScopeConsent.objects.get(study_patient=study_patient, scope_code=star)
+    assert consent_row.consented is False
+
+    landing = client.get("/patient/")
+    card = _card_block(landing.content.decode(), "EHR Patient Portal")
+    assert "Not connected" in card
+    assert "pf-card__badge--on" not in card
+    assert f"/patient/consent/{ds.id}/" in card
+
+    consent_get = client.get(f"/patient/consent/{ds.id}/")
+    assert consent_get.status_code == 200
+    assert "Clinical records" in consent_get.content.decode()
+
+    consent_post = client.post(f"/patient/consent/{ds.id}/", {})
+    assert consent_post.status_code == 302
+    consent_row.refresh_from_db()
+    assert consent_row.consented is True
+
+    landing2 = client.get("/patient/")
+    card2 = _card_block(landing2.content.decode(), "EHR Patient Portal")
+    assert "Connected" in card2
+    assert "pf-card__badge--on" in card2

@@ -24,6 +24,8 @@
   --pf-accent-ink-soft: #9a3412;  /* accent-dark text — readable on the soft accent tint */
   --pf-badge-on-bg: #dcefdf;      /* connected pill background — soft green tint */
   --pf-badge-on-ink: #1f7a3c;     /* connected pill text — readable green on the soft tint */
+  --pf-success: #1f7a3c;          /* success green — done-screen check circle icon */
+  --pf-danger: #c0392b;           /* danger red — destructive "Stop sharing" button fill */
 }
 
 .pf-page { min-height: 100%; background: var(--pf-bg); color: var(--pf-ink); font-family: var(--pf-font); } /* base canvas — brand bg + ink + Inter on the whole page */
@@ -85,3 +87,7 @@
 #consent_form .form-check { padding: 12px 0; border-bottom: 1px solid var(--pf-line); margin: 0; } /* consent row — comfortable padding, hairline divider between scopes */
 #consent_form .form-check:last-of-type { border-bottom: 0; } /* last row in each study section — no trailing divider */
 #consent_form button[type="submit"] { display: block; width: 100%; box-sizing: border-box; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; cursor: pointer; } /* submit button — pf-btn look; label text ("Save") comes from client-ow.js */
+
+.pf-check-circle { width: 56px; height: 56px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px; border-radius: 50%; background: var(--pf-badge-on-bg); color: var(--pf-success); font-size: 26px; } /* success circle — soft green ring around the done-screen check mark */
+.pf-btn--danger { background: var(--pf-danger); } /* danger button — red fill for the destructive "Stop sharing" action */
+.pf-btn--ghost { background: transparent; border: 1px solid var(--pf-line); color: var(--pf-ink); margin-top: 12px; } /* ghost button — outline style for the secondary "Back" action */

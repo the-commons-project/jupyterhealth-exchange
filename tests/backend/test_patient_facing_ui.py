@@ -157,6 +157,7 @@ def test_callback_page_frames_output_and_preserves_flow(db):
     assert "pf-rail" in html                              # progress rail present
     steps = _rail_step_classes(html)
     assert len(steps) == 3 and "is-active" in steps[2]    # step 3 active on callback
+    assert 'href="/patient/done/"' in html and "View summary" in html  # pe-7 link (Task 15)
 
 
 def test_ow_launch_is_branded_and_preserves_flow(db):

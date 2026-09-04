@@ -1,0 +1,26 @@
+{% extends "common/patient_facing/base.html" %}
+{% block title %}You're sharing{% endblock %}
+
+{% block pf_content %}
+{% include "common/patient_facing/components/header.html" %}
+
+<p class="pf-eyebrow">{{ ds.name }}</p>
+<h1 class="pf-h1">You're sharing</h1>
+<p class="pf-lede">The study is collecting the following from your {{ ds.name }}. Stop sharing to revoke your consent.</p>
+
+<div class="pf-consent-list">
+{% for row in rows %}
+<div class="pf-consent-row">
+  <span class="pf-consent-row__check"><i class="bi bi-check"></i></span>
+  <span class="pf-consent-row__label">{{ row }}</span>
+</div>
+{% endfor %}
+</div>
+
+<form method="post">
+{% csrf_token %}
+<input type="hidden" name="code" value="{{ code }}">
+<button class="pf-btn pf-btn--danger" type="submit">Stop sharing</button>
+</form>
+<a class="pf-btn pf-btn--ghost" href="{% url 'patient-landing' %}">Back</a>
+{% endblock %}
