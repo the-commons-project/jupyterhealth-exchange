@@ -1,9 +1,19 @@
 from urllib.parse import quote, unquote
 
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 
-from core.models import Patient, PatientInvitation, Study
+from core.models import (
+    ClientDataSource,
+    DataSource,
+    Patient,
+    PatientInvitation,
+    Study,
+    StudyPatient,
+    StudyPatientScopeConsent,
+)
+from core.views.ehr_patient_portal import EHR_PATIENT_PORTAL_CLIENT_NAME
 
 SESSION_KEY = "patient_portal_patient_id"
 SESSION_CODE_KEY = "patient_portal_code"
@@ -97,12 +107,73 @@ def landing(request):
     return render(request, "patient/landing.html", {"eyebrow": eyebrow, "cards": cards})
 
 
+def _pending_pairs(patient, ds):
+    """(study, scope_consent) for each of the patient's pending scopes this data source supports."""
+    supported = {s.id for s in ds.supported_scopes}
+    return [
+        (study, c)
+        for study in Study.studies_with_scopes(patient.id, pending=True)
+        for c in study.pending_scope_consents
+        if c["code"]["id"] in supported
+    ]
+
+
 def consent(request, data_source_id):
-    """Stub: consent screen (pe-3) lands in Task 14."""
-    patient, _invitation, _code = _resolve_patient(request)
+    """"What you'll share" (pe-3): list this source's pending scopes; on POST record consent
+    for each, then route into the source's own client (same client as the invitation reuses
+    its code; a different client gets its own invitation minted server-side)."""
+    patient, invitation, code = _resolve_patient(request)
     if patient is None:
         return _render_invalid(request)
-    return _render_invalid(request)
+
+    ds_list = DataSource.data_sources_with_scopes(data_source_id=data_source_id)
+    if not ds_list:
+        return _render_invalid(request)
+    ds = ds_list[0]
+    pairs = _pending_pairs(patient, ds)
+    if not pairs:
+        return _render_invalid(request)
+
+    if request.method == "POST":
+        now = timezone.now()
+        for study, c in pairs:
+            study_patient = StudyPatient.objects.get(study=study, patient=patient)
+            obj, created = StudyPatientScopeConsent.objects.get_or_create(
+                study_patient=study_patient,
+                scope_code_id=c["code"]["id"],
+                defaults={"consented": True, "consented_time": now},
+            )
+            if not created and not obj.consented:
+                obj.consented = True
+                obj.consented_time = now
+                obj.save()
+
+        link = ClientDataSource.objects.filter(data_source=ds).select_related("client__jhe_client").first()
+        if link is None:
+            return redirect(reverse("patient-landing"))
+        client = link.client
+
+        if invitation is not None and client.id == invitation.client_id:
+            # Same client as the invitation: reuse its own invitation_url -- except the EHR
+            # Patient Portal's invitation_url points back at this hub (/patient/), which would
+            # loop the patient back here instead of the hospital picker, so send it there.
+            if client.name == EHR_PATIENT_PORTAL_CLIENT_NAME:
+                url = reverse("ehr-patient-portal-connect") + f"?code={quote(code, safe='')}"
+            else:
+                url = client.jhe_client.invitation_url.replace("CODE", code)
+        else:
+            _new_invitation, url = PatientInvitation.build_link(patient, client)
+
+        return redirect(url)
+
+    studies = sorted({study.name for study, _c in pairs})
+    context = {
+        "ds": ds,
+        "eyebrow": f"{ds.name} · {' · '.join(studies)}",
+        "rows": [c for _study, c in pairs],
+        "code": code,
+    }
+    return render(request, "patient/consent.html", context)
 
 
 def manage(request, data_source_id):

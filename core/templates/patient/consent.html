@@ -1,0 +1,25 @@
+{% extends "common/patient_facing/base.html" %}
+{% block title %}What you'll share{% endblock %}
+
+{% block pf_content %}
+{% include "common/patient_facing/components/header.html" %}
+
+<p class="pf-eyebrow">{{ eyebrow }}</p>
+<h1 class="pf-h1">What you'll share</h1>
+<p class="pf-lede">To take part, the study will collect the following from your {{ ds.name }} while you're enrolled.</p>
+
+<div class="pf-consent-list">
+{% for c in rows %}
+<div class="pf-consent-row">
+  <span class="pf-consent-row__check"><i class="bi bi-check"></i></span>
+  <span class="pf-consent-row__label">{{ c.code.text }}</span>
+</div>
+{% endfor %}
+</div>
+
+<form method="post">
+{% csrf_token %}
+<input type="hidden" name="code" value="{{ code }}">
+<button class="pf-btn pf-btn--wide" type="submit">Agree and share</button>
+</form>
+{% endblock %}

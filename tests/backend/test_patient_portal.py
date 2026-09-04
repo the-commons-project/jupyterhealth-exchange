@@ -1,4 +1,5 @@
 import io
+from urllib.parse import quote
 
 import pytest
 from django.core.management import call_command
@@ -18,7 +19,7 @@ from core.models import (
     StudyPatientScopeConsent,
     StudyScopeRequest,
 )
-from core.views.patient_portal import SESSION_KEY, _invitation_from_code
+from core.views.patient_portal import SESSION_KEY, _invitation_from_code, _sources
 
 Application = get_application_model()
 
@@ -166,3 +167,117 @@ def test_peters_landing_shows_oura_and_your_studies_eyebrow(db):
     # Connected here; verified against the actual seeded consent rows, not assumed.
     assert "pf-card__badge--on" in card
     assert "Connected" in card
+
+
+def test_consent_get_lists_pending_clinical_records_row(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+
+    resp = Client().get(f"/patient/consent/{ds.id}/?code={code}")
+
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert "What you" in html and "share" in html
+    assert "Clinical records" in html
+    assert "Agree and share" in html
+    assert 'name="code"' in html
+    assert "csrfmiddlewaretoken" in html
+    assert "pf-consent-row" in html
+
+
+def test_consent_get_rejects_source_with_nothing_pending(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    # CareX is fully consented for Pamela already (see seed): nothing left to ask her about.
+    carex_ds = DataSource.objects.get(name="CareX")
+    code = _mint(pamela, ehr_client)
+
+    resp = Client().get(f"/patient/consent/{carex_ds.id}/?code={code}")
+
+    assert resp.status_code == 400
+    assert "invitation" in resp.content.decode().lower()
+
+
+def test_consent_post_creates_consent_and_routes_to_connect_page(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+
+    resp = Client().post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    assert resp.status_code == 302
+    assert resp.url == f"/clients/ehr-patient-portal/?code={quote(code, safe='')}"
+
+    study = Study.objects.get(name="Lifespan Study on BP & HR")
+    star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
+    study_patient = StudyPatient.objects.get(study=study, patient=pamela)
+    consent_row = StudyPatientScopeConsent.objects.get(study_patient=study_patient, scope_code=star)
+    assert consent_row.consented is True
+
+    source = next(s for s in _sources(pamela) if s["id"] == ds.id)
+    assert source["connected"] is True
+
+    inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client)
+    assert inv.status == PatientInvitation.Status.ISSUED
+
+
+def test_consent_post_is_idempotent(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+
+    first = Client().post(f"/patient/consent/{ds.id}/", {"code": code})
+    assert first.status_code == 302
+
+    # Nothing is pending for this source any more, so the second POST is a no-op that reports
+    # "nothing to consent to" rather than re-processing -- it must not error or duplicate rows.
+    second = Client().post(f"/patient/consent/{ds.id}/", {"code": code})
+    assert second.status_code == 400
+
+    study = Study.objects.get(name="Lifespan Study on BP & HR")
+    star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
+    study_patient = StudyPatient.objects.get(study=study, patient=pamela)
+    assert StudyPatientScopeConsent.objects.filter(study_patient=study_patient, scope_code=star).count() == 1
+
+
+def test_consent_post_cross_client_mints_carex_invitation(db):
+    call_command("seed", stdout=io.StringIO())
+    peter = Patient.objects.get(jhe_user__email="ll_patient_peter@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    carex_client = Application.objects.get(name="CareX")
+    carex_ds = DataSource.objects.get(name="CareX")
+    code = _mint(peter, ehr_client)
+
+    resp = Client().post(f"/patient/consent/{carex_ds.id}/", {"code": code})
+
+    assert resp.status_code == 302
+    assert resp.url.startswith("https://carex.ai/invitation/")
+
+    inv = PatientInvitation.objects.get(patient=peter, client=carex_client)
+    assert inv.status == PatientInvitation.Status.ISSUED
+
+    study = Study.objects.get(name="Lifespan Study on Sleep & BP")
+    study_patient = StudyPatient.objects.get(study=study, patient=peter)
+    bp_code = CodeableConcept.objects.get(coding_code="omh:blood-pressure:4.0")
+    consent_row = StudyPatientScopeConsent.objects.get(study_patient=study_patient, scope_code=bp_code)
+    assert consent_row.consented is True
+
+    source = next(s for s in _sources(peter) if s["id"] == carex_ds.id)
+    assert source["pending"] == []
+
+
+def test_consent_post_without_code_or_session_is_invalid(db):
+    call_command("seed", stdout=io.StringIO())
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+
+    resp = Client().post(f"/patient/consent/{ds.id}/", {})
+
+    assert resp.status_code == 400

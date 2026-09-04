@@ -73,3 +73,10 @@
 #hospital-results .list-group-item::after { content: "\f285"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; grid-column: 3; grid-row: 1 / 3; color: var(--pf-muted); justify-self: end; } /* chevron — trailing affordance */
 #hospital-results .fw-bold { grid-column: 2; grid-row: 1; font-weight: 600; color: var(--pf-ink); font-size: 15px; } /* row title — ink semibold */
 #hospital-results .small.text-muted { grid-column: 2; grid-row: 2; font-size: 13px; color: var(--pf-muted); } /* row address — muted caption under the title */
+
+.pf-consent-list { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); margin-bottom: 28px; overflow: hidden; } /* consent list — white rounded frame around the scope rows */
+.pf-consent-row { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-bottom: 1px solid var(--pf-line); } /* consent row — accent check + label, hairline under */
+.pf-consent-row:last-child { border-bottom: 0; } /* consent row — last row drops the trailing divider */
+.pf-consent-row__check { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--pf-accent-soft); color: var(--pf-accent); } /* check circle — soft accent tint matching the mockup */
+.pf-consent-row__label { font-weight: 600; font-size: 15px; color: var(--pf-ink); } /* row label — the scope's display text */
+.pf-btn--wide { display: block; width: 100%; box-sizing: border-box; text-align: center; } /* wide button — full-width, centered label */
