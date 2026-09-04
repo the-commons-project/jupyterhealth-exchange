@@ -1,4 +1,5 @@
 import io
+from datetime import timedelta
 from urllib.parse import quote
 
 import pytest
@@ -281,3 +282,113 @@ def test_consent_post_without_code_or_session_is_invalid(db):
     resp = Client().post(f"/patient/consent/{ds.id}/", {})
 
     assert resp.status_code == 400
+
+
+def test_landing_rejects_issued_invitation_past_expiration_window(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client, status=PatientInvitation.Status.ISSUED)
+    PatientInvitation.objects.filter(pk=inv.pk).update(last_updated=timezone.now() - timedelta(days=8))
+
+    resp = Client().get(f"/patient/?code={code}")
+
+    assert resp.status_code == 400
+
+
+def test_landing_rejects_redeemed_invitation_past_redemption_window(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client, status=PatientInvitation.Status.ISSUED)
+    PatientInvitation.objects.filter(pk=inv.pk).update(
+        status=PatientInvitation.Status.REDEEMED, last_updated=timezone.now() - timedelta(hours=13)
+    )
+
+    resp = Client().get(f"/patient/?code={code}")
+
+    assert resp.status_code == 400
+
+
+def test_landing_accepts_redeemed_invitation_within_redemption_window(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client, status=PatientInvitation.Status.ISSUED)
+    PatientInvitation.objects.filter(pk=inv.pk).update(
+        status=PatientInvitation.Status.REDEEMED, last_updated=timezone.now() - timedelta(hours=1)
+    )
+
+    resp = Client().get(f"/patient/?code={code}")
+
+    assert resp.status_code == 200
+
+
+def test_codeless_visit_after_cancellation_is_rejected_and_session_cleared(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    resp = client.get(f"/patient/?code={code}")
+    assert resp.status_code == 200
+    assert SESSION_KEY in client.session
+
+    inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client, status=PatientInvitation.Status.ISSUED)
+    PatientInvitation.objects.filter(pk=inv.pk).update(status=PatientInvitation.Status.CANCELLED)
+
+    resp2 = client.get("/patient/")
+
+    assert resp2.status_code == 400
+    assert SESSION_KEY not in client.session
+
+
+def test_codeless_visit_after_reissue_with_old_session_is_rejected(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+    resp = client.get(f"/patient/?code={code}")
+    assert resp.status_code == 200
+
+    PatientInvitation.build_link(pamela, ehr_client)  # mints a fresh invitation, marking the old one REISSUED
+
+    resp2 = client.get("/patient/")
+
+    assert resp2.status_code == 400
+
+
+def test_valid_visit_caps_session_expiry_to_redemption_window(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    client = Client()
+
+    resp = client.get(f"/patient/?code={code}")
+
+    assert resp.status_code == 200
+    age = client.session.get_expiry_age()
+    assert 0 < age <= 12 * 3600
+
+
+def test_consent_post_rejects_expired_code_and_creates_no_consent(db):
+    call_command("seed", stdout=io.StringIO())
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    ehr_client = Application.objects.get(name="EHR Patient Portal")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    code = _mint(pamela, ehr_client)
+    inv = PatientInvitation.objects.get(patient=pamela, client=ehr_client, status=PatientInvitation.Status.ISSUED)
+    PatientInvitation.objects.filter(pk=inv.pk).update(last_updated=timezone.now() - timedelta(days=8))
+
+    resp = Client().post(f"/patient/consent/{ds.id}/", {"code": code})
+
+    assert resp.status_code == 400
+    study = Study.objects.get(name="Lifespan Study on BP & HR")
+    star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
+    study_patient = StudyPatient.objects.get(study=study, patient=pamela)
+    assert not StudyPatientScopeConsent.objects.filter(study_patient=study_patient, scope_code=star).exists()

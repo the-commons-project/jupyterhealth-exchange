@@ -7,16 +7,28 @@ from django.utils import timezone
 from core.models import (
     ClientDataSource,
     DataSource,
-    Patient,
     PatientInvitation,
     Study,
     StudyPatient,
     StudyPatientScopeConsent,
 )
+from core.services.jhe_settings import get_setting
 from core.views.ehr_patient_portal import EHR_PATIENT_PORTAL_CLIENT_NAME
 
 SESSION_KEY = "patient_portal_patient_id"
 SESSION_CODE_KEY = "patient_portal_code"
+SESSION_INVITATION_KEY = "patient_portal_invitation_id"
+
+
+def _invitation_is_valid(inv):
+    """Mirrors PatientInvitation.redeem()'s validity window, without mutating status."""
+    if inv.status == PatientInvitation.Status.ISSUED:
+        expiration_days = get_setting("auth.patient.invitation_expiration_days", 7)
+        return (timezone.now() - inv.last_updated).days < expiration_days
+    if inv.status == PatientInvitation.Status.REDEEMED:
+        window_hours = get_setting("auth.patient.invitation_redemption_window_hours", 12)
+        return (timezone.now() - inv.last_updated).total_seconds() / 3600 <= window_hours
+    return False  # CANCELLED, EXPIRED, REISSUED
 
 
 def _invitation_from_code(code):
@@ -33,8 +45,7 @@ def _invitation_from_code(code):
         .filter(token_hash=PatientInvitation._hash_token(parts[1]))
         .first()
     )
-    bad = {PatientInvitation.Status.CANCELLED, PatientInvitation.Status.EXPIRED, PatientInvitation.Status.REISSUED}
-    return None if inv is None or inv.status in bad else inv
+    return inv if inv is not None and _invitation_is_valid(inv) else None
 
 
 def _resolve_patient(request):
@@ -46,10 +57,22 @@ def _resolve_patient(request):
             return None, None, code
         request.session[SESSION_KEY] = inv.patient_id
         request.session[SESSION_CODE_KEY] = code
+        request.session[SESSION_INVITATION_KEY] = inv.pk
+        window_hours = get_setting("auth.patient.invitation_redemption_window_hours", 12)
+        request.session.set_expiry(window_hours * 3600)  # session can't outlive the invitation's redemption window
         return inv.patient, inv, code
-    pid = request.session.get(SESSION_KEY)
-    patient = Patient.objects.filter(id=pid).first() if pid else None
-    return patient, None, request.session.get(SESSION_CODE_KEY, "")
+
+    inv_id = request.session.get(SESSION_INVITATION_KEY)
+    inv = (
+        PatientInvitation.objects.select_related("patient", "client__jhe_client").filter(pk=inv_id).first()
+        if inv_id
+        else None
+    )
+    if inv is None or not _invitation_is_valid(inv):  # re-check every codeless visit so revocation takes effect
+        for key in (SESSION_KEY, SESSION_CODE_KEY, SESSION_INVITATION_KEY):
+            request.session.pop(key, None)
+        return None, None, ""
+    return inv.patient, inv, request.session.get(SESSION_CODE_KEY, "")
 
 
 def _sources(patient):
