@@ -18,7 +18,7 @@ from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from oauth2_provider.models import get_access_token_model
+from oauth2_provider.models import get_access_token_model, get_application_model
 from oauth2_provider.views import TokenView
 from oauthlib.common import Request
 
@@ -221,7 +221,11 @@ def portal(request, path):
 
 
 def ow_launch(request):
-    return render(request, "clients/ow/launch.html")
+    # The seeded "Open Wearables" client's linked DataSource names the wearable in the connect copy.
+    app = get_application_model().objects.filter(name="Open Wearables").first()
+    link = app.data_sources.order_by("id").first() if app else None
+    source_name = link.data_source.name if link else "your wearable"
+    return render(request, "clients/ow/launch.html", {"source_name": source_name})
 
 
 def ow_complete(request):

@@ -1,7 +1,9 @@
+import io
 import re
 from pathlib import Path
 
 from django.conf import settings
+from django.core.management import call_command
 from django.template.loader import render_to_string
 from django.test import Client
 
@@ -155,6 +157,46 @@ def test_callback_page_frames_output_and_preserves_flow(db):
     assert "pf-rail" in html                              # progress rail present
     steps = _rail_step_classes(html)
     assert len(steps) == 3 and "is-active" in steps[2]    # step 3 active on callback
+
+
+def test_ow_launch_is_branded_and_preserves_flow(db):
+    resp = Client().get("/clients/ow/launch")
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert 'class="pf-page"' in html                      # branded base applied
+    assert "clients/ow/js/client-ow.js" in html            # flow JS loaded
+    assert "Connect your" in html                          # pe-4 headline
+    assert 'id="out"' in html
+    assert 'id="consent_form"' in html
+    for entrypoint in (
+        "run(",
+        "parseInvitationCode(",
+        "renderConsentForm(",
+        "submitConsents(",
+        "continueOwFlow(",
+        "getOuraAuthUrl(",
+    ):
+        assert entrypoint in html, f"missing flow entrypoint {entrypoint}"
+
+    call_command("seed", stdout=io.StringIO())
+    resp = Client().get("/clients/ow/launch")
+    assert "Connect your Oura" in resp.content.decode()    # seeded OW DataSource name
+
+
+def test_ow_manage_and_complete_render_on_branded_base(db):
+    resp = Client().get("/clients/ow/manage")
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert 'class="pf-page"' in html
+    assert 'id="consent_form"' in html
+    assert 'id="status_badge"' in html
+
+    resp = Client().get("/clients/ow/complete")
+    assert resp.status_code == 200
+    html = resp.content.decode()
+    assert 'class="pf-page"' in html
+    assert 'id="out"' in html
+    assert 'id="manage_link"' in html
 
 
 def test_invitation_email_is_branded_and_typo_free():

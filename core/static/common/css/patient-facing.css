@@ -80,3 +80,8 @@
 .pf-consent-row__check { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--pf-accent-soft); color: var(--pf-accent); } /* check circle — soft accent tint matching the mockup */
 .pf-consent-row__label { font-weight: 600; font-size: 15px; color: var(--pf-ink); } /* row label — the scope's display text */
 .pf-btn--wide { display: block; width: 100%; box-sizing: border-box; text-align: center; } /* wide button — full-width, centered label */
+
+#consent_form form { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); padding: 20px; margin-bottom: 20px; } /* JS-rendered consent form — white card frame around the study rows */
+#consent_form .form-check { padding: 12px 0; border-bottom: 1px solid var(--pf-line); margin: 0; } /* consent row — comfortable padding, hairline divider between scopes */
+#consent_form .form-check:last-of-type { border-bottom: 0; } /* last row in each study section — no trailing divider */
+#consent_form button[type="submit"] { display: block; width: 100%; box-sizing: border-box; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; cursor: pointer; } /* submit button — pf-btn look; label text ("Save") comes from client-ow.js */

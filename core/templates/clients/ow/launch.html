@@ -1,14 +1,16 @@
 {% extends "clients/ow/base.html" %} {% block title %}Launch{% endblock %}
 
-{% block body_content %}
+{% block pf_content %}
+{% include "common/patient_facing/components/header.html" %}
 
-<div class="w-100 text-center mt-5">
-  <h1>OW Client</h1>
-  <pre id="out" class="text-start ms-5 me-5">
-  </pre>
-  <div id="consent_form" class="text-start ms-5 me-5 mt-4"></div>
-</div>
+<p class="pf-eyebrow">{{ source_name }}</p>
+<h1 class="pf-h1">Connect your {{ source_name }}</h1>
+<p class="pf-lede">You'll sign in with {{ source_name }} to authorize sharing. JupyterHealth never sees your {{ source_name }} username or password.</p>
 
+<div class="pf-callout">After you authorize, your selected data will sync automatically.</div>
+
+<pre id="out" class="pf-log" hidden></pre>
+<div id="consent_form"></div>
 {% endblock %}
 
 {% block body_footer %}
