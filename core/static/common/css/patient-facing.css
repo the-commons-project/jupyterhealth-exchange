@@ -20,13 +20,15 @@
   --pf-radius-lg: 16px;      /* large corner radius — cards, primary buttons */
   --pf-font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; /* type family — Inter with system fallback */
   --pf-maxw: 620px;          /* content measure — max width of the centered column */
+  --pf-accent-soft: #fbe4d5;      /* light accent tint — done bars, callout/avatar backgrounds */
+  --pf-accent-ink-soft: #9a3412;  /* accent-dark text — readable on the soft accent tint */
 }
 
 .pf-page { min-height: 100%; background: var(--pf-bg); color: var(--pf-ink); font-family: var(--pf-font); } /* base canvas — brand bg + ink + Inter on the whole page */
 .pf-page__inner { max-width: var(--pf-maxw); margin: 0 auto; padding: 40px 20px 64px; } /* content column — centered, constrained measure */
 .pf-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--pf-line); } /* brand bar — logo left, secure marker right, hairline under */
 .pf-header__brand { display: flex; align-items: center; gap: 10px; font-weight: 700; } /* brand lockup — logo + product name, bold */
-.pf-header__logo { width: 26px; height: 26px; } /* logo mark — fixed square so any brand image sits consistently */
+.pf-header__logo { height: 28px; width: auto; object-fit: contain; } /* logo mark — fixed height, natural width so wide lockups aren't squashed */
 .pf-header__secure { color: var(--pf-muted); font-size: 14px; } /* secure marker — muted lock + label, reassurance not emphasis */
 .pf-eyebrow { margin-top: 40px; color: var(--pf-accent); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; } /* eyebrow — accent-colored context label above the H1 */
 .pf-h1 { margin: 8px 0 12px; font-weight: 700; font-size: 34px; line-height: 1.1; letter-spacing: -.01em; } /* page title — large tight Inter bold */
@@ -40,3 +42,27 @@
 .pf-btn { display: inline-block; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; text-decoration: none; cursor: pointer; } /* primary button — accent fill, uppercase label */
 .pf-input { width: 100%; box-sizing: border-box; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); font: inherit; padding: 13px 14px; } /* text input — white field matching card radius */
 .pf-log { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); padding: 16px; color: var(--pf-ink); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; } /* import log — frames the flow JS's text output as an intentional receipt */
+
+.pf-rail { display: flex; list-style: none; gap: 20px; margin: 24px 0 0; padding: 0; } /* rail — three steps laid out side by side */
+.pf-rail__step { flex: 1; position: relative; padding-top: 14px; } /* step slot — room above the label row for the top bar */
+.pf-rail__step::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 2px; background: var(--pf-line); } /* pending bar — hairline until the step is active or done */
+.pf-rail__step.is-active::before { background: var(--pf-accent); } /* active bar — full accent color */
+.pf-rail__step.is-done::before { background: var(--pf-accent-soft); } /* done bar — light accent tint */
+.pf-rail__num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--pf-line); color: var(--pf-muted); font-size: 12px; font-weight: 700; margin-right: 8px; } /* step badge — muted fill while pending */
+.pf-rail__step.is-active .pf-rail__num, .pf-rail__step.is-done .pf-rail__num { background: var(--pf-accent); color: var(--pf-accent-ink); } /* step badge — filled accent once active or done */
+.pf-rail__label { font-size: 13px; font-weight: 600; color: var(--pf-muted); } /* label — muted while pending */
+.pf-rail__step.is-active .pf-rail__label, .pf-rail__step.is-done .pf-rail__label { color: var(--pf-ink); } /* label — ink once active or done */
+
+.pf-callout { margin: 0 0 28px; padding: 16px 18px; background: var(--pf-accent-soft); border-left: 3px solid var(--pf-accent); border-radius: var(--pf-radius); color: var(--pf-accent-ink-soft); font-size: 15px; line-height: 1.5; } /* info callout — soft accent panel with left accent rule */
+
+.pf-search { position: relative; } /* search wrapper — lets the leading icon sit over the input */
+.pf-search::before { content: "\f52a"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--pf-muted); pointer-events: none; } /* search icon — leading glyph inside the field */
+#hospital-search.pf-input { padding-left: 40px; } /* search input — indent so text clears the leading icon */
+
+#hospital-results .list-group { border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); overflow: hidden; background: var(--pf-surface); } /* row group — rounded card wrapping all result rows */
+#hospital-results .list-group-item { display: grid; grid-template-columns: 44px 1fr 20px; grid-template-rows: auto auto; align-items: center; column-gap: 12px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--pf-line); background: var(--pf-surface); padding: 12px 16px; cursor: pointer; } /* row — grid keeps avatar/text/chevron aligned without extra markup */
+#hospital-results .list-group-item:last-child { border-bottom: 0; } /* last row — no trailing divider */
+#hospital-results .list-group-item::before { content: "\f1dd"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; grid-column: 1; grid-row: 1 / 3; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); color: var(--pf-accent); background: var(--pf-accent-soft); } /* avatar — building glyph stand-in for a brand letter, no JS needed */
+#hospital-results .list-group-item::after { content: "\f285"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; grid-column: 3; grid-row: 1 / 3; color: var(--pf-muted); justify-self: end; } /* chevron — trailing affordance */
+#hospital-results .fw-bold { grid-column: 2; grid-row: 1; font-weight: 600; color: var(--pf-ink); font-size: 15px; } /* row title — ink semibold */
+#hospital-results .small.text-muted { grid-column: 2; grid-row: 2; font-size: 13px; color: var(--pf-muted); } /* row address — muted caption under the title */
