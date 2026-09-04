@@ -1,6 +1,9 @@
 from oauth2_provider.models import get_application_model
 
 from core.models import JheClient
+from core.views.patient_invitation import _single_pending_study_name
+
+from .utils import Code, add_patient_to_study, create_study
 
 Application = get_application_model()
 
@@ -19,3 +22,22 @@ def test_create_invitation_returns_201(api_client, user, patient):
     )
     assert r.status_code == 201, r.text
     assert "invitationLink" in r.json()
+
+
+def test_single_pending_study_name_none_when_no_pending_studies(db, patient):
+    # A freshly-created patient has no study enrollment, so no pending study to name.
+    assert _single_pending_study_name(patient) is None
+
+
+def test_single_pending_study_name_returns_name_of_sole_pending_study(organization, patient):
+    study = create_study(name="Cardiometabolic Health Study", organization=organization, codes=[Code.HeartRate])
+    add_patient_to_study(patient=patient, study=study, consent=False)
+    assert _single_pending_study_name(patient) == "Cardiometabolic Health Study"
+
+
+def test_single_pending_study_name_none_when_multiple_pending_studies(organization, patient):
+    study_a = create_study(name="Study A", organization=organization, codes=[Code.HeartRate])
+    study_b = create_study(name="Study B", organization=organization, codes=[Code.BloodPressure])
+    add_patient_to_study(patient=patient, study=study_a, consent=False)
+    add_patient_to_study(patient=patient, study=study_b, consent=False)
+    assert _single_pending_study_name(patient) is None

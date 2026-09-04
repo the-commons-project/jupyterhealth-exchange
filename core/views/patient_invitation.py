@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.mail import EmailMessage
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
@@ -10,11 +11,19 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from core.models import Patient, PatientInvitation
+from core.models import Patient, PatientInvitation, Study
 from core.models.patient_invitation import InvitationCancelled, InvitationConflict, InvitationExpired
 from core.serializers import PatientInvitationSerializer
+from core.services.jhe_settings import get_setting
 
 Application = get_application_model()
+
+
+def _single_pending_study_name(patient):
+    # Name of the patient's one pending study, for the pe-1 invitation email; None if the
+    # patient has zero or several pending studies (the email then falls back to generic copy).
+    studies = Study.studies_with_scopes(patient.id, pending=True)
+    return studies[0].name if len(studies) == 1 else None
 
 
 class PatientInvitationViewSet(ModelViewSet):
@@ -52,6 +61,8 @@ class PatientInvitationViewSet(ModelViewSet):
                 {
                     "patient_name": patient.name_given,
                     "invitation_link": link,
+                    "site_url": get_setting("site.url", settings.SITE_URL),
+                    "study_name": _single_pending_study_name(patient),
                 },
             )
             email = EmailMessage("JHE Invitation", message, to=[patient.jhe_user.email])

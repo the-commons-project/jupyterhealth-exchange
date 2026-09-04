@@ -94,7 +94,18 @@ def test_config_context_brand_defaults(monkeypatch):
     monkeypatch.setattr(epp, "_ehr_patient_portal_client", lambda: None)
     ctx = epp._config_context()
     assert ctx["brand_name"] == "JupyterHealth"
-    assert ctx["brand_logo"] == "common/images/jupyterhealth-logo.jpg"
+    assert ctx["brand_logo"] == "common/images/jupyterhealth-mark.png"
+
+
+def test_default_logo_is_the_square_mark(monkeypatch):
+    from core.views import ehr_patient_portal as epp
+
+    monkeypatch.setattr(epp, "_ehr_patient_portal_client", lambda: None)
+    ctx = epp._config_context()
+    assert ctx["brand_logo"] == "common/images/jupyterhealth-mark.png"
+    mark = STATIC / "common" / "images" / "jupyterhealth-mark.png"
+    assert mark.exists()
+    assert mark.stat().st_size > 5000
 
 
 def test_config_context_brand_from_aux_data(monkeypatch):
@@ -149,7 +160,11 @@ def test_callback_page_frames_output_and_preserves_flow(db):
 def test_invitation_email_is_branded_and_typo_free():
     html = render_to_string(
         "registration/invitation_email.html",
-        {"patient_name": "Maria", "invitation_link": "https://jhe.example/redeem?code=abc"},
+        {
+            "patient_name": "Maria",
+            "invitation_link": "https://jhe.example/redeem?code=abc",
+            "site_url": "https://jhe.example",
+        },
     )
     assert "JupyterHeath" not in html                  # typo fixed
     assert "JupyterHealth" in html                     # correct brand
@@ -157,3 +172,29 @@ def test_invitation_email_is_branded_and_typo_free():
     assert "https://jhe.example/redeem?code=abc" in html  # link preserved
     assert "Get started" in html or "GET STARTED" in html # pe-1 CTA
     assert "style=" in html                            # inline-styled for email clients
+
+
+def test_invitation_email_footer_mark_and_study():
+    html = render_to_string(
+        "registration/invitation_email.html",
+        {
+            "patient_name": "Maria",
+            "invitation_link": "https://jhe.example/r?code=abc",
+            "site_url": "https://jhe.example",
+            "study_name": "Cardiometabolic Health Study",
+        },
+    )
+    assert "You received this because a study team invited you" in html
+    assert "https://jhe.example/static/common/images/jupyterhealth-mark.png" in html
+    assert "<strong>Cardiometabolic Health Study</strong>" in html
+
+    html_no_study = render_to_string(
+        "registration/invitation_email.html",
+        {
+            "patient_name": "Maria",
+            "invitation_link": "https://jhe.example/r?code=abc",
+            "site_url": "https://jhe.example",
+        },
+    )
+    assert "invited to securely share" in html_no_study
+    assert "<strong>" not in html_no_study

@@ -45,7 +45,7 @@ def _config_context():
         "ehr_patient_portal_data_source_id": link.data_source_id if link else "",
         # Brand values are client-specific, so they live in aux_data (§7.6), with JH defaults.
         "brand_name": aux.get("brand_name", "JupyterHealth"),
-        "brand_logo": aux.get("brand_logo", "common/images/jupyterhealth-logo.jpg"),
+        "brand_logo": aux.get("brand_logo", "common/images/jupyterhealth-mark.png"),
     }
 
 
