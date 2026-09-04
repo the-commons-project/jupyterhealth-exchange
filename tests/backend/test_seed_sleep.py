@@ -85,7 +85,8 @@ def test_only_ehr_and_ow_clients_are_patient_facing(seeded):
     assert SEED_MANAGED_AUX_KEYS == {"scopes"}  # patient_facing is operator-owned, never re-applied by seed
 
 
-def test_site_logo_setting_is_seeded_empty(seeded):
-    setting = JheSetting.objects.get(key="site.ui.logo")
+@pytest.mark.parametrize("key", ["site.ui.logo", "site.ui.theme_css"])
+def test_patient_facing_brand_settings_are_seeded_empty(seeded, key):
+    setting = JheSetting.objects.get(key=key)
     assert setting.value_type == "string"
     assert not setting.get_value()

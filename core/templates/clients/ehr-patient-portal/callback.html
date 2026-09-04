@@ -1,5 +1,6 @@
 {% extends "clients/ehr-patient-portal/base.html" %}
 {% block title %}Importing records{% endblock %}
+{% block pf_back %}{% endblock %}
 
 {% block pf_content %}
 {% include "clients/ehr-patient-portal/progress_rail.html" with active_step=3 %}
@@ -27,11 +28,9 @@
   <div class="pf-import-card">
     <div class="pf-import-card__title">Syncing your records…</div>
     <div class="pf-progress"><div class="pf-progress__bar"></div></div>
-    <p class="pf-import-card__copy">This usually takes under a minute. Keep this page open; when it finishes, your summary is one tap away.</p>
+    <p class="pf-import-card__copy">This usually takes under a minute. Keep this page open; your summary opens when it finishes.</p>
   </div>
 </div>
-<p class="pf-lede">When the sync finishes, view your summary.</p>
-<p><a class="pf-btn" href="{% url 'patient-done' %}">View summary</a></p>
 {% endblock %}
 
 {% block body_footer %}
@@ -59,6 +58,11 @@
       out.textContent += "\nError: " + (e && e.message ? e.message : e);
     })
     .then(function () {
+      var log = out.textContent;
+      // The flow reports per-type failures as "could not fetch"; none saved at all is a failed import.
+      if (log.indexOf("could not fetch") !== -1 && log.indexOf("saved ") === -1) {
+        out.textContent += "\nError: none of your record types could be fetched";
+      }
       if (out.textContent.indexOf("Error:") !== -1) {
         showFlowError(out, pfErrorWrap);
       } else {

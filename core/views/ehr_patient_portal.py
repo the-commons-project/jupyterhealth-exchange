@@ -104,7 +104,18 @@ def _config_context():
 
 def ehr_patient_portal_connect(request):
     """Patient-facing start page: invitation -> JHE token -> Epic authorize."""
-    return render(request, "clients/ehr-patient-portal/connect.html", _config_context())
+    from core.views.patient_portal import (  # noqa: PLC0415 -- patient_portal imports this module
+        _resolve_patient,
+        consent_gate,
+    )
+
+    patient, _invitation, code = _resolve_patient(request)  # seeds the session the done page needs after the import
+    context = _config_context()
+    if patient is not None and context["ehr_patient_portal_data_source_id"]:
+        redirect_to_consent = consent_gate(patient, code, context["ehr_patient_portal_data_source_id"])
+        if redirect_to_consent is not None:
+            return redirect_to_consent
+    return render(request, "clients/ehr-patient-portal/connect.html", context)
 
 
 def ehr_patient_portal_callback(request):

@@ -259,11 +259,22 @@ def _client_flow_url(patient, invitation, code, ds):
         return reverse("patient-landing")
     client = link.client
     if invitation is not None and client.id == invitation.client_id:
-        if client.name == EHR_PATIENT_PORTAL_CLIENT_NAME:  # its invitation_url is this hub; go to the picker
-            return reverse("ehr-patient-portal-connect") + f"?code={quote(code, safe='')}"
-        return client.jhe_client.invitation_url.replace("CODE", quote(code, safe=""))
-    _new_invitation, url = PatientInvitation.build_link(patient, client)
+        url = client.jhe_client.invitation_url.replace("CODE", quote(code, safe=""))
+    else:
+        _new_invitation, url = PatientInvitation.build_link(patient, client)
+    if client.name == EHR_PATIENT_PORTAL_CLIENT_NAME:  # its invitation_url is this hub; go straight to the picker
+        return reverse("ehr-patient-portal-connect") + "?code=" + url.split("code=", 1)[1]
     return url
+
+
+def consent_gate(patient, code, data_source_id):
+    """A redirect to the consent page when this source has nothing consented for the patient, else None."""
+    ds = _patient_facing_source(int(data_source_id))
+    if ds is None:
+        return None
+    if any(c["consented"] for _study, c in Study.scope_consents_for_data_source(patient.id, ds)):
+        return None
+    return redirect(reverse("patient-consent", args=[ds.id]) + f"?code={quote(code, safe='')}")
 
 
 def _render_invalid(request):
@@ -364,7 +375,7 @@ def done(request):
         next(iter(primary["studies"])) if primary is not None and len(primary["studies"]) == 1 else "your study team"
     )
     lede = (
-        f"Your selected data is now shared with {study}. You can manage or disconnect any source anytime."
+        f"You've agreed to share your selected data with {study}. You can manage or disconnect any source anytime."
         if primary is not None
         else "Nothing is shared yet."
     )

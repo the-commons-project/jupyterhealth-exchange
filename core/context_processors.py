@@ -64,6 +64,7 @@ def constants(request):
         "SITE_URL": site_url,
         "SITE_LOGO": site_logo or DEFAULT_LOGO,
         "SITE_LOGO_IS_CUSTOM": bool(site_logo),
+        "SITE_THEME_CSS": get_setting("site.ui.theme_css", ""),  # static path of a token-override stylesheet
         "OIDC_CLIENT_AUTHORITY_PATH": settings.OIDC_CLIENT_AUTHORITY_PATH,
         "OAUTH2_CALLBACK_PATH": settings.OAUTH2_CALLBACK_PATH,
         "OIDC_CLIENT_ID": _get_oidc_client_id(),

@@ -226,6 +226,7 @@ class Command(BaseCommand):
             ("site.url", "string", settings.SITE_URL),
             ("site.ui.title", "string", "JupyterHealth Exchange"),
             ("site.ui.logo", "string", ""),  # static path of a deployment's own logo for patient-facing pages
+            ("site.ui.theme_css", "string", ""),  # static path of a stylesheet overriding the --pf-* tokens/fonts
             ("site.time_zone", "string", "America/Los_Angeles"),
             ("site.registration_invite_code", "string", invite_code),
             ("auth.default_orgs", "string", ""),  # "20001:viewer;20002:member"

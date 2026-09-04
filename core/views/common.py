@@ -1,6 +1,6 @@
 import logging
 import secrets
-from urllib.parse import parse_qs, quote, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import jwt
 from allauth.account.models import EmailAddress
@@ -25,7 +25,7 @@ from oauthlib.common import Request
 from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
 from core.models import DataSource, JheUser, Study
 from core.services.jhe_settings import get_setting
-from core.views.patient_portal import _patient_label, _resolve_patient
+from core.views.patient_portal import _patient_label, _resolve_patient, consent_gate
 
 from ..forms import UserRegistrationForm
 
@@ -221,10 +221,12 @@ def ow_launch(request):
     ds = sources[0] if sources else None
     labels = [scope.text for scope in ds.supported_scopes] if ds else []
     if ds and patient is not None:
-        consented = [c for _study, c in Study.scope_consents_for_data_source(patient.id, ds) if c["consented"]]
-        if not consented:  # an invitation issued through this client still goes through the consent screen
-            return redirect(reverse("patient-consent", args=[ds.id]) + f"?code={quote(code, safe='')}")
-        labels = [c["code"]["text"] for c in consented]
+        redirect_to_consent = consent_gate(patient, code, ds.id)  # an OW-issued invitation still consents first
+        if redirect_to_consent is not None:
+            return redirect_to_consent
+        labels = [
+            c["code"]["text"] for _study, c in Study.scope_consents_for_data_source(patient.id, ds) if c["consented"]
+        ]
     context = {
         "source_name": ds.name if ds else "your wearable",
         "source_labels": ", ".join(_patient_label(text) for text in labels if text),

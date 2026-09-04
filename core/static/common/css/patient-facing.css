@@ -1,6 +1,12 @@
 /* patient-facing.css — themeable layer for the patient journey.
-   Rebrand by overriding the :root tokens below and setting the site.ui.logo / site.ui.title settings.
-   Every color/type/radius the UI renders comes from a token here; nothing visual is hardcoded. */
+   Every color/type/radius the UI renders comes from a token here; nothing visual is hardcoded.
+   To rebrand a deployment without editing this file, drop in files and set three JHE Settings:
+     1. a stylesheet that redeclares the :root tokens below (and, for another typeface, its own @font-face rules
+        plus --pf-font), e.g. common/css/themes/acme.css with its woff2 files beside it;
+     2. site.ui.theme_css = that stylesheet's static path (it loads after this one, so its tokens win);
+     3. site.ui.logo = the static path of your logo; site.ui.title = your product name — every patient page
+        and the invitation email read them;
+     4. run collectstatic. */
 
 /* Inter, vendored locally so it works under strict CSP (no font CDN). */
 @font-face { font-family: "Inter"; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/inter/inter-400.woff2") format("woff2"); }
@@ -36,6 +42,7 @@
 .pf-header__logo { height: 32px; width: auto; object-fit: contain; } /* logo mark — fixed legible height, natural width, no box/border/background */
 .pf-header__secure { color: var(--pf-muted); font-size: 14px; } /* secure marker — muted lock + label, reassurance not emphasis */
 .pf-eyebrow { margin-top: 40px; color: var(--pf-accent); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; } /* eyebrow — accent-colored context label above the H1 */
+.pf-eyebrow--tight { margin-top: 0; } /* eyebrow as a field label — no gap above when it sits inside a section */
 .pf-h1 { margin: 8px 0 12px; font-weight: 700; font-size: 34px; line-height: 1.1; letter-spacing: -.01em; } /* page title — large tight Inter bold */
 .pf-lede { margin: 0 0 28px; color: var(--pf-muted); font-size: 17px; line-height: 1.5; } /* lede — muted supporting paragraph under the title */
 .pf-card { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); padding: 18px 20px; display: flex; align-items: center; gap: 16px; } /* card — white rounded source/summary row */
@@ -74,7 +81,7 @@
 #pf_error_wrap .pf-actions { margin-top: 16px; } /* error actions — buttons sit below the red box, not inside it */
 
 .pf-search { position: relative; } /* search wrapper — lets the leading icon sit over the input, and frames the results dropdown */
-.pf-search::before { content: "\f52a"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--pf-muted); pointer-events: none; } /* search icon — leading glyph inside the field */
+.pf-search::before { content: "\f52a"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; position: absolute; left: 14px; top: 13px; color: var(--pf-muted); pointer-events: none; } /* search icon — pinned to the input's padding line, so it stays put when the results list grows the wrapper */
 #hospital-search.pf-input { padding-left: 40px; } /* search input — indent so text clears the leading icon */
 #hospital-search:placeholder-shown ~ #hospital-results { display: none; } /* results — hidden until the patient types */
 
@@ -93,10 +100,6 @@
 .pf-consent-row__label { font-weight: 600; font-size: 15px; color: var(--pf-ink); } /* row label — the scope's display text */
 .pf-btn--wide { display: block; width: 100%; box-sizing: border-box; text-align: center; } /* wide button — full-width, centered label */
 
-#consent_form form { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); padding: 20px; margin-bottom: 20px; } /* JS-rendered consent form — white card frame around the study rows */
-#consent_form .form-check { padding: 12px 0; border-bottom: 1px solid var(--pf-line); margin: 0; } /* consent row — comfortable padding, hairline divider between scopes */
-#consent_form .form-check:last-of-type { border-bottom: 0; } /* last row in each study section — no trailing divider */
-#consent_form button[type="submit"] { display: block; width: 100%; box-sizing: border-box; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; cursor: pointer; } /* submit button — pf-btn look; label text ("Save") comes from client-ow.js */
 
 .pf-check-circle { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; border-radius: 50%; background: var(--pf-badge-on-bg); color: var(--pf-success); font-size: 26px; } /* success circle — block-level so it starts its own line below the back button; soft green ring around the check */
 .pf-btn--danger { background: var(--pf-danger); color: var(--pf-accent-ink); } /* danger button — red fill for the destructive "Stop sharing" action */

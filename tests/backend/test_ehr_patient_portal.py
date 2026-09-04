@@ -139,15 +139,15 @@ def test_callback_page_frames_the_import_and_auto_advances(db, client):
     assert "pf-import-card" in html and "pf-progress" in html and "Syncing your records" in html
     steps = _rail_step_classes(html)
     assert len(steps) == 3 and "is-active" in steps[2]
-    assert 'href="/patient/done/"' in html and "View summary" in html
-    assert "When the sync finishes, view your summary." in html
-    assert "pf-back" in html and 'href="/patient/"' in html
+    # No exits while the import runs: no View summary link and no Back link, so a partial receipt can't be captured.
+    assert "View summary" not in html and "pf-back" not in html
     assert "We couldn't reach your healthcare organization" in html
     callout, actions = _error_wrap(html)
     assert "pf-btn" not in callout
     assert 'href="/clients/ehr-patient-portal/"' in actions and "Choose a different organization" in actions
     script = html.split("finishEhrPatientPortalConnect", 1)[1]
     assert "/patient/done/" in script and "showFlowError" in script
+    assert "could not fetch" in script and "saved " in script  # an all-types-failed run is an error, not a success
 
 
 def test_progress_rail_marks_active_and_done_steps():

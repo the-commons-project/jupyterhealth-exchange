@@ -3,6 +3,7 @@
 
 {% block head %}
   <link rel="stylesheet" href="{% static 'common/css/patient-facing.css' %}?v={{ JHE_VERSION }}" />
+  {% if SITE_THEME_CSS %}<link rel="stylesheet" href="{% static SITE_THEME_CSS %}?v={{ JHE_VERSION }}" />{% endif %}
   {% block pf_head %}{% endblock %}
 {% endblock %}
 

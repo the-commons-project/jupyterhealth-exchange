@@ -69,7 +69,6 @@ def test_patient_facing_css_defines_tokens_and_component_hooks():
         ".pf-receipt__row",
         ".pf-receipt__n",
         ".pf-receipt__heading",
-        "#hospital-results",
     ):
         assert cls in CSS, f"missing component class {cls}"
 
@@ -110,6 +109,20 @@ def test_header_shows_a_custom_logo_with_the_site_title(db, client):
     site_title = re.search(r"<title>(.*?) - ", html).group(1)
     assert site_title in header.split("pf-header__secure", 1)[0].replace(f'alt="{site_title}"', "")
     cache.delete("jhe_setting:site.ui.logo")
+
+
+def test_theme_stylesheet_setting_loads_after_the_base_stylesheet(db, client):
+    setting = JheSetting(key="site.ui.theme_css")
+    setting.set_value("string", "common/css/themes/acme.css")
+    setting.save()
+    cache.delete("jhe_setting:site.ui.theme_css")
+
+    html = client.get("/clients/ehr-patient-portal/").content.decode()
+
+    base = html.index("common/css/patient-facing.css")
+    theme = html.index("/static/common/css/themes/acme.css")
+    assert base < theme  # the theme's :root tokens win by cascade order
+    cache.delete("jhe_setting:site.ui.theme_css")
 
 
 def test_ow_launch_without_a_code_renders_the_branded_connect_card(seeded, client):

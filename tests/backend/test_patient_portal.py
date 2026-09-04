@@ -462,3 +462,36 @@ def test_done_leads_with_the_most_recently_consented_source_without_a_session_ma
 
     assert resp.status_code == 200
     assert [row["name"] for row in resp.context["rows"]] == ["EHR Patient Portal"]  # not Peter's older Oura consent
+
+
+def test_ehr_connect_with_an_unconsented_code_goes_through_consent_first(client, code, ehr_ds):
+    resp = client.get(f"/clients/ehr-patient-portal/?code={code}")
+
+    assert resp.status_code == 302
+    assert resp.url == f"/patient/consent/{ehr_ds.id}/?code={code}"
+
+
+def test_ehr_connect_with_a_consented_code_primes_the_session_for_the_done_page(client, pamela, star, code):
+    study_patient = StudyPatient.objects.get(study__name="Lifespan Study on BP & HR", patient=pamela)
+    StudyPatientScopeConsent.objects.create(
+        study_patient=study_patient, scope_code=star, consented=True, consented_time=timezone.now()
+    )
+
+    assert client.get(f"/clients/ehr-patient-portal/?code={code}").status_code == 200
+    resp = client.get("/patient/done/")
+
+    assert resp.status_code == 200
+    assert [row["name"] for row in resp.context["rows"]] == ["EHR Patient Portal"]
+
+
+def test_consent_post_cross_client_to_clinical_records_lands_on_the_picker(client, peter, ow_app, ehr_app, ehr_ds):
+    code = mint_invitation_code(peter, ow_app)
+
+    resp = client.post(f"/patient/consent/{ehr_ds.id}/", {"code": code})
+
+    assert resp.status_code == 302
+    assert resp.url.startswith("/clients/ehr-patient-portal/?code=localhost%3A8001_")
+    assert code not in resp.url  # the EHR client's own freshly minted invitation, not the OW one
+    assert PatientInvitation.objects.filter(
+        patient=peter, client=ehr_app, status=PatientInvitation.Status.ISSUED
+    ).exists()
