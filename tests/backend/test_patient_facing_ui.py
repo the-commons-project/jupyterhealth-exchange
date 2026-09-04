@@ -14,6 +14,14 @@ def _rail_step_classes(html):
     return re.findall(r'<li class="pf-rail__step([^"]*)"', html)
 
 
+def _pf_error_parts(html):
+    # Splits at the .pf-error box's own 4 closing </div> tags (icon, title, body, box) so
+    # tests can assert the Try again/Back buttons render outside the red callout (pa-06).
+    after_open = html.split('<div class="pf-error"', 1)[1]
+    parts = after_open.split("</div>", 4)
+    return "</div>".join(parts[:4]), parts[4]
+
+
 def test_inter_woff2_weights_are_vendored():
     font_dir = STATIC / "common" / "css" / "fonts" / "inter"
     for weight in (400, 500, 600, 700):
@@ -40,10 +48,10 @@ def test_patient_facing_css_defines_tokens_and_font():
     for cls in (".pf-page", ".pf-header", ".pf-eyebrow", ".pf-h1", ".pf-lede",
                 ".pf-card", ".pf-card__badge", ".pf-log",
                 ".pf-rail", ".pf-callout", "#hospital-results",
-                ".pf-card__icon", ".pf-actions", ".pf-back"):
+                ".pf-card__icon", ".pf-actions", ".pf-back",
+                ".pf-error", ".pf-error__msg"):
         assert cls in css, f"missing component class {cls}"
-    # Status log stays visible until the hospital picker reveals (i.e. only hides on success).
-    assert "#hospital-picker:not([hidden]) ~ #out" in css
+    assert "--pf-danger-soft" in css  # error callout soft-red background token (pa-06)
     # The lockup logo renders at legible size, no box/border/background around it.
     assert "height: 32px" in css.split(".pf-header__logo", 1)[1].split("}", 1)[0]
 
@@ -75,6 +83,24 @@ def test_patient_facing_css_styles_back_as_a_ghost_button():
     check_circle_rule = css.split(".pf-check-circle {", 1)[1].split("}", 1)[0]
     assert "display: flex" in check_circle_rule
     assert "inline-flex" not in check_circle_rule
+
+
+def test_patient_facing_css_sizes_action_buttons_uniformly():
+    css = (STATIC / "common" / "css" / "patient-facing.css").read_text()
+    # .pf-btn, .pf-btn--ghost and .pf-btn--danger must share sizing (padding/font-size/
+    # line-height/min-height) so a Try again/Back or Stop sharing/Back pair renders at the
+    # same height in a .pf-actions row -- only color/border may differ between them.
+    shared_rule = css.split(".pf-btn, .pf-btn--ghost, .pf-btn--danger {", 1)[1].split("}", 1)[0]
+    assert "padding: 14px 22px" in shared_rule
+    assert "min-height" in shared_rule
+    assert "font-size: 15px" in shared_rule
+    assert "line-height" in shared_rule
+    # The ghost rule itself carries no smaller/competing padding of its own.
+    ghost_rule = css.split(".pf-btn--ghost {", 1)[1].split("}", 1)[0]
+    assert "padding" not in ghost_rule
+    assert "margin-top" not in ghost_rule  # would offset it within a flex .pf-actions row
+    actions_rule = css.split("\n.pf-actions {", 1)[1].split("}", 1)[0]  # the base rule, not #pf_error_wrap's override
+    assert "align-items: stretch" in actions_rule
 
 
 def test_patient_facing_css_defines_receipt_component():
@@ -212,7 +238,7 @@ def test_connect_page_is_branded_and_preserves_js_hooks(db):
     assert 'id="hospital-picker"' in html                # JS/test hooks preserved
     assert 'id="hospital-search"' in html
     assert 'id="hospital-results"' in html
-    assert '<pre id="out" class="pf-log">' in html        # visible by default -- failures show up
+    assert '<pre id="out" class="pf-log" hidden>' in html  # always hidden now -- errors surface via pf_error
     assert html.index('id="hospital-picker"') < html.index('id="out"')  # #out follows the picker in DOM order
     # The results list now lives inside the search wrapper, right after the input (§F) --
     # DOM position is free since the flow JS looks these up by id, not by nesting.
@@ -227,6 +253,12 @@ def test_connect_page_is_branded_and_preserves_js_hooks(db):
     assert "We only sync the records you approve" in html  # info callout copy
     assert "sign in with them directly" in html            # new lede copy
     assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
+    assert 'id="pf_error_wrap"' in html and "hidden" in html.split('id="pf_error_wrap"', 1)[1].split(">", 1)[0]
+    assert "We couldn't process your invitation" in html   # pa-06 error title
+    inside_error, outside_error = _pf_error_parts(html)
+    assert "pf-btn" not in inside_error                     # buttons are NOT inside the red callout (pa-06 correction)
+    assert "Try again" in outside_error and "pf-actions" in outside_error
+    assert "showFlowError" in html                          # inline error-callout hook (Task 21)
 
 
 def test_callback_page_frames_output_and_preserves_flow(db):
@@ -246,6 +278,15 @@ def test_callback_page_frames_output_and_preserves_flow(db):
     assert 'href="/patient/done/"' in html and "View summary" in html  # pe-7 link (Task 15)
     assert "When the sync finishes, view your summary." in html  # guards mid-import taps, log is hidden now
     assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
+    assert 'id="pf_error_wrap"' in html
+    assert "We couldn't reach your healthcare organization" in html  # pa-06 error title
+    inside_error, outside_error = _pf_error_parts(html)
+    assert "pf-btn" not in inside_error                     # buttons are NOT inside the red callout (pa-06 correction)
+    assert "Try again" in outside_error and "pf-actions" in outside_error
+    # The auto-advance script (Task 21) navigates to patient-done on a successful settle.
+    script = html.split("finishEhrPatientPortalConnect", 1)[1]
+    assert "/patient/done/" in script
+    assert "showFlowError" in script
 
 
 def test_ow_launch_is_branded_and_preserves_flow(db):
@@ -258,19 +299,30 @@ def test_ow_launch_is_branded_and_preserves_flow(db):
     assert 'id="out"' in html
     assert 'id="consent_form"' in html
     assert "pf-back" in html and 'href="/patient/"' in html  # back link to the hub (§H)
+    assert 'id="pf_error_wrap"' in html
+    assert "We couldn't connect your wearable" in html      # pa-06 error title
+    inside_error, outside_error = _pf_error_parts(html)
+    assert "pf-btn" not in inside_error                     # buttons are NOT inside the red callout (pa-06 correction)
+    assert "Try again" in outside_error and "pf-actions" in outside_error
+    assert 'id="ow_connect"' in html                         # pe-4 card + Continue, revealed after redeem (Task 21)
+    assert 'id="ow_continue"' in html
     for entrypoint in (
         "run(",
         "parseInvitationCode(",
-        "renderConsentForm(",
-        "submitConsents(",
         "continueOwFlow(",
         "getOuraAuthUrl(",
     ):
         assert entrypoint in html, f"missing flow entrypoint {entrypoint}"
+    # Consent is now recorded server-side before this page, so the old in-page consent
+    # form flow must be gone -- only the (now-unused, kept for other pages) function name
+    # from client-ow.js may appear, never an actual call to it.
+    assert "renderConsentForm(" not in html
 
     call_command("seed", stdout=io.StringIO())
     resp = Client().get("/clients/ow/launch")
-    assert "Connect your Oura" in resp.content.decode()    # seeded OW DataSource name
+    html = resp.content.decode()
+    assert "Connect your Oura" in html                      # seeded OW DataSource name
+    assert "Continue to Oura" in html                        # pe-4 button label
 
 
 def test_ow_manage_and_complete_render_on_branded_base(db):

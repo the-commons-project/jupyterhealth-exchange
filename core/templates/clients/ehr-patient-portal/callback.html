@@ -11,6 +11,20 @@
 <h1 class="pf-h1">Importing your records</h1>
 <p class="pf-lede">Securely syncing your records into your study. Keep this page open while we finish.</p>
 
+<div id="pf_error_wrap" hidden>
+  <div class="pf-error" id="pf_error">
+    <div class="pf-error__icon"><i class="bi bi-exclamation-circle"></i></div>
+    <div class="pf-error__body">
+      <div class="pf-error__title">We couldn't reach your healthcare organization</div>
+      <p class="pf-error__msg"></p>
+    </div>
+  </div>
+  <div class="pf-actions">
+    <a class="pf-btn" href="">Try again</a>
+    <a class="pf-btn pf-btn--ghost" href="{{ hub_url }}">Back</a>
+  </div>
+</div>
+
 <div class="pf-import">
   <pre id="out" class="pf-log"></pre>
   <div class="pf-import-card">
@@ -26,6 +40,33 @@
 {% block body_footer %}
 <script>
   var out = document.getElementById("out");
-  finishEhrPatientPortalConnect(out, EHR_PATIENT_PORTAL_CONFIG);
+  var pfErrorWrap = document.getElementById("pf_error_wrap");
+
+  // Scans out's log for the last "Error:" line and reveals wrapEl (callout + actions) with that message.
+  function showFlowError(out, wrapEl) {
+    var lines = out.textContent.split("\n");
+    var msg = "";
+    for (var i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].indexOf("Error:") === 0) {
+        msg = lines[i].slice("Error:".length).trim();
+        break;
+      }
+    }
+    if (!msg) return;
+    wrapEl.querySelector(".pf-error__msg").textContent = msg;
+    wrapEl.hidden = false;
+  }
+
+  Promise.resolve(finishEhrPatientPortalConnect(out, EHR_PATIENT_PORTAL_CONFIG))
+    .catch(function (e) {
+      out.textContent += "\nError: " + (e && e.message ? e.message : e);
+    })
+    .then(function () {
+      if (out.textContent.indexOf("Error:") !== -1) {
+        showFlowError(out, pfErrorWrap);
+      } else {
+        window.location.href = "{% url 'patient-done' %}";
+      }
+    });
 </script>
 {% endblock %}

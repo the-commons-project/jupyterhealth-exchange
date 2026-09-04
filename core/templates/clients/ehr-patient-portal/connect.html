@@ -13,6 +13,20 @@
 
 <div class="pf-callout">We only sync the records you approve, over an encrypted connection, and only into the study you were invited to. You can disconnect at any time.</div>
 
+<div id="pf_error_wrap" hidden>
+  <div class="pf-error" id="pf_error">
+    <div class="pf-error__icon"><i class="bi bi-exclamation-circle"></i></div>
+    <div class="pf-error__body">
+      <div class="pf-error__title">We couldn't process your invitation</div>
+      <p class="pf-error__msg"></p>
+    </div>
+  </div>
+  <div class="pf-actions">
+    <a class="pf-btn" href="">Try again</a>
+    <a class="pf-btn pf-btn--ghost" href="{{ hub_url }}">Back</a>
+  </div>
+</div>
+
 <div id="hospital-picker" hidden>
   <label for="hospital-search" class="pf-eyebrow" style="margin-top:0">Find your healthcare organization</label>
   <div class="pf-search">
@@ -20,17 +34,40 @@
     <div id="hospital-results"></div>
   </div>
 </div>
-<pre id="out" class="pf-log"></pre>
+<pre id="out" class="pf-log" hidden></pre>
 {% endblock %}
 
 {% block body_footer %}
 <script>
   var out = document.getElementById("out");
+  var pfErrorWrap = document.getElementById("pf_error_wrap");
   var picker = {
     container: document.getElementById("hospital-picker"),
     input: document.getElementById("hospital-search"),
     results: document.getElementById("hospital-results"),
   };
-  startEhrPatientPortalConnect(out, EHR_PATIENT_PORTAL_CONFIG, picker);
+
+  // Scans out's log for the last "Error:" line and reveals wrapEl (callout + actions) with that message.
+  function showFlowError(out, wrapEl) {
+    var lines = out.textContent.split("\n");
+    var msg = "";
+    for (var i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].indexOf("Error:") === 0) {
+        msg = lines[i].slice("Error:".length).trim();
+        break;
+      }
+    }
+    if (!msg) return;
+    wrapEl.querySelector(".pf-error__msg").textContent = msg;
+    wrapEl.hidden = false;
+  }
+
+  Promise.resolve(startEhrPatientPortalConnect(out, EHR_PATIENT_PORTAL_CONFIG, picker))
+    .catch(function (e) {
+      out.textContent += "\nError: " + (e && e.message ? e.message : e);
+    })
+    .then(function () {
+      showFlowError(out, pfErrorWrap);
+    });
 </script>
 {% endblock %}

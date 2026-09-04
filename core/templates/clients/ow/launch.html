@@ -11,8 +11,38 @@
 
 <div class="pf-callout">After you authorize, your selected data will sync automatically.</div>
 
+<div id="pf_error_wrap" hidden>
+  <div class="pf-error" id="pf_error">
+    <div class="pf-error__icon"><i class="bi bi-exclamation-circle"></i></div>
+    <div class="pf-error__body">
+      <div class="pf-error__title">We couldn't connect your wearable</div>
+      <p class="pf-error__msg"></p>
+    </div>
+  </div>
+  <div class="pf-actions">
+    <a class="pf-btn" href="">Try again</a>
+    <a class="pf-btn pf-btn--ghost" href="{{ hub_url }}">Back</a>
+  </div>
+</div>
+
+<div id="ow_connect" hidden>
+  <div class="pf-card-stack">
+    <div class="pf-card">
+      <div class="pf-card__icon"><i class="bi bi-smartwatch"></i></div>
+      <div class="pf-card__body">
+        <div class="pf-card__title">{{ source_name }}</div>
+        <div class="pf-card__desc">{{ source_labels }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="pf-actions">
+    <button id="ow_continue" class="pf-btn">Continue to {{ source_name }}</button>
+    <a class="pf-btn pf-btn--ghost" href="{{ hub_url }}">Back</a>
+  </div>
+</div>
+
 <pre id="out" class="pf-log" hidden></pre>
-<div id="consent_form"></div>
+<div id="consent_form" hidden></div>
 {% endblock %}
 
 {% block body_footer %}
@@ -20,7 +50,24 @@
 <!-- put functions in core/static/clients/ow/js/client-ow.js and core/static/common/js/common.js as needed and keep formatting consistent -->
 <script>
     var out = document.getElementById("out");
-    var consentForm = document.getElementById("consent_form");
+    var pfErrorWrap = document.getElementById("pf_error_wrap");
+    var owConnect = document.getElementById("ow_connect");
+    var owContinueBtn = document.getElementById("ow_continue");
+
+    // Scans out's log for the last "Error:" line and reveals wrapEl (callout + actions) with that message.
+    function showFlowError(out, wrapEl) {
+        var lines = out.textContent.split("\n");
+        var msg = "";
+        for (var i = lines.length - 1; i >= 0; i--) {
+            if (lines[i].indexOf("Error:") === 0) {
+                msg = lines[i].slice("Error:".length).trim();
+                break;
+            }
+        }
+        if (!msg) return;
+        wrapEl.querySelector(".pf-error__msg").textContent = msg;
+        wrapEl.hidden = false;
+    }
 
     async function run() {
         out.textContent = "Processing link...";
@@ -69,36 +116,19 @@
         var accessToken = tokens.access_token;
         storeToken(accessToken);
 
-        // 3. Fetch consents and let the patient choose what to share.
-        // JHE study consents are the single source of truth for what
-        // ow_poll will actually pull and store; the Oura OAuth scope
-        // grant on the next step is just a capability ceiling.
-        out.textContent += "\n\nLoading consents...";
-        var profile = await getPatientProfile(accessToken);
-        if (!profile || !profile.patient) {
-            out.textContent += "\nError: failed to load patient profile";
-            return;
-        }
-        var patientId = profile.patient.id;
-        var consentsData = await getConsents(accessToken, patientId);
-        if (!consentsData) {
-            out.textContent += "\nError: failed to load consents";
-            return;
-        }
-        out.textContent += "\nReview the data each study may collect, then click Save to continue.";
-
-        renderConsentForm(consentForm, consentsData, async function (decisions) {
-            consentForm.innerHTML = "";
-            out.textContent += "\n\nSaving consents...";
-            var createdOk = await submitConsents(accessToken, patientId, decisions.created, "POST");
-            var updatedOk = await submitConsents(accessToken, patientId, decisions.updated, "PATCH");
-            if (!createdOk || !updatedOk) {
-                out.textContent += "\nError: failed to save consents";
-                return;
-            }
-            out.textContent += "\nConsents saved";
-            await continueOwFlow(accessToken);
-        });
+        // 3. Consent is now recorded server-side (on /patient/consent/<ds>/) before this link
+        // is sent, so just reveal the connect card and wire the button to continue to Oura.
+        out.textContent += "\n\nReady to connect.";
+        owContinueBtn.onclick = function () {
+            Promise.resolve(continueOwFlow(accessToken))
+                .catch(function (e) {
+                    out.textContent += "\nError: " + (e && e.message ? e.message : e);
+                })
+                .then(function () {
+                    showFlowError(out, pfErrorWrap);
+                });
+        };
+        owConnect.hidden = false;
     }
 
     async function continueOwFlow(accessToken) {
@@ -126,6 +156,12 @@
         window.location.href = ouraAuth.authorizationUrl;
     }
 
-    run();
+    Promise.resolve(run())
+        .catch(function (e) {
+            out.textContent += "\nError: " + (e && e.message ? e.message : e);
+        })
+        .then(function () {
+            showFlowError(out, pfErrorWrap);
+        });
 </script>
 {% endblock %}
