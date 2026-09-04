@@ -242,10 +242,6 @@ def ow_complete(request):
     return render(request, "clients/ow/complete.html", {"error": error})
 
 
-def ow_manage(request):
-    return render(request, "clients/ow/manage.html")
-
-
 def json_error(msg, status_code=400):
     """Return a JSON error message"""
     response = JsonResponse({"error": msg})

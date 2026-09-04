@@ -45,21 +45,6 @@
     var owConnect = document.getElementById("ow_connect");
     var owContinueBtn = document.getElementById("ow_continue");
 
-    // Reveals the error callout with the last "Error:" line the flow wrote to the log.
-    function showFlowError(out, wrapEl) {
-        var lines = out.textContent.split("\n");
-        var msg = "";
-        for (var i = lines.length - 1; i >= 0; i--) {
-            if (lines[i].indexOf("Error:") === 0) {
-                msg = lines[i].slice("Error:".length).trim();
-                break;
-            }
-        }
-        if (!msg) return;
-        wrapEl.querySelector(".pf-error__msg").textContent = msg;
-        wrapEl.hidden = false;
-    }
-
     async function run() {
         out.textContent = "Processing link...";
 

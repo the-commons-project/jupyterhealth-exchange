@@ -38,21 +38,6 @@
   var out = document.getElementById("out");
   var pfErrorWrap = document.getElementById("pf_error_wrap");
 
-  // Reveals the error callout with the last "Error:" line the flow wrote to the log.
-  function showFlowError(out, wrapEl) {
-    var lines = out.textContent.split("\n");
-    var msg = "";
-    for (var i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].indexOf("Error:") === 0) {
-        msg = lines[i].slice("Error:".length).trim();
-        break;
-      }
-    }
-    if (!msg) return;
-    wrapEl.querySelector(".pf-error__msg").textContent = msg;
-    wrapEl.hidden = false;
-  }
-
   Promise.resolve(finishEhrPatientPortalConnect(out, EHR_PATIENT_PORTAL_CONFIG))
     .catch(function (e) {
       out.textContent += "\nError: " + (e && e.message ? e.message : e);
