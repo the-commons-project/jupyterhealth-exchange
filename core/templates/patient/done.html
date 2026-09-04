@@ -2,10 +2,6 @@
 {% block title %}You're all set{% endblock %}
 
 {% block pf_content %}
-{% include "common/patient_facing/components/header.html" %}
-{% url 'patient-landing' as hub_url %}
-{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
-
 <div class="pf-check-circle"><i class="bi bi-check-lg"></i></div>
 <h1 class="pf-h1">You're all set</h1>
 <p class="pf-lede">{{ lede }}</p>
@@ -19,20 +15,7 @@
 {% endfor %}
 </div>
 
-{% if receipt %}
-<div class="pf-receipt">
-{% for label, n in receipt.synced %}
-<div class="pf-receipt__row"><span>{{ label }}</span><span class="pf-receipt__n">{{ n }}</span></div>
-{% endfor %}
-{% if receipt.not_synced %}
-<div class="pf-receipt__heading">Not synced</div>
-{% for label, n in receipt.not_synced %}
-<div class="pf-receipt__row pf-receipt__row--pending"><span>{{ label }}</span><span class="pf-receipt__n">{{ n }}</span></div>
-{% endfor %}
-{% endif %}
-<div class="pf-receipt__row pf-receipt__row--total"><span>Total synced</span><span class="pf-receipt__n">{{ receipt.total }}</span></div>
-</div>
-{% endif %}
+{% if receipt %}{% include "common/patient_facing/components/receipt.html" with receipt=receipt %}{% endif %}
 
 <a class="pf-btn" href="{% url 'patient-landing' %}">Manage sharing</a>
 {% endblock %}

@@ -6,13 +6,16 @@ seed still completes.
 """
 
 import pytest
-from django.core.management import call_command
 from oauth2_provider.models import get_application_model
 
+from core.management.commands.seed import SEED_MANAGED_AUX_KEYS
 from core.models import (
     ClientDataSource,
+    CodeableConcept,
     DataSource,
     DataSourceSupportedScope,
+    JheClient,
+    JheSetting,
     Observation,
     Patient,
     Study,
@@ -23,11 +26,6 @@ from core.models import (
 
 SLEEP_CODE = "ieee:sleep-episode:1.0"
 STUDY_NAME = "Lifespan Study on Sleep & BP"
-
-
-@pytest.fixture
-def seeded(db):
-    call_command("seed")
 
 
 def test_oura_supports_sleep_episode_and_heart_rate(seeded):
@@ -60,3 +58,34 @@ def test_patients_have_schema_valid_sleep_observations(seeded, email):
         assert observation.data_source.name == "Oura"
         # sleep-episode requires a time_interval, so both period columns must be populated.
         assert observation.effective_period_start and observation.effective_period_end
+
+
+def test_bp_hr_study_requests_clinical_records_via_ehr_patient_portal(seeded):
+    study = Study.objects.get(name="Lifespan Study on BP & HR")
+    ds = DataSource.objects.get(name="EHR Patient Portal")
+    star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
+    assert star.text == "Clinical records"
+    assert StudyDataSource.objects.filter(study=study, data_source=ds).exists()
+    assert StudyScopeRequest.objects.filter(study=study, scope_code=star).exists()
+
+    pamela = Patient.objects.get(jhe_user__email="ll_patient_pamela@example.com")
+    pending = Study.studies_with_scopes(pamela.id, pending=True)
+    assert any(
+        s.id == study.id and any(c["code"]["coding_code"] == "*" for c in s.pending_scope_consents) for s in pending
+    )
+    assert JheClient.objects.get(application__name="EHR Patient Portal").invitation_url.endswith("/patient/?code=CODE")
+
+
+def test_only_ehr_and_ow_clients_are_patient_facing(seeded):
+    flags = {
+        name: (JheClient.objects.get(application__name=name).aux_data or {}).get("patient_facing")
+        for name in ("EHR Patient Portal", "Open Wearables", "CareX")
+    }
+    assert flags == {"EHR Patient Portal": True, "Open Wearables": True, "CareX": None}
+    assert SEED_MANAGED_AUX_KEYS == {"scopes"}  # patient_facing is operator-owned, never re-applied by seed
+
+
+def test_site_logo_setting_is_seeded_empty(seeded):
+    setting = JheSetting.objects.get(key="site.ui.logo")
+    assert setting.value_type == "string"
+    assert not setting.get_value()

@@ -79,11 +79,10 @@ def sleep_episode_data_point(start, hours_asleep, awakenings):
 
 
 # aux_data keys seed owns outright: their value is derived from application code (the
-# scope list must match EHR_PATIENT_PORTAL_PULLS, and patient_facing must match which clients
-# actually have a patient-facing flow), so a stale deployed value is a bug and seed overwrites
-# it on every run. Every other key -- notably the EHR-registered `client_id`, which differs
-# per deployment -- belongs to whoever set it and is preserved.
-SEED_MANAGED_AUX_KEYS = frozenset({"scopes", "patient_facing"})
+# scope list must match EHR_PATIENT_PORTAL_PULLS), so a stale deployed value is a bug and seed
+# overwrites it on every run. Every other key -- notably the EHR-registered `client_id`, which
+# differs per deployment -- belongs to whoever set it and is preserved.
+SEED_MANAGED_AUX_KEYS = frozenset({"scopes"})
 
 
 def _merged_aux_data(existing, seeded):
@@ -226,6 +225,7 @@ class Command(BaseCommand):
             # wrong server.
             ("site.url", "string", settings.SITE_URL),
             ("site.ui.title", "string", "JupyterHealth Exchange"),
+            ("site.ui.logo", "string", ""),  # static path of a deployment's own logo for patient-facing pages
             ("site.time_zone", "string", "America/Los_Angeles"),
             ("site.registration_invite_code", "string", invite_code),
             ("auth.default_orgs", "string", ""),  # "20001:viewer;20002:member"
@@ -387,9 +387,7 @@ class Command(BaseCommand):
                 "name": "Open Wearables",
                 "invitation_url": "http://localhost:8001/clients/ow/launch?code=CODE",
                 "data_sources": ["Oura"],
-                # Has its own patient-facing flow (/clients/ow/launch), unlike a direct-to-API
-                # integration such as CareX -- the hub (_sources in patient_portal.py) reads
-                # this to decide which sources a patient can discover there.
+                # Has its own patient-facing flow; the /patient/ hub only lists sources flagged this way.
                 "aux_data": {"patient_facing": True},
             },
             {
@@ -408,9 +406,7 @@ class Command(BaseCommand):
                 # jhe.fly.dev equivalent) are registered separately on the Epic app at
                 # fhir.epic.com -- they must be updated there in step with this path.
                 "name": "EHR Patient Portal",
-                # The invitation lands on the "Choose how to share" patient portal landing
-                # page (/patient/), not directly on this client's connect page -- the patient
-                # picks which data to share (personal devices vs. clinical records) there first.
+                # Lands on the /patient/ hub so the patient picks a source first.
                 "invitation_url": "http://localhost:8001/patient/?code=CODE",
                 # The client and its DataSource are one and the same product (as with CareX),
                 # so they share a name and are linked here. That ClientDataSource row is the
@@ -419,10 +415,6 @@ class Command(BaseCommand):
                 "data_sources": ["EHR Patient Portal"],
                 # No iss here: the hospital the patient picks supplies it (EhrBrand.fhir_base_url).
                 "aux_data": {
-                    # Has its own patient-facing flow (/clients/ehr-patient-portal/), unlike a
-                    # direct-to-API integration such as CareX -- the hub (_sources in
-                    # patient_portal.py) reads this to decide which sources a patient can
-                    # discover there.
                     "patient_facing": True,
                     # Non-production client id of the Epic app "JupyterHealth Exchange -
                     # USCDI v3" (appId 55446), the app that has the localhost:8001 +
@@ -558,10 +550,7 @@ class Command(BaseCommand):
         ehr_patient_portal_client = get_application_model().objects.get(name="EHR Patient Portal")
         StudyClient.objects.create(study=lifespan_study_bp_hr, client=ehr_patient_portal_client)
 
-        # The study also requests clinical records via the EHR Patient Portal, so the
-        # "Choose how to share" landing page has a Clinical records card to show out of
-        # the box. Left PENDING below (excluded from the auto-consent loop) so the demo
-        # walkthrough starts from an unconsented state.
+        # Also requests clinical records via the EHR Patient Portal; left pending so the demo starts unconsented.
         ehr_patient_portal_ds = DataSource.objects.get(name="EHR Patient Portal")
         StudyDataSource.objects.create(study=lifespan_study_bp_hr, data_source=ehr_patient_portal_ds)
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_fhir_star)

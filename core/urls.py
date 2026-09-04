@@ -64,9 +64,6 @@ urlpatterns = [
     path(".well-known/assetlinks.json", common.assetlinks, name="assetlinks"),
     # Home
     path("", common.home, name="home"),
-    # OW Portal
-    path("clients/ow/", common.ow_client, name="ow_client"),
-    path("clients/ow/complete", common.ow_client_complete, name="ow_client_complete"),
     # Django auth and accounts
     path("accounts/login/", common.LoginView.as_view(), name="login"),
     path("accounts/login-otp/", common.request_login_otp, name="login-otp"),

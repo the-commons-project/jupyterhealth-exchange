@@ -1,17 +1,13 @@
 {% extends "clients/ow/base.html" %} {% block title %}Launch{% endblock %}
 
 {% block pf_content %}
-{% include "common/patient_facing/components/header.html" %}
-{% url 'patient-landing' as hub_url %}
-{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
-
 <p class="pf-eyebrow">{{ source_name }}</p>
 <h1 class="pf-h1">Connect your {{ source_name }}</h1>
-<p class="pf-lede">You'll sign in with {{ source_name }} to authorize sharing. JupyterHealth never sees your {{ source_name }} username or password.</p>
+<p class="pf-lede">You'll sign in with {{ source_name }} to authorize sharing. {{ SITE_TITLE }} never sees your {{ source_name }} username or password.</p>
 
 <div class="pf-callout">After you authorize, your selected data will sync automatically.</div>
 
-<div id="pf_error_wrap" hidden>
+<div id="pf_error_wrap" hidden aria-live="polite">
   <div class="pf-error" id="pf_error">
     <div class="pf-error__icon"><i class="bi bi-exclamation-circle"></i></div>
     <div class="pf-error__body">
@@ -33,12 +29,11 @@
   </div>
   <div class="pf-actions">
     <button id="ow_continue" class="pf-btn">Continue to {{ source_name }}</button>
-    <a class="pf-btn pf-btn--ghost" href="{{ hub_url }}">Back</a>
+    <a class="pf-btn pf-btn--ghost" href="{% url 'patient-landing' %}">Back</a>
   </div>
 </div>
 
-<pre id="out" class="pf-log" hidden></pre>
-<div id="consent_form" hidden></div>
+<pre id="out" hidden></pre>
 {% endblock %}
 
 {% block body_footer %}
@@ -50,7 +45,7 @@
     var owConnect = document.getElementById("ow_connect");
     var owContinueBtn = document.getElementById("ow_continue");
 
-    // Scans out's log for the last "Error:" line and reveals wrapEl (callout + actions) with that message.
+    // Reveals the error callout with the last "Error:" line the flow wrote to the log.
     function showFlowError(out, wrapEl) {
         var lines = out.textContent.split("\n");
         var msg = "";
@@ -112,8 +107,7 @@
         var accessToken = tokens.access_token;
         storeToken(accessToken);
 
-        // 3. Consent is now recorded server-side (on /patient/consent/<ds>/) before this link
-        // is sent, so just reveal the connect card and wire the button to continue to Oura.
+        // 3. Consent was recorded on /patient/consent/<ds>/ before this page; just reveal the connect card.
         out.textContent += "\n\nReady to connect.";
         owContinueBtn.onclick = function () {
             Promise.resolve(continueOwFlow(accessToken))

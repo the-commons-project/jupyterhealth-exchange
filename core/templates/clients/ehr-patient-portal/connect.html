@@ -2,10 +2,7 @@
 {% block title %}Connect clinical records{% endblock %}
 
 {% block pf_content %}
-{% include "common/patient_facing/components/header.html" %}
-{% url 'patient-landing' as hub_url %}
-{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
-{% include "common/patient_facing/components/progress_rail.html" with active_step=1 %}
+{% include "clients/ehr-patient-portal/progress_rail.html" with active_step=1 %}
 
 <p class="pf-eyebrow">Clinical records</p>
 <h1 class="pf-h1">Share your medical records</h1>
@@ -13,7 +10,7 @@
 
 <div class="pf-callout">We only sync the records you approve, over an encrypted connection, and only into the study you were invited to. You can disconnect at any time.</div>
 
-<div id="pf_error_wrap" hidden>
+<div id="pf_error_wrap" hidden aria-live="polite">
   <div class="pf-error" id="pf_error">
     <div class="pf-error__icon"><i class="bi bi-exclamation-circle"></i></div>
     <div class="pf-error__body">
@@ -23,7 +20,7 @@
   </div>
   <div class="pf-actions">
     <a class="pf-btn" href="">Try again</a>
-    <a class="pf-btn pf-btn--ghost" href="{{ hub_url }}">Back</a>
+    <a class="pf-btn pf-btn--ghost" href="{% url 'patient-landing' %}">Back</a>
   </div>
 </div>
 
@@ -34,7 +31,7 @@
     <div id="hospital-results"></div>
   </div>
 </div>
-<pre id="out" class="pf-log" hidden></pre>
+<pre id="out" hidden></pre>
 {% endblock %}
 
 {% block body_footer %}
@@ -47,7 +44,7 @@
     results: document.getElementById("hospital-results"),
   };
 
-  // Scans out's log for the last "Error:" line and reveals wrapEl (callout + actions) with that message.
+  // Reveals the error callout with the last "Error:" line the flow wrote to the log.
   function showFlowError(out, wrapEl) {
     var lines = out.textContent.split("\n");
     var msg = "";

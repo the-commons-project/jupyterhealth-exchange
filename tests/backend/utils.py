@@ -18,6 +18,7 @@ from core.models import (
     Observation,
     Organization,
     Patient,
+    PatientInvitation,
     PatientOrganization,
     Study,
     StudyPatient,
@@ -145,6 +146,21 @@ def add_observations(patient: Patient, code: Code | str, n: int) -> None:
             )
         )
     Observation.objects.bulk_create(observations, batch_size=100)
+
+
+def mint_invitation_code(patient, client) -> str:
+    """The wire-format invitation code (the part of the link after `code=`, still percent-encoded)."""
+    _invitation, link = PatientInvitation.build_link(patient, client)
+    return link.split("code=", 1)[1]
+
+
+def card_block(html: str, title: str) -> str:
+    """The <a class="pf-card-link"> block of the hub card titled `title`."""
+    for block in html.split('<a class="pf-card-link"')[1:]:
+        card = block.split("</a>")[0]
+        if title in card:
+            return card
+    raise AssertionError(f"no pf-card-link block found for {title!r}")
 
 
 def get_link(bundle: dict, rel: str) -> str | None:

@@ -1,3 +1,4 @@
+from django.core import mail
 from oauth2_provider.models import get_application_model
 
 from core.models import JheClient
@@ -22,6 +23,26 @@ def test_create_invitation_returns_201(api_client, user, patient):
     )
     assert r.status_code == 201, r.text
     assert "invitationLink" in r.json()
+
+
+def test_create_invitation_sends_a_branded_email(api_client, user, patient):
+    client_app = Application.objects.create(
+        name="invite client",
+        user=user,
+        client_type=Application.CLIENT_PUBLIC,
+        authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
+    )
+    JheClient.objects.create(application=client_app, invitation_url="https://example.org/CODE")
+    mail.outbox = []
+
+    r = api_client.post(
+        "/api/v1/invitation",
+        {"patient_id": patient.id, "client_id": client_app.id, "send_email": True},
+    )
+
+    assert r.status_code == 201, r.text
+    assert mail.outbox[0].subject == "You're invited to share your health data"
+    assert "/static/common/images/jupyterhealth-logo.png" in mail.outbox[0].body
 
 
 def test_single_pending_study_name_none_when_no_pending_studies(db, patient):

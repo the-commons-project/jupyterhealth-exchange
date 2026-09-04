@@ -11,6 +11,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from core.context_processors import DEFAULT_LOGO
 from core.models import Patient, PatientInvitation, Study
 from core.models.patient_invitation import InvitationCancelled, InvitationConflict, InvitationExpired
 from core.serializers import PatientInvitationSerializer
@@ -20,8 +21,7 @@ Application = get_application_model()
 
 
 def _single_pending_study_name(patient):
-    # Name of the patient's one pending study, for the pe-1 invitation email; None if the
-    # patient has zero or several pending studies (the email then falls back to generic copy).
+    # Name of the patient's single pending study, or None (the email then uses generic copy).
     studies = Study.studies_with_scopes(patient.id, pending=True)
     return studies[0].name if len(studies) == 1 else None
 
@@ -62,10 +62,12 @@ class PatientInvitationViewSet(ModelViewSet):
                     "patient_name": patient.name_given,
                     "invitation_link": link,
                     "site_url": get_setting("site.url", settings.SITE_URL),
+                    "site_title": get_setting("site.ui.title"),
+                    "site_logo": get_setting("site.ui.logo", "") or DEFAULT_LOGO,
                     "study_name": _single_pending_study_name(patient),
                 },
             )
-            email = EmailMessage("JHE Invitation", message, to=[patient.jhe_user.email])
+            email = EmailMessage("You're invited to share your health data", message, to=[patient.jhe_user.email])
             email.content_subtype = "html"
             email.send()
 

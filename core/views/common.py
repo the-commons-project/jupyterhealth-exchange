@@ -1,6 +1,6 @@
 import logging
 import secrets
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import jwt
 from allauth.account.models import EmailAddress
@@ -23,9 +23,9 @@ from oauth2_provider.views import TokenView
 from oauthlib.common import Request
 
 from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
-from core.models import DataSource, JheUser
+from core.models import DataSource, JheUser, Study
 from core.services.jhe_settings import get_setting
-from core.views.patient_portal import SESSION_LAST_DS_KEY, _patient_label
+from core.views.patient_portal import _patient_label, _resolve_patient
 
 from ..forms import UserRegistrationForm
 
@@ -58,15 +58,6 @@ def assetlinks(request):
 
 def home(request):
     return render(request, "home/home.html")
-
-
-def ow_client(request):
-    return render(request, "clients/ow/launch.html")
-
-
-def ow_client_complete(request):
-    # Legacy route name for the same path (registered first in urls.py); same behaviour.
-    return ow_complete(request)
 
 
 class LoginView(BaseLoginView):
@@ -223,30 +214,28 @@ def portal(request, path):
 
 
 def ow_launch(request):
-    # The seeded "Open Wearables" client's linked DataSource names the wearable in the connect copy.
+    patient, _invitation, code = _resolve_patient(request)  # seeds the session the done page needs after Oura returns
     app = get_application_model().objects.filter(name="Open Wearables").first()
     link = app.data_sources.order_by("id").first() if app else None
-    source_name = link.data_source.name if link else "your wearable"
-    # The pe-4 card describes what it collects using the DataSource's own supported scopes,
-    # so the copy stays true to what actually gets synced rather than a hand-written blurb.
-    source_labels = ""
-    if link:
-        sources = DataSource.data_sources_with_scopes(data_source_id=link.data_source_id)
-        if sources:
-            source_labels = ", ".join(_patient_label(scope.text) for scope in sources[0].supported_scopes if scope.text)
-    return render(request, "clients/ow/launch.html", {"source_name": source_name, "source_labels": source_labels})
+    sources = DataSource.data_sources_with_scopes(data_source_id=link.data_source_id) if link else []
+    ds = sources[0] if sources else None
+    labels = [scope.text for scope in ds.supported_scopes] if ds else []
+    if ds and patient is not None:
+        consented = [c for _study, c in Study.scope_consents_for_data_source(patient.id, ds) if c["consented"]]
+        if not consented:  # an invitation issued through this client still goes through the consent screen
+            return redirect(reverse("patient-consent", args=[ds.id]) + f"?code={quote(code, safe='')}")
+        labels = [c["code"]["text"] for c in consented]
+    context = {
+        "source_name": ds.name if ds else "your wearable",
+        "source_labels": ", ".join(_patient_label(text) for text in labels if text),
+    }
+    return render(request, "clients/ow/launch.html", context)
 
 
 def ow_complete(request):
-    """Where Open Wearables sends the browser back after the vendor's OAuth. A success lands on
-    the same "You're all set" summary the EHR flow ends on (pe-7), led by the wearable's
-    DataSource; an error renders the pa-06 callout in place. No client script is involved."""
+    """Open Wearables OAuth return: success goes to the shared done page, an error renders the callout."""
     error = request.GET.get("error")
     if not error:
-        app = get_application_model().objects.filter(name="Open Wearables").first()
-        link = app.data_sources.order_by("id").first() if app else None
-        if link:
-            request.session[SESSION_LAST_DS_KEY] = link.data_source_id
         return redirect(reverse("patient-done"))
     return render(request, "clients/ow/complete.html", {"error": error})
 

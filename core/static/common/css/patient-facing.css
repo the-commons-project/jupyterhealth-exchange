@@ -1,5 +1,5 @@
 /* patient-facing.css — themeable layer for the patient journey.
-   Rebrand by overriding the :root tokens below + swapping logo + product name.
+   Rebrand by overriding the :root tokens below and setting the site.ui.logo / site.ui.title settings.
    Every color/type/radius the UI renders comes from a token here; nothing visual is hardcoded. */
 
 /* Inter, vendored locally so it works under strict CSP (no font CDN). */
@@ -43,16 +43,14 @@
 .pf-card__body { flex: 1; } /* card body — takes remaining width so the badge slot sits right */
 .pf-card__title { font-weight: 600; font-size: 17px; } /* card title — source name, semibold */
 .pf-card__desc { color: var(--pf-muted); font-size: 14px; line-height: 1.4; } /* card description — muted one-liner about the source */
-.pf-card__badge:empty { display: none; } /* badge slot — reserved for deferred connection status; hidden until populated */
-.pf-card__badge { display: inline-block; padding: 6px 12px; border-radius: 999px; background: var(--pf-line); color: var(--pf-muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; } /* badge pill — neutral fill for "not connected" */
-.pf-card__badge--on { background: var(--pf-badge-on-bg); color: var(--pf-badge-on-ink); } /* badge pill — green tint once connected */
+.pf-card__badge { display: inline-block; padding: 6px 12px; border-radius: 999px; background: var(--pf-line); color: var(--pf-muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; } /* badge pill — neutral fill for "Not consented" */
+.pf-card__badge--on { background: var(--pf-badge-on-bg); color: var(--pf-badge-on-ink); } /* badge pill — green tint for "Consented" */
 .pf-card-link { display: block; color: inherit; text-decoration: none; position: relative; } /* card link — full-card tap target, no underline, inherits card ink */
 .pf-card-link .pf-card { padding-right: 44px; } /* card link — clears room for the trailing chevron */
 .pf-card-link::after { content: "\f285"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; position: absolute; right: 20px; top: 50%; transform: translateY(-50%); color: var(--pf-muted); } /* chevron — trailing affordance, matches #hospital-results rows */
 .pf-btn, .pf-btn--ghost, .pf-btn--danger { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; border: 0; border-radius: var(--pf-radius-lg); font-weight: 600; font-size: 15px; line-height: 1.2; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; min-height: 48px; text-decoration: none; cursor: pointer; } /* button base — shared sizing so accent/ghost/danger buttons render at the same height */
 .pf-btn { background: var(--pf-accent); color: var(--pf-accent-ink); } /* primary button — accent fill, uppercase label */
 .pf-input { width: 100%; box-sizing: border-box; border: 1px solid var(--pf-line); border-radius: var(--pf-radius); background: var(--pf-surface); font: inherit; padding: 13px 14px; } /* text input — white field matching card radius */
-.pf-log { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius); padding: 16px; color: var(--pf-ink); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; } /* import log — frames the flow JS's text output as an intentional receipt */
 .pf-back { display: inline-flex; align-items: center; gap: 6px; margin-top: 20px; margin-bottom: 20px; border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); padding: 10px 16px; color: var(--pf-muted); font-size: 13px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; } /* back button — outlined ghost button, arrow + label, wayfinding under the header */
 .pf-back:hover { color: var(--pf-ink); } /* back button — darkens to ink on hover */
 
@@ -69,11 +67,11 @@
 .pf-callout { margin: 0 0 28px; padding: 16px 18px; background: var(--pf-accent-soft); border-left: 3px solid var(--pf-accent); border-radius: var(--pf-radius); color: var(--pf-accent-ink-soft); font-size: 15px; line-height: 1.5; } /* info callout — soft accent panel with left accent rule */
 
 #pf_error_wrap { margin: 0 0 28px; } /* error wrap — hidden/shown as a unit, same spacing footprint as the info callout it replaces */
-.pf-error { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; background: var(--pf-danger-soft); border-left: 3px solid var(--pf-danger); border-radius: var(--pf-radius); } /* error callout — soft red panel with left danger rule, pa-06 (icon + title + message only, no buttons) */
+.pf-error { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; background: var(--pf-danger-soft); border-left: 3px solid var(--pf-danger); border-radius: var(--pf-radius); } /* error callout — soft red panel with left danger rule; icon, title and message only */
 .pf-error__icon { flex: none; color: var(--pf-danger); font-size: 18px; line-height: 1.4; } /* error icon — exclamation glyph, danger red */
 .pf-error__title { font-weight: 700; color: var(--pf-danger); margin-bottom: 4px; } /* error title — bold red headline inside the callout */
 .pf-error__msg { margin: 0; color: var(--pf-danger); font-size: 15px; line-height: 1.5; } /* error message — the flow JS's last Error: line, human readable */
-#pf_error_wrap .pf-actions { margin-top: 16px; } /* error actions — Try again / Back sit below the red box, not inside it, per pa-06 */
+#pf_error_wrap .pf-actions { margin-top: 16px; } /* error actions — buttons sit below the red box, not inside it */
 
 .pf-search { position: relative; } /* search wrapper — lets the leading icon sit over the input, and frames the results dropdown */
 .pf-search::before { content: "\f52a"; font-family: "bootstrap-icons"; font-weight: 400; font-style: normal; position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--pf-muted); pointer-events: none; } /* search icon — leading glyph inside the field */
@@ -91,7 +89,7 @@
 .pf-consent-list { background: var(--pf-surface); border: 1px solid var(--pf-line); border-radius: var(--pf-radius-lg); margin-bottom: 28px; overflow: hidden; } /* consent list — white rounded frame around the scope rows */
 .pf-consent-row { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-bottom: 1px solid var(--pf-line); } /* consent row — accent check + label, hairline under */
 .pf-consent-row:last-child { border-bottom: 0; } /* consent row — last row drops the trailing divider */
-.pf-consent-row__check { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--pf-accent-soft); color: var(--pf-accent); } /* check circle — soft accent tint matching the mockup */
+.pf-consent-row__check { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--pf-accent-soft); color: var(--pf-accent); } /* check circle — soft accent tint */
 .pf-consent-row__label { font-weight: 600; font-size: 15px; color: var(--pf-ink); } /* row label — the scope's display text */
 .pf-btn--wide { display: block; width: 100%; box-sizing: border-box; text-align: center; } /* wide button — full-width, centered label */
 
@@ -100,7 +98,7 @@
 #consent_form .form-check:last-of-type { border-bottom: 0; } /* last row in each study section — no trailing divider */
 #consent_form button[type="submit"] { display: block; width: 100%; box-sizing: border-box; border: 0; border-radius: var(--pf-radius-lg); background: var(--pf-accent); color: var(--pf-accent-ink); font-weight: 600; font-size: 15px; letter-spacing: .03em; text-transform: uppercase; padding: 14px 22px; cursor: pointer; } /* submit button — pf-btn look; label text ("Save") comes from client-ow.js */
 
-.pf-check-circle { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; border-radius: 50%; background: var(--pf-badge-on-bg); color: var(--pf-success); font-size: 26px; } /* success circle — block-level so it always starts a new line below the back button (§H), soft green ring around the done-screen check mark */
+.pf-check-circle { width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; border-radius: 50%; background: var(--pf-badge-on-bg); color: var(--pf-success); font-size: 26px; } /* success circle — block-level so it starts its own line below the back button; soft green ring around the check */
 .pf-btn--danger { background: var(--pf-danger); color: var(--pf-accent-ink); } /* danger button — red fill for the destructive "Stop sharing" action */
 .pf-btn--ghost { background: transparent; border: 1px solid var(--pf-line); color: var(--pf-ink); } /* ghost button — outline style for a secondary action */
 
@@ -123,4 +121,4 @@
 .pf-receipt__heading { padding: 12px 20px 4px; color: var(--pf-muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; } /* receipt heading — muted "Not synced" section label */
 .pf-receipt__row--pending .pf-receipt__n { color: var(--pf-muted); } /* pending row — zero count reads muted, not emphasized */
 .pf-receipt__row--total { background: var(--pf-bg); font-weight: 700; } /* total row — emphasized closing line */
-.pf-receipt__row--total .pf-receipt__n { color: var(--pf-accent); } /* total row — count in accent, matching the pa-05 mockup */
+.pf-receipt__row--total .pf-receipt__n { color: var(--pf-accent); } /* total row — count in accent */

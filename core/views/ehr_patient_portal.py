@@ -99,13 +99,6 @@ def _config_context():
         "ehr_patient_portal_client_id": aux.get("client_id", ""),
         "ehr_patient_portal_scopes": aux.get("scopes", ""),
         "ehr_patient_portal_data_source_id": link.data_source_id if link else "",
-        # Brand values are client-specific, so they live in aux_data (§7.6), with JH defaults.
-        # The default is the full lockup (icon + wordmark); the header shows it alone, with no
-        # adjacent brand-name text, since the wordmark already carries the name. A rebrand's
-        # own mark is not a lockup, so it renders alongside the name instead (brand_name_visible).
-        "brand_name": aux.get("brand_name", "JupyterHealth"),
-        "brand_logo": aux.get("brand_logo", "common/images/jupyterhealth-logo.png"),
-        "brand_name_visible": "brand_logo" in aux,
     }
 
 
@@ -150,7 +143,7 @@ def brands_search(request):
             | Q(city__icontains=q)
             | Q(brand__name__icontains=q)
             | state_filter
-            | Q(postal_code__startswith=q)
+            | Q(postal_code__istartswith=q)
         )
     state = (request.query_params.get("state") or "").strip()
     if state:

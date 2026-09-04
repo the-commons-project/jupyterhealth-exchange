@@ -2,10 +2,6 @@
 {% block title %}You're sharing{% endblock %}
 
 {% block pf_content %}
-{% include "common/patient_facing/components/header.html" %}
-{% url 'patient-landing' as hub_url %}
-{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
-
 <p class="pf-eyebrow">{{ ds.name }}</p>
 <h1 class="pf-h1">You're sharing</h1>
 <p class="pf-lede">The study is collecting the following from your {{ ds.name }}. Stop sharing to revoke your consent.</p>
@@ -13,7 +9,7 @@
 <div class="pf-card-stack">
 {% if detail %}
 <div class="pf-card">
-  <div class="pf-card__icon"><i class="bi {{ icon_class }}"></i></div>
+  <div class="pf-card__icon"><i class="bi {{ icon }}"></i></div>
   <div class="pf-card__body">
     <div class="pf-card__title">{{ ds.name }}</div>
     <div class="pf-card__desc">{{ detail }}</div>
@@ -31,24 +27,10 @@
 {% endif %}
 </div>
 
-{% if receipt %}
-<div class="pf-receipt">
-{% for label, n in receipt.synced %}
-<div class="pf-receipt__row"><span>{{ label }}</span><span class="pf-receipt__n">{{ n }}</span></div>
-{% endfor %}
-{% if receipt.not_synced %}
-<div class="pf-receipt__heading">Not synced</div>
-{% for label, n in receipt.not_synced %}
-<div class="pf-receipt__row pf-receipt__row--pending"><span>{{ label }}</span><span class="pf-receipt__n">{{ n }}</span></div>
-{% endfor %}
-{% endif %}
-<div class="pf-receipt__row pf-receipt__row--total"><span>Total synced</span><span class="pf-receipt__n">{{ receipt.total }}</span></div>
-</div>
-{% endif %}
+{% if receipt %}{% include "common/patient_facing/components/receipt.html" with receipt=receipt %}{% endif %}
 
 <form method="post">
 {% csrf_token %}
-<input type="hidden" name="code" value="{{ code }}">
 <div class="pf-actions">
 <button class="pf-btn pf-btn--danger" type="submit">Stop sharing</button>
 </div>

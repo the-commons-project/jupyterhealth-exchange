@@ -1,9 +1,8 @@
 {% extends "common/patient_facing/base.html" %}
 {% block title %}Choose how to share your data{% endblock %}
+{% block pf_back %}{% endblock %}
 
 {% block pf_content %}
-{% include "common/patient_facing/components/header.html" %}
-
 <p class="pf-eyebrow">{{ eyebrow }}</p>
 <h1 class="pf-h1">Choose how to share your data</h1>
 <p class="pf-lede">Connect any of these sources. You decide what each study can see, and you can change it or disconnect anytime.</p>
@@ -12,5 +11,7 @@
 <a class="pf-card-link" href="{{ card.url }}">
   {% include "common/patient_facing/components/source_card.html" with card=card %}
 </a>
+{% empty %}
+<div class="pf-callout">Your study team hasn't asked for any data yet. Check back once you hear from them.</div>
 {% endfor %}
 {% endblock %}

@@ -2,10 +2,6 @@
 {% block title %}What you'll share{% endblock %}
 
 {% block pf_content %}
-{% include "common/patient_facing/components/header.html" %}
-{% url 'patient-landing' as hub_url %}
-{% include "common/patient_facing/components/back_link.html" with back_url=hub_url %}
-
 <p class="pf-eyebrow">{{ eyebrow }}</p>
 <h1 class="pf-h1">What you'll share</h1>
 <p class="pf-lede">To take part, the study will collect the following from your {{ ds.name }} while you're enrolled.</p>
@@ -24,7 +20,6 @@
 
 <form method="post">
 {% csrf_token %}
-<input type="hidden" name="code" value="{{ code }}">
 <div class="pf-actions">
 <button class="pf-btn pf-btn--wide" type="submit">Agree and share</button>
 </div>
