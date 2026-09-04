@@ -172,7 +172,9 @@ class MappedResourceHandler:
     (an unauthorized organization/study/patient -> 403), and returns a queryset of model
     instances. The handler is therefore generic -- it only translates the canonical FHIR
     query params into those kwargs and renders each instance through the config mapping.
-    ``ObservationHandler`` subclasses this to override serialization (Base64) and create.
+    ``ObservationHandler`` subclasses this to override serialization (Base64) and add the
+    OMH/IEEE create/update/delete paths; update/delete are otherwise unimplemented (a config
+    declaring them for a mapped resource does not by itself make them work).
     """
 
     def __init__(self, resource_type, request):
@@ -197,9 +199,18 @@ class MappedResourceHandler:
             raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
         return instance
 
+    def update(self, fhir_id, data, partial=False):
+        raise MethodNotAllowed(
+            "PATCH" if partial else "PUT", detail=f"Update of a {self.resource_type} record is not supported."
+        )
+
+    def delete(self, fhir_id):
+        raise MethodNotAllowed("DELETE", detail=f"Delete of a {self.resource_type} record is not supported.")
+
 
 class ObservationHandler(MappedResourceHandler):
-    """Observation needs a custom serializer (Base64 valueAttachment) and the OMH/IEEE create path."""
+    """Observation needs a custom serializer (Base64 valueAttachment) and the OMH/IEEE
+    create/update/delete paths."""
 
     def serialize(self, instance):
         # valueAttachment.data needs Base64 encoding, which the config can't express.
@@ -227,6 +238,25 @@ class ObservationHandler(MappedResourceHandler):
 
         fhir_observation = Observation.fhir_search(self.user.id, resource_id=observation.id).first()
         return self.serialize(fhir_observation)
+
+    def update(self, fhir_id, data, partial=False):
+        observation = self._authorized_instance(fhir_id)
+        Observation.fhir_update(observation, data, self.user, partial=partial)
+        fhir_observation = Observation.fhir_search(self.user.id, resource_id=observation.id).first()
+        return self.serialize(fhir_observation)
+
+    def delete(self, fhir_id):
+        observation = self._authorized_instance(fhir_id)
+        Observation.fhir_delete(observation, self.user)
+
+    def _authorized_instance(self, fhir_id):
+        # A plain pk lookup, not fhir_search -- fhir_update/fhir_delete do their own
+        # authorization (Observation._authorize_subject, the same guard fhir_create uses), so
+        # this only needs to find the row (404 if it doesn't exist) and hand it over.
+        try:
+            return Observation.objects.select_related("subject_patient", "codeable_concept").get(pk=fhir_id)
+        except (Observation.DoesNotExist, ValueError, TypeError):
+            raise NotFound(f"{self.resource_type}/{fhir_id} not found.")
 
 
 # Mapped resources use the generic handler unless they need custom behavior.
@@ -375,9 +405,15 @@ def resolve_fhir_source_context(request, user, resource=None):
             raise DRFPermissionDenied("The FhirSource does not belong to the current user.")
         return own, fhir_source
 
-    # Non-patient (practitioner): derive the patient from the source, with org-sharing authz.
+    # Non-patient (practitioner): derive the patient from the source, with org-sharing authz
+    # plus the "patient.manage_data" permission -- organization membership alone is not enough
+    # for a write (a `viewer` shares the organization but the role table denies it), the same
+    # pair of checks Observation.fhir_create/_authorize_subject applies to the mapped OMH/IEEE
+    # path.
     if not Patient.practitioner_authorized(user.id, fhir_source.patient_id):
         raise DRFPermissionDenied("Current user does not have access to this FhirSource's patient.")
+    if not Patient.practitioner_can_manage_data(user, fhir_source.patient_id):
+        raise DRFPermissionDenied("Current user's role does not include permission to manage this Patient's data.")
     return fhir_source.patient, fhir_source
 
 
@@ -671,8 +707,9 @@ class FHIRResourceView(APIView):
             return self._aux_handler(resource).update(fhir_id, data, partial=partial)
         if "update" not in mapped_interactions(resource):
             self._refuse(resource, "update")
-        # No mapped resource currently implements model-side update.
-        raise MethodNotAllowed("PUT", detail=f"Update of a {resource} record is not supported.")
+        # Dispatched to the handler, which raises MethodNotAllowed itself (MappedResourceHandler's
+        # default) unless it overrides update -- only ObservationHandler currently does.
+        return self._mapped_handler(resource).update(fhir_id, data, partial=partial)
 
     def _destroy(self, resource, fhir_id):
         if self._is_aux_id(fhir_id):
@@ -681,7 +718,9 @@ class FHIRResourceView(APIView):
             return self._aux_handler(resource).delete(fhir_id)
         if "delete" not in mapped_interactions(resource):
             self._refuse(resource, "delete")
-        raise MethodNotAllowed("DELETE", detail=f"Delete of a {resource} record is not supported.")
+        # Dispatched to the handler, which raises MethodNotAllowed itself (MappedResourceHandler's
+        # default) unless it overrides delete -- only ObservationHandler currently does.
+        return self._mapped_handler(resource).delete(fhir_id)
 
     # -- search: exactly one backing store, chosen by _source --
 

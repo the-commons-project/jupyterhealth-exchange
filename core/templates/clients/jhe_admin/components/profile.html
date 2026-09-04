@@ -28,12 +28,46 @@
   </table>
 
   <h5 class="mt-5">Admin API Access</h5>
+  <p class="text-muted">
+    Clients can access the Admin API by either generating a time-limited Bearer token below and
+    adding it to your request headers, or, if your client can keep a secret, using a client
+    credential's key below to obtain Bearer tokens programmatically.
+  </p>
+
+  <h6 class="mt-4">Generate Bearer Token</h6>
+  <p>Click the button below to generate a Bearer token. If a Client Credential does not exist, one will be created automatically.</p>
+  <button type="button"
+        class="btn btn-sm btn-success"
+        onclick="generateBearerToken()">
+  Create New
+  </button>
+  {{#if bearerToken}}
+    <table class="table mt-3 mb-0">
+      <tbody>
+        <tr class="table-secondary">
+          <td style="width: 1%; white-space: nowrap;">
+            <code>{{bearerToken}}</code>
+            <button
+              type="button"
+              onclick="navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent).then(() => this.disabled = true)"
+              class="btn btn-sm btn-outline-primary"
+            >
+              <i class="bi bi-clipboard"></i>
+            </button>
+          </td>
+          <td class="text-start align-middle">Expires: {{bearerTokenExpires}}</td>
+        </tr>
+      </tbody>
+    </table>
+  {{/if}}
+
+  <h6 class="mt-4">Client Credentials</h6>
   <table class="table table-striped">
     <thead>
       <tr>
         <th scope="col"></th>
         <th scope="col">Label</th>
-        <th scope="col">API Key</th>
+        <th scope="col">Base64(client_id:client_secret)</th>
       </tr>
     </thead>
     <tbody>

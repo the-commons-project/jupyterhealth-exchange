@@ -9,12 +9,17 @@ from core.models import Observation
 
 
 class ObservationSerializer(serializers.ModelSerializer):
-    patient_name_family = serializers.CharField()
-    patient_name_given = serializers.CharField()
-    jhe_user_id = serializers.IntegerField()
-    coding_system = serializers.CharField()
-    coding_code = serializers.CharField()
-    coding_text = serializers.CharField()
+    # Annotations added by Observation.for_practitioner_organization_study_patient, not model
+    # fields, so ModelSerializer cannot build them and they are declared here. read_only
+    # because they are projections of joined CodeableConcept / Patient rows: there is no
+    # Observation column to write them back to, and a writable field that is not a valid
+    # Observation.objects.create() kwarg raises TypeError on any write.
+    patient_name_family = serializers.CharField(read_only=True)
+    patient_name_given = serializers.CharField(read_only=True)
+    jhe_user_id = serializers.IntegerField(read_only=True)
+    coding_system = serializers.CharField(read_only=True)
+    coding_code = serializers.CharField(read_only=True)
+    coding_text = serializers.CharField(read_only=True)
 
     class Meta:
         model = Observation
@@ -31,12 +36,6 @@ class ObservationSerializer(serializers.ModelSerializer):
             "last_updated",
             "omh_data",
         ]
-
-
-class ObservationWithoutDataSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Observation
-        fields = ["id", "subject_patient", "codeable_concept", "last_updated"]
 
 
 class FHIRObservationSerializer(serializers.Serializer):

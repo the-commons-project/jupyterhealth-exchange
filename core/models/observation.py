@@ -196,9 +196,13 @@ class Observation(models.Model):
     def fhir_create(data, user):
         # Persist an OMH / IEEE 1752 Observation (code system https://w3id.org/openmhealth or
         # https://w3id.org/ieee1752) onto the Django Observation model: the value attachment is
-        # decoded into the omh_data column, the code must be a known, consented scope, and a
-        # Device is required. The FHIR view routes any other-coded (or code-less) Observation to
-        # FhirAuxResource instead, so this method always handles the OMH/IEEE path.
+        # decoded into the omh_data column, the code must be a known scope, and a Device is
+        # required. A patient upload must also consent the code to some study of theirs --
+        # consent is the patient's own control over their data, so it does not apply to a
+        # practitioner upload, which is instead gated by _authorize_subject's organization
+        # membership + "patient.manage_data" permission check. The FHIR view routes any
+        # other-coded (or code-less) Observation to FhirAuxResource instead, so this method
+        # always handles the OMH/IEEE path.
         import humps
 
         camelized = humps.camelize(data)
@@ -222,16 +226,7 @@ class Observation(models.Model):
         except Patient.DoesNotExist:
             raise (BadRequest(f"Patient id={subject_patient_id} can not be found."))  # TBD: move to view
 
-        if user.is_practitioner():
-            if not subject_patient.practitioner_authorized(user.pk, subject_patient.id):
-                raise PermissionDenied("Current user doesn't have access to the Patient.")
-            user_patient = subject_patient
-        else:
-            user_patient = user.get_patient()
-        if user_patient is None:
-            raise PermissionDenied("Current user is not a Patient.")
-        if subject_patient.id != user_patient.id:
-            raise PermissionDenied("The Subject Patient does not match the current user.")
+        user_patient = Observation._authorize_subject(subject_patient, user)
 
         data_source = Observation._resolve_device(fhir_observation)
 
@@ -240,7 +235,9 @@ class Observation(models.Model):
         for identifier in fhir_observation.identifier or []:
             if ObservationIdentifier.objects.filter(system=identifier.system, value=identifier.value).exists():
                 raise IntegrityError(f"Identifier already exists: system={identifier.system} value={identifier.value}")
-        codeable_concept, omh_data = Observation._omh_payload(fhir_observation, user_patient)
+        codeable_concept, omh_data = Observation._omh_payload(
+            fhir_observation, user_patient, require_consent=not user.is_practitioner()
+        )
 
         observation = Observation.objects.create(
             subject_patient=subject_patient,
@@ -261,6 +258,102 @@ class Observation(models.Model):
         return observation
 
     @staticmethod
+    def fhir_update(observation, data, user, partial=False):
+        # Same write guard as fhir_create, applied to the row's existing subject_patient rather
+        # than one named in the incoming body: authorization has to be decided before the body
+        # is even parsed, and an update must not be able to move an observation onto a different
+        # patient by naming one in the payload (checked again below, once the body is parsed).
+        Observation._authorize_subject(observation.subject_patient, user)
+
+        import humps
+
+        camelized = humps.camelize(data)
+        if partial:
+            # PATCH is a merge onto the current state (mirrors AuxResourceHandler.update): build
+            # a minimal FHIR document from the stored row, overlay the given fields, then
+            # validate the merged whole exactly like a full PUT. meta/identifier/effective[x]
+            # play no part in this validation, so they are left out rather than reconstructed.
+            current = {
+                "resourceType": "Observation",
+                "status": observation.status,
+                "code": {
+                    "coding": [
+                        {
+                            "system": observation.codeable_concept.coding_system,
+                            "code": observation.codeable_concept.coding_code,
+                        }
+                    ]
+                },
+                "subject": {"reference": f"Patient/{observation.subject_patient_id}"},
+                "valueAttachment": {
+                    "contentType": "application/json",
+                    "data": base64.b64encode(json.dumps(observation.omh_data).encode("utf-8")).decode("ascii"),
+                },
+            }
+            current.update(camelized)
+            camelized = current
+
+        try:
+            fhir_observation = FHIRObservation.parse_obj(camelized)
+        except Exception as e:
+            raise (BadRequest(e))  # TBD: move to view
+
+        # The patient, the code (and so its consent), and the device are fixed at creation and
+        # are not reassignable via update -- only the status and the value itself can be
+        # amended/corrected.
+        if (
+            not fhir_observation.subject
+            or fhir_observation.subject.reference != f"Patient/{observation.subject_patient_id}"
+        ):
+            raise BadRequest("Cannot change the Subject Patient of an Observation via update.")
+
+        if not fhir_observation.code or len(fhir_observation.code.coding) != 1:
+            raise BadRequest("Exactly one Code must be provided.")  # TBD: move to view
+        coding = fhir_observation.code.coding[0]
+        if (
+            coding.system != observation.codeable_concept.coding_system
+            or coding.code != observation.codeable_concept.coding_code
+        ):
+            raise BadRequest("Cannot change the Observation code via update; delete and re-create instead.")
+
+        try:
+            omh_data = json.loads(base64.b64decode(fhir_observation.valueAttachment.data).decode("ascii"))
+        except Exception:
+            raise BadRequest("valueAttachment.data must be Base 64 Encoded Binary JSON.")  # TBD: move to view
+
+        observation.status = fhir_observation.status
+        observation.omh_data = omh_data
+        observation.save()  # re-runs clean() -> schema validation, same as fhir_create
+        return observation
+
+    @staticmethod
+    def fhir_delete(observation, user):
+        # Same guard as fhir_create/fhir_update.
+        Observation._authorize_subject(observation.subject_patient, user)
+        observation.delete()
+
+    @staticmethod
+    def _authorize_subject(subject_patient, user):
+        """The write guard fhir_create, fhir_update and fhir_delete all share: a practitioner
+        must share an organization with the patient AND hold the "patient.manage_data"
+        permission there (organization membership alone is not enough -- a `viewer` shares
+        the organization but the role table denies this permission); a patient user may act
+        only on themselves. Returns the authorized patient (== subject_patient for a
+        practitioner)."""
+        if user.is_practitioner():
+            if not subject_patient.practitioner_authorized(user.pk, subject_patient.id):
+                raise PermissionDenied("Current user doesn't have access to the Patient.")
+            if not subject_patient.practitioner_can_manage_data(user, subject_patient.id):
+                raise PermissionDenied("Current user's role does not include permission to manage this Patient's data.")
+            return subject_patient
+        user_patient = user.get_patient()
+        if user_patient is None:
+            raise PermissionDenied("Current user is not a Patient.")
+        if subject_patient.id != user_patient.id:
+            raise PermissionDenied("The Subject Patient does not match the current user.")
+        return user_patient
+
+    @staticmethod
     def _resolve_device(fhir_observation):
         reference = fhir_observation.device.reference if fhir_observation.device else None
         if not reference or not reference.startswith("Device/"):
@@ -272,8 +365,14 @@ class Observation(models.Model):
             raise (BadRequest(f"Device Data Source id={device_id} can not be found."))
 
     @staticmethod
-    def _omh_payload(fhir_observation, user_patient):
-        """Resolve the (consented) CodeableConcept and decode the OMH value attachment."""
+    def _omh_payload(fhir_observation, user_patient, require_consent):
+        """Resolve the CodeableConcept and decode the OMH value attachment.
+
+        ``require_consent`` gates the consent check on ``user_patient`` -- True for a
+        patient's own upload, False for a practitioner's (see fhir_create). Consent expresses
+        which studies a patient has agreed to share a scope with; it has no bearing on a
+        practitioner, who is instead gated by organization membership and role/permission.
+        """
         if len(fhir_observation.code.coding) != 1:
             raise BadRequest("Exactly one Code must be provided.")  # TBD: move to view
         coding = fhir_observation.code.coding[0]
@@ -282,7 +381,9 @@ class Observation(models.Model):
         if codeable_concept is None:
             raise BadRequest(f"Code not found: system={coding.system} code={coding.code}")  # TBD: move to view
 
-        if codeable_concept.id not in [scope.id for scope in user_patient.consolidated_consented_scopes()]:
+        if require_consent and codeable_concept.id not in [
+            scope.id for scope in user_patient.consolidated_consented_scopes()
+        ]:
             raise PermissionDenied(
                 f"Observation data with coding_system={codeable_concept.coding_system}"
                 f" coding_code={codeable_concept.coding_code} has not been consented for any studies by this Patient."
@@ -294,16 +395,6 @@ class Observation(models.Model):
             raise BadRequest("valueAttachment.data must be Base 64 Encoded Binary JSON.")  # TBD: move to view
 
         return codeable_concept, omh_data
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # FHIR serialization support
-        self.identifier = None
-        self.resource_type = None
-        self.meta = None
-        self.value_attachment = None
-        self.subject = None
-        self.code = None
 
     def clean(self):
         # Django Observations carry an OMH or IEEE 1752 data point; validate omh_data against

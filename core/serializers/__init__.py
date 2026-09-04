@@ -11,7 +11,6 @@ from .observation import FHIRBundledObservationSerializer as FHIRBundledObservat
 from .observation import FHIRBundleSerializer as FHIRBundleSerializer
 from .observation import FHIRObservationSerializer as FHIRObservationSerializer
 from .observation import ObservationSerializer as ObservationSerializer
-from .observation import ObservationWithoutDataSerializer as ObservationWithoutDataSerializer
 from .organization import OrganizationSerializer as OrganizationSerializer
 from .organization import OrganizationUsersSerializer as OrganizationUsersSerializer
 from .organization import OrganizationWithoutLineageSerializer as OrganizationWithoutLineageSerializer

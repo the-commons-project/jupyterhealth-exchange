@@ -2406,6 +2406,11 @@ async function deleteJheSetting(id) {
 // User Profile
 // ────────────────────────────────────────────────────
 
+// Holds the most recently generated Bearer token (and its expiry) so it survives
+// the full-page re-render that generateBearerToken() triggers via navReload().
+let lastGeneratedBearerToken = null;
+let lastGeneratedBearerTokenExpires = null;
+
 async function renderProfile(queryParams) {
   const content = Handlebars.compile(
     document.getElementById("t-profile").innerHTML
@@ -2436,6 +2441,8 @@ async function renderProfile(queryParams) {
     profile: profile,
     practitionerClients: practitionerClientsPaginated.results,
     practitionerClientRecord: practitionerClientRecord,
+    bearerToken: lastGeneratedBearerToken,
+    bearerTokenExpires: lastGeneratedBearerTokenExpires,
   };
 
   return content(renderParams);
@@ -2459,6 +2466,43 @@ async function updatePractitionerClient(id) {
 
 async function deletePractitionerClient(id) {
   if (await apiRequest("DELETE", `practitioner_clients/${id}`)) await navReturnFromCrud();
+}
+
+// Mints a Bearer token via the client-credentials grant, using the practitioner's first
+// client credential. If they don't have one yet, silently creates a default one first.
+async function generateBearerToken() {
+  const practitionerClientsResponse = await apiRequest("GET", "practitioner_clients");
+  if (!practitionerClientsResponse) return;
+  const practitionerClientsPaginated = await practitionerClientsResponse.json();
+  let apiKey = practitionerClientsPaginated.results[0]?.key;
+
+  if (!apiKey) {
+    const profileResponse = await apiRequest("GET", "users/profile");
+    if (!profileResponse) return;
+    const profile = await profileResponse.json();
+    const createResponse = await apiRequest("POST", "practitioner_clients", {
+      label: `User ${profile.id} Default Client`,
+    });
+    if (!createResponse) return;
+    const created = await createResponse.json();
+    apiKey = created.key;
+  }
+
+  const tokenResponse = await fetch("/o/token/", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${apiKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+  const tokenData = await tokenResponse.json();
+  lastGeneratedBearerToken = tokenData.access_token || JSON.stringify(tokenData);
+  lastGeneratedBearerTokenExpires = tokenData.expires_in
+    ? new Date(Date.now() + tokenData.expires_in * 1000).toLocaleString()
+    : null;
+
+  await navReload();
 }
 
 // Exchange the API key (base64 of client_id:client_secret, used as-is for HTTP Basic auth)
