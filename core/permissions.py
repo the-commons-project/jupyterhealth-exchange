@@ -25,6 +25,7 @@ ROLE_PERMISSIONS = {
         "organization.manage_for_practitioners",
         "organization.create_top_level",
         "patient.manage_for_organization",
+        "patient.manage_data",
         "study.manage_for_organization",
         "client.manage",
         "data_source.manage",
@@ -32,11 +33,36 @@ ROLE_PERMISSIONS = {
     "manager": [
         "organization.manage_for_practitioners",
         "patient.manage_for_organization",
+        "patient.manage_data",
         "study.manage_for_organization",
     ],
-    "member": ["patient.manage_for_organization", "study.manage_for_organization"],
+    "member": ["patient.manage_for_organization", "patient.manage_data", "study.manage_for_organization"],
     "viewer": [],
 }
+
+
+def role_permits(role, permission):
+    """Whether `role` (a PractitionerOrganization.role value, or None) carries `permission`
+    (a "resource.action" string) per ROLE_PERMISSIONS."""
+    return permission in ROLE_PERMISSIONS.get(role, [])
+
+
+def organization_role(user, organization_id):
+    """`user`'s role in `organization_id`: the PractitionerOrganization role for a linked
+    practitioner, or None if they are not a member there. No superuser bypass -- IfUserCan
+    below grants one, but only for its own admin endpoints, which check this in place of a
+    membership requirement rather than alongside one."""
+    link = PractitionerOrganization.objects.filter(practitioner__jhe_user=user, organization_id=organization_id).first()
+    return link.role if link else None
+
+
+def user_can(user, organization_id, permission):
+    """Whether `user` holds `permission` (e.g. "patient.manage_data") in `organization_id`,
+    via the same role table IfUserCan enforces on the admin REST endpoints. Call this
+    directly -- rather than IfUserCan(...) itself, which expects a DRF view/request shaped
+    around a single ModelViewSet action -- from write paths that resolve their own
+    organization, such as the FHIR Observation and FhirAuxResource write guards."""
+    return role_permits(organization_role(user, organization_id), permission)
 
 
 def IfUserCan(resource_and_action: str):
@@ -45,11 +71,10 @@ def IfUserCan(resource_and_action: str):
     class _IfUserCan(permissions.IsAuthenticated):
         @staticmethod
         def if_role_can(role: str, permission: str):
-            return permission in ROLE_PERMISSIONS.get(role, [])
+            return role_permits(role, permission)
 
         @staticmethod
         def get_role(view, request, resource):
-            organization_id = None
             if request.user.is_superuser and resource in [
                 "client",
                 "data_source",
@@ -60,6 +85,7 @@ def IfUserCan(resource_and_action: str):
             ]:
                 return "super_user"
 
+            organization_id = None
             if view.action == "create":
                 if resource == "patient":
                     organization_id = request.data.get("organization_id")
@@ -91,10 +117,7 @@ def IfUserCan(resource_and_action: str):
                             else view.kwargs.get("pk")
                         )
 
-            link = PractitionerOrganization.objects.filter(
-                practitioner__jhe_user=request.user, organization_id=organization_id
-            ).first()
-            return link.role if link else None
+            return organization_role(request.user, organization_id)
 
         def has_permission(self, request, view):
             # User has to be authenticated

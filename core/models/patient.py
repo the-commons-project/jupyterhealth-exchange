@@ -102,6 +102,24 @@ class Patient(models.Model):
         ).exists()
 
     @staticmethod
+    def practitioner_can_manage_data(user, patient_id):
+        """Whether `user` holds the "patient.manage_data" permission (core/permissions.py's
+        IfUserCan role table) in at least one organization shared with this patient.
+
+        Checked alongside practitioner_authorized wherever a practitioner writes a patient's
+        clinical data over FHIR: organization membership alone is not enough for a write --
+        e.g. a `viewer` shares the organization but the role table denies this permission.
+        core.permissions.user_can already requires the caller be a member of the organization
+        it is asked about, so trying every organization this patient belongs to (rather than
+        first narrowing to the ones shared with `user`) still yields exactly "a shared
+        organization where `user`'s role grants the permission".
+        """
+        from core.permissions import user_can
+
+        organization_ids = Patient.objects.filter(id=patient_id).values_list("organizations__id", flat=True)
+        return any(user_can(user, organization_id, "patient.manage_data") for organization_id in organization_ids)
+
+    @staticmethod
     def for_study(jhe_user_id, study_id):
         # Return the patients enrolled in a given study, but only when the practitioner
         # identified by jhe_user_id is authorized for that study. Authorization here flows

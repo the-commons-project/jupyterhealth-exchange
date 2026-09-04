@@ -14,6 +14,14 @@ class ObservationViewSet(ModelViewSet):
     model_class = Observation
     serializer_class = ObservationSerializer
     pagination_class = CustomPageNumberPagination
+    # Read-only: observations are written through the FHIR endpoints (Observation.fhir_create),
+    # which enforce the patient's consent for the code and require a Device reference. Neither
+    # check exists here, and get_queryset's organization scoping is the only authorization on
+    # this path -- it does not consult the practitioner's role, so leaving write verbs routed
+    # would let any organization member (a `viewer` included) rewrite or delete clinical data.
+    # Kept as a ModelViewSet so the verbs can be restored by widening this list once the
+    # authorization the FHIR path applies is implemented here too.
+    http_method_names = ["get", "head", "options"]
 
     supported_query_params = {
         key
