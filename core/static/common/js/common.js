@@ -42,8 +42,7 @@ function base64UrlEncode(bytes) {
     .replace(/=+$/, "");
 }
 
-// Parse invitation link code parameter into its components.
-// Format: host_token
+// Parse invitation link code parameter into its components: format is host_token.
 function parseInvitationCode(code) {
   var parts = code.split("_");
   if (parts.length !== 2) {

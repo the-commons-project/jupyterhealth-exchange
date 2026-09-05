@@ -5,8 +5,7 @@ from core.models import FhirSource
 
 
 class FhirSourceSerializer(serializers.ModelSerializer):
-    """A patient-registered upstream FHIR source. ``patient`` is set server-side from the
-    requesting user, never the request body."""
+    """A patient-registered upstream FHIR source; ``patient`` is set server-side from the requesting user, never the request body."""
 
     resource_counts = serializers.SerializerMethodField()
     facility = serializers.SerializerMethodField()

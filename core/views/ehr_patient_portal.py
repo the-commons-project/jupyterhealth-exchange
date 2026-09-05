@@ -16,8 +16,7 @@ EHR_PATIENT_PORTAL_CLIENT_NAME = "EHR Patient Portal"
 BRANDS_DEFAULT_LIMIT = 25
 BRANDS_MAX_LIMIT = 100
 
-# Full state/territory name (lowercase) -> USPS abbreviation, so the free-text `q` search in
-# brands_search can match either ("Wisconsin" or "WI") against EhrBrandLocation.state.
+# Full state/territory name (lowercase) -> USPS abbreviation, so the free-text `q` search in brands_search can match either ("Wisconsin" or "WI") against EhrBrandLocation.state.
 US_STATES = {
     "alabama": "AL",
     "alaska": "AK",
@@ -100,18 +99,12 @@ def _parse_limit(raw):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def brands_search(request):
-    """
-    GET /api/v1/ehr-patient-portal/brands?q=&state=&postal=&limit=
-    Search hospital facilities for the EHR Patient Portal picker. `q` matches facility name,
-    city, or brand name; `state`/`postal` filter those columns. Each result carries
-    the brand's fhir_base_url (the SMART `iss`) the browser authorizes against.
-    """
+    """GET /api/v1/ehr-patient-portal/brands?q=&state=&postal=&limit= -- searches facilities by name/city/brand (`q`) and state/postal; each result carries the brand's fhir_base_url (the SMART `iss`) the browser authorizes against."""
     qs = EhrBrandLocation.objects.select_related("brand")
 
     q = (request.query_params.get("q") or "").strip()
     if q:
-        # Also match state by full name or abbreviation and by ZIP prefix, so "WI", "Wisconsin"
-        # and "53593" all find a facility, not just its name/city/brand.
+        # Also match state by full name or abbreviation and by ZIP prefix, so "WI", "Wisconsin" and "53593" all find a facility, not just its name/city/brand.
         state_filter = Q(state__iexact=q)
         if q.lower() in US_STATES:
             state_filter |= Q(state__iexact=US_STATES[q.lower()])
@@ -134,8 +127,7 @@ def brands_search(request):
 
     results = [
         {
-            # The id is what the client sends back as FhirSource.ehr_brand_location, recording
-            # which facility the patient picked (the connection itself cannot tell them apart).
+            # The id is what the client sends back as FhirSource.ehr_brand_location, recording which facility the patient picked (the connection itself cannot tell them apart).
             "id": loc.id,
             "facility_name": loc.name,
             "address_text": loc.address_text,
@@ -153,12 +145,7 @@ def brands_search(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def save_patient_identifier(request):
-    """
-    POST /api/v1/ehr-patient-portal/identifier  {system, value}
-    Additively attach an external identifier (the EHR patient id) to the
-    authenticated patient. get_or_create keeps it idempotent and never replaces
-    the patient's other identifiers (unlike the practitioner PATCH path).
-    """
+    """POST /api/v1/ehr-patient-portal/identifier {system, value} -- additively attaches an external identifier to the authenticated patient; get_or_create keeps it idempotent and never replaces other identifiers (unlike the practitioner PATCH path)."""
     patient = request.user.get_patient()
     if patient is None:
         return Response({"error": "Authenticated user is not a patient"}, status=400)
@@ -171,8 +158,7 @@ def save_patient_identifier(request):
     identifier, created = PatientIdentifier.objects.get_or_create(
         system=system, value=value, defaults={"patient": patient}
     )
-    # (system, value) is globally unique, so the existing row may belong to someone else.
-    # Reporting 200 there would tell the caller it was attached when it was not.
+    # (system, value) is globally unique, so the existing row may belong to someone else; reporting 200 there would tell the caller it was attached when it was not.
     if not created and identifier.patient_id != patient.id:
         return Response({"error": "Identifier is already assigned to another patient"}, status=409)
     return Response({"system": system, "value": value})
