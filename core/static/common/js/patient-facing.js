@@ -162,13 +162,14 @@ function pfRetry() {
 
 // Navigate to a route: push (or replace) history, render the screen, show the overlay while it loads.
 async function pfNav(route, params, replace) {
-  if (!PF_ROUTES[route]) route = PF_DEFAULT_ROUTE;
+  if (!Object.prototype.hasOwnProperty.call(PF_ROUTES, route)) route = PF_DEFAULT_ROUTE;
   params = params || {};
   var url = pfUrl(route, params);
   if (url !== window.location.pathname + window.location.search) {
     window.history[replace ? "replaceState" : "pushState"]({}, "", url);
   }
   document.title = PATIENT_PORTAL_CONFIG.siteTitle + " - " + PF_ROUTE_TITLES[route];
+  if (route === "error" && params.title) document.title = PATIENT_PORTAL_CONFIG.siteTitle + " - " + params.title;
   pfShowLoading();
   try {
     await PF_ROUTES[route](params);
@@ -187,7 +188,10 @@ window.addEventListener("popstate", function () {
 
 // Error route: ?route=error&title=...&message=... (how /clients/ow/complete reports an Oura failure).
 async function renderError(params) {
-  showFlowError(params.title || "Something went wrong", params.message || "");
+  // Re-rendering this route would just show the same error, so Try again restarts the connect step.
+  showFlowError(params.title || "Something went wrong", params.message || "", {
+    retryHref: pfUrl("connect", { source: String(PATIENT_PORTAL_CONFIG.dataSourceIds[0]) }),
+  });
 }
 
 // Entry point: redeem a ?code= if present, require a token, then render the route in the URL.
@@ -208,7 +212,7 @@ async function patientApp() {
     window.history.replaceState({}, "", pfUrl(current.route, current.params));
   }
   if (!getStoredToken()) {
-    showFlowError(PF_INVALID_INVITATION_TITLE, PF_INVALID_INVITATION_MESSAGE);
+    showFlowError("Your session has ended", "Open the link from your invitation email to continue.");
     return;
   }
   await pfNav(current.route, current.params, true);
@@ -305,6 +309,11 @@ function pfSources(consents, config) {
     source.studies.sort();
     return source;
   }).sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+}
+
+// Test-only: drop the cached profile so a following test's own profile mock is used.
+function pfResetPatient() {
+  pfPatient = null;
 }
 
 async function pfPatientId() {
@@ -428,7 +437,7 @@ async function renderHub() {
 
 async function renderConsent(params) {
   var source = await pfSource(params.source);
-  if (!source || !source.pending.length) return pfNav("hub");
+  if (!source || !source.pending.length) return pfNav("hub", {}, true);
   pfRender("t-consent", {
     sourceId: source.id,
     eyebrow: [source.name].concat(source.studies).join(" · "),
@@ -454,8 +463,8 @@ async function pfAgree(sourceId) {
 
 async function renderConnect(params) {
   var source = await pfSource(params.source);
-  if (!source) return pfNav("hub");
-  if (!source.isConsented) return pfNav("consent", { source: String(source.id) });
+  if (!source) return pfNav("hub", {}, true);
+  if (!source.isConsented) return pfNav("consent", { source: String(source.id) }, true);
   await pfClient.connect(source);
 }
 
@@ -477,7 +486,7 @@ async function renderDone(params) {
 
 async function renderManage(params) {
   var source = await pfSource(params.source);
-  if (!source || !source.consented.length) return pfNav("hub");
+  if (!source || !source.consented.length) return pfNav("hub", {}, true);
   var fhirSource = pfLatestFhirSource(await pfFhirSources(), source.id);
   pfRender("t-manage", {
     sourceId: source.id,
@@ -572,4 +581,5 @@ if (typeof window !== "undefined") {
   window.renderDone = renderDone;
   window.renderManage = renderManage;
   window.pfStopSharing = pfStopSharing;
+  window.pfResetPatient = pfResetPatient;
 }

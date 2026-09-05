@@ -1120,6 +1120,6 @@ def test_fhir_source_list_reports_resource_counts_and_facility(patient, device, 
     rows = {row["id"]: row for row in client.get("/api/v1/fhir_sources").json()["results"]}
 
     assert rows[fhir_source.id]["resourceCounts"] == {"Observation": 2, "Patient": 1}
-    assert rows[fhir_source.id]["facility"] == "Patient EHR"
+    assert rows[fhir_source.id]["facility"] == ""
     assert rows[located.id]["resourceCounts"] == {}
     assert rows[located.id]["facility"] == "Epic Sandbox - Madison Campus"

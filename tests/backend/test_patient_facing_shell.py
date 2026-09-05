@@ -6,6 +6,7 @@ import pytest
 from oauth2_provider.models import get_application_model
 
 from core.models import DataSource, JheClient
+from core.views.patient_facing import _expected_resource_types
 
 SHARED_COMPONENTS = ("t-hub", "t-consent", "t-done", "t-manage", "t-importing", "t-error", "t-receipt", "t-rail")
 
@@ -52,6 +53,11 @@ def test_ehr_connect_is_a_shell_configured_from_the_ehr_client(seeded, client):
     assert config["dataSourceIds"] == [ehr.id] and config["sourceLabels"] == {str(ehr.id): "EHR Patient Portal"}
     assert config["expectedResourceTypes"][:3] == ["AllergyIntolerance", "CarePlan", "CareTeam"]
     assert "Patient" in config["expectedResourceTypes"] and "openid" not in config["expectedResourceTypes"]
+
+
+def test_expected_resource_types_lists_only_patient_read_scopes():
+    scopes = "openid launch/patient patient/Observation.rs patient/*.read patient/Condition.read patient/Patient.read"
+    assert _expected_resource_types(scopes) == ["Condition", "Patient"]
 
 
 def test_ehr_callback_is_a_shell_that_runs_the_import(seeded, client):

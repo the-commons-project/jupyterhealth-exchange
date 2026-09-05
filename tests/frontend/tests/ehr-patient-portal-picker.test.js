@@ -1,7 +1,23 @@
 import { describe, test, expect, beforeAll, beforeEach, jest } from "@jest/globals";
+const fs = require("fs");
 const path = require("path");
 
 const STATIC = path.resolve(__dirname, "../../../core/static");
+const TEMPLATES = path.resolve(__dirname, "../../../core/templates");
+
+// A Django component file is a {% verbatim %}-wrapped <script type="text/template">; strip the tags to get the HTML.
+function componentHtml(file) {
+  return fs.readFileSync(file, "utf8").replace(/{% ?verbatim ?%}|{% ?endverbatim ?%}/g, "");
+}
+
+// The connect page as the shell serves it: the shared rail partial plus this client's picker component.
+function renderPickerPage() {
+  document.body.innerHTML =
+    `<div id="pf_main"></div>` +
+    componentHtml(path.join(TEMPLATES, "common/patient_facing/components/rail.html")) +
+    componentHtml(path.join(TEMPLATES, "clients/ehr-patient-portal/components/connect.html"));
+  window.pfRegisterPartials();
+}
 
 // Loads patient-facing.js (router, pfRender, pfRail, ...) then client-ehr-patient-portal.js,
 // which exposes the picker helpers and the connect step on window.
@@ -97,12 +113,7 @@ describe("eppImportFailure", () => {
 
 describe("pfClient.connect on the EHR page", () => {
   test("renders the picker at rail step 1 and searches brands as the patient types", async () => {
-    const fs = require("fs");
-    const path = require("path");
-    const strip = (file) => fs.readFileSync(file, "utf8").replace(/{% ?verbatim ?%}|{% ?endverbatim ?%}/g, "");
-    const templates = path.resolve(__dirname, "../../../core/templates");
-    document.body.innerHTML = `<div id="pf_main"></div>` + strip(path.join(templates, "common/patient_facing/components/rail.html")) + strip(path.join(templates, "clients/ehr-patient-portal/components/connect.html"));
-    window.pfRegisterPartials();
+    renderPickerPage();
     window.storeToken("tok");
     global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [{ id: 9, brandName: "Epic Sandbox", facilityName: "Madison", fhirBaseUrl: "https://epic/FHIR/R4", addressText: "WI" }] }) }));
 
@@ -118,5 +129,37 @@ describe("pfClient.connect on the EHR page", () => {
     main.querySelector("#hospital-results [data-brand-result]").click();
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ iss: "https://epic/FHIR/R4", clientId: "cid" }));
     expect(window.sessionStorage.getItem("ehr_patient_portal_brand_location_id")).toBe("9");
+  });
+
+  test("stores the data source being connected, so the callback registers records against that source", async () => {
+    // A client can be linked to more than one data source; the callback page has no route params to read it back from.
+    global.PATIENT_PORTAL_CONFIG.dataSourceIds = [5, 6];
+    renderPickerPage();
+    window.storeToken("tok");
+    global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [] }) }));
+
+    await window.pfClient.connect({ id: 6, name: "EHR Patient Portal" });
+
+    expect(window.sessionStorage.getItem("ehr_patient_portal_source_id")).toBe("6");
+  });
+
+  test("typing is debounced into one search", async () => {
+    renderPickerPage();
+    window.storeToken("tok");
+    global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [] }) }));
+    await window.pfClient.connect({ id: 5, name: "EHR Patient Portal" });
+    const initial = global.fetch.mock.calls.length;
+
+    jest.useFakeTimers();
+    const input = document.getElementById("hospital-search");
+    input.value = "sinai";
+    input.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new Event("input"));
+    jest.advanceTimersByTime(200);
+    jest.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(global.fetch.mock.calls).toHaveLength(initial + 1);
+    expect(global.fetch.mock.calls[initial][0]).toContain("q=sinai");
   });
 });

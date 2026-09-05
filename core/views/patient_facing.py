@@ -9,9 +9,13 @@ Application = get_application_model()
 
 def _expected_resource_types(scopes):
     """Resource types named by the client's patient/<Type>.read SMART scopes; [] for a client without them."""
-    return sorted(
-        {s.removeprefix("patient/").removesuffix(".read") for s in scopes.split() if s.startswith("patient/")}
-    )
+    types = {
+        s.removeprefix("patient/").removesuffix(".read")
+        for s in scopes.split()
+        if s.startswith("patient/") and s.endswith(".read")
+    }
+    # patient/*.read names no type, so it would otherwise show up as a "*" row on the receipt.
+    return sorted(types - {"*"})
 
 
 def patient_portal_config(client_name, client_key, page_url):

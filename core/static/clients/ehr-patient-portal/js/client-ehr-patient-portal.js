@@ -10,6 +10,8 @@
 var IMPORT_ENDPOINT = window.location.origin + "/fhir-import/R4/";
 // The picked hospital row is chosen before the SMART redirect and needed after it; the server cannot re-derive it since iss identifies a brand, and a brand has many locations.
 var BRAND_LOCATION_KEY = "ehr_patient_portal_brand_location_id";
+// Which of this client's data sources the patient is connecting; the callback page has no route params to read it from.
+var SOURCE_ID_KEY = "ehr_patient_portal_source_id";
 
 function eppStoreBrandLocationId(id) {
   if (id === undefined || id === null) return;
@@ -18,6 +20,14 @@ function eppStoreBrandLocationId(id) {
 
 function eppGetBrandLocationId() {
   return sessionStorage.getItem(BRAND_LOCATION_KEY);
+}
+
+function eppStoreSourceId(id) {
+  sessionStorage.setItem(SOURCE_ID_KEY, String(id));
+}
+
+function eppGetSourceId() {
+  return sessionStorage.getItem(SOURCE_ID_KEY);
 }
 
 // Attach the Epic patient id to the JHE patient (additive). Returns true on success.
@@ -36,7 +46,7 @@ async function eppSavePatientIdentifier(jheToken, system, value) {
 
 // The create body for a new FhirSource: dataSourceId comes from the page config (resolved server-side from this client's ClientDataSource link, never looked up here); every Connect registers a NEW source since none stores an endpoint to match against, so the endpoint lives only in the label.
 function eppFhirSourceBody(fhirBaseUrl, dataSourceId) {
-  var body = { label: "Epic / EHR Patient Portal — " + fhirBaseUrl, data_source: dataSourceId };
+  var body = { label: "Epic / EHR Patient Portal — " + fhirBaseUrl, data_source: Number(dataSourceId) };
   // Only set when the patient reached here through the picker; other launch routes have no facility to record, hence the nullable field.
   var locationId = eppGetBrandLocationId();
   if (locationId) body.ehr_brand_location = Number(locationId);
@@ -292,7 +302,8 @@ function eppRenderBrandResults(container, results, onSelect) {
 }
 
 // Connect step: the hospital picker; picking a row launches the SMART authorize against that hospital.
-pfClient.connect = async function () {
+pfClient.connect = async function (source) {
+  eppStoreSourceId(source.id);
   pfRender("t-connect", { rail: pfRail(1) });
   var picker = {
     container: document.getElementById("hospital-picker"),
@@ -338,7 +349,7 @@ async function eppCallback() {
     out.textContent += "\nError: " + (e && e.message ? e.message : e);
   }
   var failure = eppImportFailure(out.textContent);
-  var sourceParam = "&source=" + config.dataSourceIds[0];
+  var sourceParam = "&source=" + (eppGetSourceId() || config.dataSourceIds[0]);
   if (failure) {
     showFlowError("We couldn't reach your healthcare organization", failure, {
       retryLabel: "Choose a different organization",
@@ -346,7 +357,7 @@ async function eppCallback() {
     });
     return;
   }
-  window.location.href = config.pageUrl + "?route=done" + sourceParam;
+  window.location.replace(config.pageUrl + "?route=done" + sourceParam);
 }
 
 // Callback page entry point: finish Epic handshake, store id, pull USCDI records, write to JHE.
@@ -388,7 +399,7 @@ async function finishEhrPatientPortalConnect(out, config) {
   }
   out.textContent += "\nStored EHR Patient Portal patient id in JHE";
 
-  var sourceId = await eppCreateFhirSource(jheToken, iss, config.dataSourceIds[0]);
+  var sourceId = await eppCreateFhirSource(jheToken, iss, eppGetSourceId() || config.dataSourceIds[0]);
   if (!sourceId) {
     out.textContent += "\nError: failed to register data source";
     return;
@@ -465,6 +476,8 @@ if (typeof window !== "undefined") {
   window.eppRenderBrandResults = eppRenderBrandResults;
   window.eppSavePatientIdentifier = eppSavePatientIdentifier;
   window.eppStoreBrandLocationId = eppStoreBrandLocationId;
+  window.eppStoreSourceId = eppStoreSourceId;
+  window.eppGetSourceId = eppGetSourceId;
   window.finishEhrPatientPortalConnect = finishEhrPatientPortalConnect;
   window.eppImportFailure = eppImportFailure;
   window.eppCallback = eppCallback;

@@ -35,4 +35,4 @@ class FhirSourceSerializer(serializers.ModelSerializer):
         return dict(counts)
 
     def get_facility(self, obj):
-        return obj.ehr_brand_location.name if obj.ehr_brand_location else obj.label
+        return obj.ehr_brand_location.name if obj.ehr_brand_location else ""

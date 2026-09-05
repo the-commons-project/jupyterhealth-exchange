@@ -2,6 +2,6 @@
 {% load static %}
 
 {% block pf_head %}
-  <script src="{% static 'clients/ehr-patient-portal/js/fhir-client.min.js' %}"></script>
-  <script src="{% static 'clients/ehr-patient-portal/js/client-ehr-patient-portal.js' %}"></script>
+  <script src="{% static 'clients/ehr-patient-portal/js/fhir-client.min.js' %}?v={{ JHE_VERSION }}"></script>
+  <script src="{% static 'clients/ehr-patient-portal/js/client-ehr-patient-portal.js' %}?v={{ JHE_VERSION }}"></script>
 {% endblock %}
