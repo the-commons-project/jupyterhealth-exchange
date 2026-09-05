@@ -236,3 +236,89 @@ describe("renderHub", () => {
     expect(main.querySelector("a.pf-card-link").getAttribute("onclick")).toContain("pfNav('manage'");
   });
 });
+
+describe("scope detail", () => {
+  test("labels resource types, Demographics first, the rest lowercased", () => {
+    expect(window.pfScopeDetail(["Observation", "Patient", "AllergyIntolerance", "MedicationRequest"])).toBe("Demographics, allergies, medications, observations");
+    expect(window.pfScopeDetail([])).toBe("");
+    expect(window.pfResourceLabel("DiagnosticReport")).toBe("Diagnostic reports");
+    expect(window.pfResourceLabel("Goal")).toBe("Goals");
+  });
+});
+
+describe("pfConsentWrites", () => {
+  test("groups scopes by study under their request method in the API body shape", () => {
+    const scopes = [
+      { studyId: 100, codingSystem: "sys", codingCode: "*", method: "POST" },
+      { studyId: 100, codingSystem: "sys", codingCode: "qr", method: "POST" },
+      { studyId: 101, codingSystem: "sys", codingCode: "sleep", method: "PATCH" },
+    ];
+    expect(window.pfConsentWrites(scopes, true)).toEqual({
+      POST: [{ study_id: 100, scope_consents: [{ coding_system: "sys", coding_code: "*", consented: true }, { coding_system: "sys", coding_code: "qr", consented: true }] }],
+      PATCH: [{ study_id: 101, scope_consents: [{ coding_system: "sys", coding_code: "sleep", consented: true }] }],
+    });
+  });
+});
+
+describe("consent flow", () => {
+  // GET consents returns `consents` until a write happens, then `after` (the API reflects the new rows).
+  function consentsFetch(consents, calls, after) {
+    let written = false;
+    return jest.fn((url, opts) => {
+      calls.push([url, opts]);
+      if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 40001 } }) });
+      if (url.includes("/consents") && opts.method === "GET") return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(written && after ? after : consents) });
+      written = true;
+      return Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({}) });
+    });
+  }
+
+  test("renderConsent shows the pending scopes for the source and the client's scope detail", async () => {
+    document.body.innerHTML += componentHtml(path.join(COMPONENTS, "consent.html"));
+    window.storeToken("tok");
+    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: ["Patient", "Observation"] });
+    global.fetch = consentsFetch(CONSENTS, []);
+
+    await window.renderConsent({ source: "5" });
+
+    const main = document.getElementById("pf_main");
+    expect(main.querySelector(".pf-eyebrow").textContent).toBe("EHR Patient Portal · Lifespan Study on BP & HR");
+    expect(main.querySelector(".pf-card__title").textContent).toBe("Clinical records");
+    expect(main.querySelector(".pf-card__desc").textContent).toBe("Demographics, observations");
+  });
+
+  test("pfAgree writes the pending scopes and moves to the connect route", async () => {
+    window.storeToken("tok");
+    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
+    const calls = [];
+    global.fetch = consentsFetch(CONSENTS, calls, CONSENTS_AFTER);
+    window.pfClient.connect = jest.fn();
+    window.history.replaceState({}, "", "/clients/ehr-patient-portal/?route=consent&source=5");
+
+    await window.pfAgree("5");
+
+    const post = calls.find(([, opts]) => opts && opts.method === "POST");
+    expect(post[0]).toContain("/patients/40001/consents");
+    expect(JSON.parse(post[1].body)).toEqual({ study_scope_consents: [{ study_id: 100, scope_consents: [{ coding_system: "sys", coding_code: "*", consented: true }] }] });
+    expect(calls.some(([, opts]) => opts && opts.method === "PATCH")).toBe(false);
+    expect(window.location.search).toBe("?route=connect&source=5");
+    expect(window.pfClient.connect).toHaveBeenCalledWith(expect.objectContaining({ id: 5, isConsented: true }));
+  });
+
+  test("renderConnect sends an unconsented source to the consent screen first, else calls the client hook", async () => {
+    window.storeToken("tok");
+    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.fetch = consentsFetch(CONSENTS, []);
+    window.pfClient.connect = jest.fn();
+    document.body.innerHTML += componentHtml(path.join(COMPONENTS, "consent.html"));
+
+    await window.renderConnect({ source: "3" });
+    expect(window.pfClient.connect).toHaveBeenCalledWith(expect.objectContaining({ id: 3, isConsented: true }));
+
+    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
+    window.pfClient.connect.mockClear();
+    await window.renderConnect({ source: "5" });
+    expect(window.pfClient.connect).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("?route=consent&source=5");
+  });
+});

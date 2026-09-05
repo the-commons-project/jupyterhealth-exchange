@@ -232,6 +232,33 @@ function pfUniqueSorted(list) {
   return list.filter(function (item, i) { return list.indexOf(item) === i; }).sort();
 }
 
+// FhirAuxResource.resource_type -> receipt row label; anything else is pluralized CamelCase words.
+var PF_RESOURCE_LABELS = {
+  Patient: "Demographics",
+  MedicationRequest: "Medications",
+  MedicationDispense: "Medication dispenses",
+  AllergyIntolerance: "Allergies",
+  DiagnosticReport: "Diagnostic reports",
+  DocumentReference: "Documents",
+  ServiceRequest: "Service requests",
+  CarePlan: "Care plans",
+  CareTeam: "Care teams",
+  QuestionnaireResponse: "Questionnaire responses",
+};
+
+function pfResourceLabel(type) {
+  return PF_RESOURCE_LABELS[type] || (type.match(/[A-Z][a-z0-9]*/g) || [type]).join(" ") + "s";
+}
+
+// Comma-joined expected-type labels for the consent subtext, "Demographics" first; "" when the client has none.
+function pfScopeDetail(expectedTypes) {
+  var labels = expectedTypes.map(pfResourceLabel).sort();
+  if (!labels.length) return "";
+  var i = labels.indexOf("Demographics");
+  if (i > 0) labels.splice(0, 0, labels.splice(i, 1)[0]);
+  return [labels[0]].concat(labels.slice(1).map(function (l) { return l.toLowerCase(); })).join(", ");
+}
+
 // One view model per data source of this client, from the consents payload (only config.dataSourceIds are listed).
 function pfSources(consents, config) {
   var wanted = config.dataSourceIds.map(String);
@@ -294,6 +321,24 @@ async function pfSource(id) {
   return (await pfSourcesNow()).filter(function (s) { return String(s.id) === String(id); })[0];
 }
 
+// The consents API body per request method: never-asked scopes are POSTed, existing rows PATCHed, grouped by study.
+function pfConsentWrites(scopes, consented) {
+  var writes = { POST: {}, PATCH: {} };
+  scopes.forEach(function (scope) {
+    var byStudy = writes[scope.method];
+    var entry = byStudy[scope.studyId] || (byStudy[scope.studyId] = { study_id: scope.studyId, scope_consents: [] });
+    entry.scope_consents.push({ coding_system: scope.codingSystem, coding_code: scope.codingCode, consented: consented });
+  });
+  return { POST: Object.values(writes.POST), PATCH: Object.values(writes.PATCH) };
+}
+
+async function pfWriteConsents(scopes, consented) {
+  var patientId = await pfPatientId();
+  var writes = pfConsentWrites(scopes, consented);
+  if (writes.POST.length) await pfApi("POST", "patients/" + patientId + "/consents", { study_scope_consents: writes.POST });
+  if (writes.PATCH.length) await pfApi("PATCH", "patients/" + patientId + "/consents", { study_scope_consents: writes.PATCH });
+}
+
 async function pfFhirSources() {
   return (await pfApi("GET", "fhir_sources")).results;
 }
@@ -342,12 +387,47 @@ async function renderHub() {
   });
 }
 
+async function renderConsent(params) {
+  var source = await pfSource(params.source);
+  if (!source || !source.pending.length) return pfNav("hub");
+  pfRender("t-consent", {
+    sourceId: source.id,
+    eyebrow: [source.name].concat(source.studies).join(" · "),
+    sourceName: source.name,
+    rows: pfUniqueSorted(source.pending.map(function (s) { return s.label; })),
+    scopeDetail: pfScopeDetail(PATIENT_PORTAL_CONFIG.expectedResourceTypes),
+  });
+}
+
+// Record consent for the source's pending scopes, then hand off to the client's connect step.
+async function pfAgree(sourceId) {
+  pfShowLoading();
+  try {
+    await pfWriteConsents((await pfSource(sourceId)).pending, true);
+  } catch (e) {
+    pfHideLoading();
+    showFlowError("We couldn't save your consent", e.message);
+    return;
+  }
+  pfHideLoading();
+  await pfNav("connect", { source: String(sourceId) });
+}
+
+async function renderConnect(params) {
+  var source = await pfSource(params.source);
+  if (!source) return pfNav("hub");
+  if (!source.isConsented) return pfNav("consent", { source: String(source.id) });
+  await pfClient.connect(source);
+}
+
 // ────────────────────────────────────────────────────
 // Routes
 // ────────────────────────────────────────────────────
 
 var PF_ROUTES = {
   hub: renderHub,
+  consent: renderConsent,
+  connect: renderConnect,
   error: renderError,
 };
 
@@ -388,4 +468,11 @@ if (typeof window !== "undefined") {
   window.pfLatestFhirSource = pfLatestFhirSource;
   window.pfCardDesc = pfCardDesc;
   window.renderHub = renderHub;
+  window.pfResourceLabel = pfResourceLabel;
+  window.pfScopeDetail = pfScopeDetail;
+  window.pfConsentWrites = pfConsentWrites;
+  window.pfWriteConsents = pfWriteConsents;
+  window.renderConsent = renderConsent;
+  window.renderConnect = renderConnect;
+  window.pfAgree = pfAgree;
 }
