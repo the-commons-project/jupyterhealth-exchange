@@ -10,6 +10,32 @@ function componentHtml(file) {
   return fs.readFileSync(file, "utf8").replace(/{% ?verbatim ?%}|{% ?endverbatim ?%}/g, "");
 }
 
+// The consents payload as the API camelCases it; Oura (3) is this client's, EHR Patient Portal (5) is not.
+const OURA = { id: 3, name: "Oura", type: "personal_device", supportedScopes: [{ id: 21, text: "Sleep episode (IEEE)" }, { id: 22, text: "Heart Rate (OMH)" }] };
+const EHR = { id: 5, name: "EHR Patient Portal", type: "patient_app", supportedScopes: [{ id: 30, text: "Clinical records" }] };
+const CAREX = { id: 7, name: "CareX", type: "patient_app", supportedScopes: [{ id: 22, text: "Heart Rate (OMH)" }, { id: 23, text: "Blood pressure (OMH)" }] };
+function scope(id, text, codingCode, consented, consentedTime) {
+  return { code: { id: id, codingSystem: "sys", codingCode: codingCode, text: text }, consented: consented, consentedTime: consentedTime || null };
+}
+const CONSENTS = {
+  studiesPendingConsent: [
+    { id: 100, name: "Lifespan Study on BP & HR", dataSources: [CAREX, EHR], pendingScopeConsents: [scope(30, "Clinical records", "*", null)] },
+  ],
+  studies: [
+    { id: 101, name: "Lifespan Study on Sleep & BP", dataSources: [CAREX, OURA], scopeConsents: [scope(21, "Sleep episode (IEEE)", "ieee:sleep-episode:1.0", true, "2026-09-01T00:00:00Z"), scope(23, "Blood pressure (OMH)", "omh:blood-pressure:4.0", true, "2026-09-01T00:00:00Z")] },
+    { id: 100, name: "Lifespan Study on BP & HR", dataSources: [CAREX, EHR], scopeConsents: [scope(22, "Heart Rate (OMH)", "omh:heart-rate:2.0", true, "2026-09-01T00:00:00Z")] },
+  ],
+};
+// The same payload after Clinical records was consented: study 100 no longer pending, the row consented.
+const CONSENTS_AFTER = {
+  studiesPendingConsent: [],
+  studies: CONSENTS.studies.map((study) =>
+    study.id === 100 ? Object.assign({}, study, { scopeConsents: study.scopeConsents.concat([scope(30, "Clinical records", "*", true, "2026-09-02T00:00:00Z")]) }) : study
+  ),
+};
+const OW_CONFIG = { dataSourceIds: [3], sourceLabels: { 3: "Oura" } };
+const EHR_CONFIG = { dataSourceIds: [5], sourceLabels: { 5: "EHR Patient Portal" } };
+
 beforeAll(() => {
   global.Handlebars = require(path.join(STATIC, "common/js/handlebars.min.js"));
   require(path.join(STATIC, "common/js/common.js"));
@@ -140,5 +166,73 @@ describe("patientApp", () => {
 
     expect(window.location.search).toBe("?route=error&title=T&message=M");
     expect(document.querySelector(".pf-error__title").textContent).toBe("T");
+  });
+});
+
+describe("pfSources", () => {
+  test("lists only this client's sources, with the scopes their studies request through them", () => {
+    const sources = window.pfSources(CONSENTS, OW_CONFIG);
+    expect(sources.map((s) => s.id)).toEqual([3]);
+    const oura = sources[0];
+    expect(oura.isConsented).toBe(true);
+    expect(oura.labels).toEqual(["Sleep episode"]);  // Heart Rate is requested via CareX, never through Oura
+    expect(oura.studies).toEqual(["Lifespan Study on Sleep & BP"]);
+    expect(oura.icon).toBe("bi-smartwatch");
+    expect(oura.consented[0]).toMatchObject({ studyId: 101, codingCode: "ieee:sleep-episode:1.0", method: "PATCH" });
+  });
+
+  test("a never-asked scope is pending with POST and the source is not consented", () => {
+    const [ehr] = window.pfSources(CONSENTS, EHR_CONFIG);
+    expect(ehr.isConsented).toBe(false);
+    expect(ehr.pending).toEqual([expect.objectContaining({ studyId: 100, codingCode: "*", label: "Clinical records", method: "POST" })]);
+    expect(ehr.icon).toBe("bi-file-earmark-text");
+  });
+
+  test("a revoked row is pending with PATCH", () => {
+    const revoked = { studiesPendingConsent: [], studies: [{ id: 101, name: "S", dataSources: [OURA], scopeConsents: [scope(21, "Sleep episode (IEEE)", "ieee:sleep-episode:1.0", false)] }] };
+    const [oura] = window.pfSources(revoked, OW_CONFIG);
+    expect(oura.isConsented).toBe(false);
+    expect(oura.consented).toEqual([]);
+    expect(oura.pending[0].method).toBe("PATCH");
+  });
+
+  test("a source with nothing requested through it is not listed", () => {
+    expect(window.pfSources({ studiesPendingConsent: [], studies: [] }, OW_CONFIG)).toEqual([]);
+  });
+});
+
+describe("card description", () => {
+  test("joins the labels, and leads with the facility and record count once a FhirSource has one", () => {
+    const [oura] = window.pfSources(CONSENTS, OW_CONFIG);
+    expect(window.pfCardDesc(oura, null)).toBe("Sleep episode");
+    expect(window.pfCardDesc(oura, { facility: "Epic Sandbox", resourceCounts: { Observation: 3, Patient: 1 } })).toBe("Epic Sandbox · Sleep episode · 4 records");
+    expect(window.pfCardDesc(oura, { facility: "", resourceCounts: {} })).toBe("Sleep episode");
+  });
+
+  test("pfLatestFhirSource picks the newest source registered for the data source", () => {
+    const rows = [{ id: 1, dataSource: 5 }, { id: 9, dataSource: 5 }, { id: 4, dataSource: 3 }];
+    expect(window.pfLatestFhirSource(rows, 5).id).toBe(9);
+    expect(window.pfLatestFhirSource(rows, 8)).toBeNull();
+  });
+});
+
+describe("renderHub", () => {
+  test("renders one card per source with the consent badge and the single study as eyebrow", async () => {
+    document.body.innerHTML += componentHtml(path.join(COMPONENTS, "hub.html"));
+    window.storeToken("tok");
+    global.fetch = jest.fn((url) => {
+      if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 1, patient: { id: 40001 } }) });
+      if (url.includes("/consents")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(CONSENTS) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ results: [] }) });
+    });
+
+    await window.renderHub();
+
+    expect(global.fetch.mock.calls.some(([url]) => url.endsWith("/patients/40001/consents"))).toBe(true);
+    const main = document.getElementById("pf_main");
+    expect(main.querySelector(".pf-eyebrow").textContent).toBe("Lifespan Study on Sleep & BP");
+    expect(main.querySelector(".pf-card__title").textContent).toBe("Oura");
+    expect(main.querySelector(".pf-card__badge").textContent).toBe("Consented");
+    expect(main.querySelector("a.pf-card-link").getAttribute("onclick")).toContain("pfNav('manage'");
   });
 });

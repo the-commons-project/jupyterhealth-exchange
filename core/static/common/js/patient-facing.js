@@ -215,10 +215,139 @@ async function patientApp() {
 }
 
 // ────────────────────────────────────────────────────
+// Sources
+// ────────────────────────────────────────────────────
+
+// DataSource.type -> bootstrap-icons glyph on its card.
+var PF_TYPE_ICONS = { patient_app: "bi-file-earmark-text", medical_device: "bi-activity", personal_device: "bi-smartwatch" };
+
+var pfPatient = null;
+
+// Scope text without a trailing coding-standard parenthetical: "Sleep episode (IEEE)" -> "Sleep episode".
+function pfPatientLabel(text) {
+  return (text || "").replace(/\s*\([^)]*\)\s*$/, "");
+}
+
+function pfUniqueSorted(list) {
+  return list.filter(function (item, i) { return list.indexOf(item) === i; }).sort();
+}
+
+// One view model per data source of this client, from the consents payload (only config.dataSourceIds are listed).
+function pfSources(consents, config) {
+  var wanted = config.dataSourceIds.map(String);
+  var byId = {};
+  function collect(studies, pending) {
+    (studies || []).forEach(function (study) {
+      var rows = pending ? study.pendingScopeConsents : study.scopeConsents;
+      (study.dataSources || []).forEach(function (ds) {
+        if (wanted.indexOf(String(ds.id)) === -1) return;
+        var supported = ds.supportedScopes.map(function (s) { return s.id; });
+        rows.forEach(function (row) {
+          if (supported.indexOf(row.code.id) === -1) return;
+          var source = byId[ds.id] || (byId[ds.id] = {
+            id: ds.id,
+            name: config.sourceLabels[ds.id] || ds.name,
+            type: ds.type,
+            icon: PF_TYPE_ICONS[ds.type] || "bi-file-earmark-text",
+            studies: [],
+            pending: [],
+            consented: [],
+          });
+          var scope = {
+            studyId: study.id,
+            codingSystem: row.code.codingSystem,
+            codingCode: row.code.codingCode,
+            text: row.code.text,
+            label: pfPatientLabel(row.code.text),
+            consentedTime: row.consentedTime,
+            method: pending ? "POST" : "PATCH",
+          };
+          (pending || row.consented === false ? source.pending : source.consented).push(scope);
+          if (source.studies.indexOf(study.name) === -1) source.studies.push(study.name);
+        });
+      });
+    });
+  }
+  collect(consents.studiesPendingConsent, true);
+  collect(consents.studies, false);
+  return Object.keys(byId).map(function (id) {
+    var source = byId[id];
+    source.isConsented = source.pending.length === 0 && source.consented.length > 0;
+    source.labels = pfUniqueSorted(source.pending.concat(source.consented).map(function (s) { return s.label; }));
+    source.consentedLabels = pfUniqueSorted(source.consented.map(function (s) { return s.label; }));
+    source.studies.sort();
+    return source;
+  }).sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+}
+
+async function pfPatientId() {
+  if (!pfPatient) pfPatient = (await pfApi("GET", "users/profile")).patient;
+  return pfPatient.id;
+}
+
+async function pfSourcesNow() {
+  var consents = await pfApi("GET", "patients/" + (await pfPatientId()) + "/consents");
+  return pfSources(consents, PATIENT_PORTAL_CONFIG);
+}
+
+async function pfSource(id) {
+  return (await pfSourcesNow()).filter(function (s) { return String(s.id) === String(id); })[0];
+}
+
+async function pfFhirSources() {
+  return (await pfApi("GET", "fhir_sources")).results;
+}
+
+// The newest FhirSource registered for a data source, or null.
+function pfLatestFhirSource(fhirSources, dataSourceId) {
+  return fhirSources
+    .filter(function (fs) { return String(fs.dataSource) === String(dataSourceId); })
+    .sort(function (a, b) { return b.id - a.id; })[0] || null;
+}
+
+function pfRecordCount(fhirSource) {
+  var counts = fhirSource.resourceCounts || {};
+  return Object.keys(counts).reduce(function (sum, type) { return sum + counts[type]; }, 0);
+}
+
+// "facility · labels · N records" once a FhirSource names a facility, else the scope labels.
+function pfCardDesc(source, fhirSource) {
+  var labels = source.labels.join(", ");
+  if (!fhirSource || !fhirSource.facility) return labels;
+  return fhirSource.facility + " · " + labels + " · " + pfRecordCount(fhirSource) + " records";
+}
+
+// ────────────────────────────────────────────────────
+// Screens
+// ────────────────────────────────────────────────────
+
+async function renderHub() {
+  var sources = await pfSourcesNow();
+  var fhirSources = sources.some(function (s) { return s.isConsented; }) ? await pfFhirSources() : [];
+  var studies = pfUniqueSorted([].concat.apply([], sources.map(function (s) { return s.studies; })));
+  pfRender("t-hub", {
+    eyebrow: studies.length === 1 ? studies[0] : "Your studies",
+    cards: sources.map(function (source) {
+      var fhirSource = source.isConsented ? pfLatestFhirSource(fhirSources, source.id) : null;
+      return {
+        id: source.id,
+        title: source.name,
+        desc: pfCardDesc(source, fhirSource),
+        icon: source.icon,
+        on: source.isConsented,
+        badge: source.isConsented ? "Consented" : "Not consented",
+        route: source.isConsented ? "manage" : "consent",
+      };
+    }),
+  });
+}
+
+// ────────────────────────────────────────────────────
 // Routes
 // ────────────────────────────────────────────────────
 
 var PF_ROUTES = {
+  hub: renderHub,
   error: renderError,
 };
 
@@ -250,4 +379,13 @@ if (typeof window !== "undefined") {
   window.renderError = renderError;
   window.patientApp = patientApp;
   window.PF_ROUTES = PF_ROUTES;
+  window.pfPatientLabel = pfPatientLabel;
+  window.pfUniqueSorted = pfUniqueSorted;
+  window.pfSources = pfSources;
+  window.pfSourcesNow = pfSourcesNow;
+  window.pfSource = pfSource;
+  window.pfFhirSources = pfFhirSources;
+  window.pfLatestFhirSource = pfLatestFhirSource;
+  window.pfCardDesc = pfCardDesc;
+  window.renderHub = renderHub;
 }
