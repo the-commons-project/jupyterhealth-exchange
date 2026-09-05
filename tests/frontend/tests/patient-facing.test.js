@@ -402,3 +402,49 @@ describe("renderDone", () => {
     expect(document.querySelector("#pf_main .pf-receipt")).toBeNull();
   });
 });
+
+describe("manage flow", () => {
+  function fetchWith(calls, fhirRows) {
+    return jest.fn((url, opts) => {
+      calls.push([url, opts]);
+      if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 1 } }) });
+      if (url.includes("/consents") && !(opts && opts.method === "PATCH")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(CONSENTS) });
+      if (url.includes("fhir_sources")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ results: fhirRows }) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    });
+  }
+
+  test("renderManage lists the consented scopes, or the facility card and receipt when records exist", async () => {
+    document.body.innerHTML += componentHtml(path.join(COMPONENTS, "manage.html")) + componentHtml(path.join(COMPONENTS, "receipt.html"));
+    window.pfRegisterPartials();
+    window.storeToken("tok");
+    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.fetch = fetchWith([], []);
+
+    await window.renderManage({ source: "3" });
+    let main = document.getElementById("pf_main");
+    expect(main.querySelector(".pf-card__title").textContent).toBe("Sleep episode");
+    expect(main.querySelector(".pf-receipt")).toBeNull();
+
+    global.fetch = fetchWith([], [{ id: 2, dataSource: 3, facility: "Oura Cloud", resourceCounts: { Observation: 7 } }]);
+    await window.renderManage({ source: "3" });
+    main = document.getElementById("pf_main");
+    expect(main.querySelector(".pf-card__desc").textContent).toBe("Oura Cloud · Sleep episode · 7 records");
+    expect(main.querySelector(".pf-receipt__row--total .pf-receipt__n").textContent).toBe("7");
+  });
+
+  test("pfStopSharing PATCHes every consented scope to false and returns to the hub", async () => {
+    window.storeToken("tok");
+    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    const calls = [];
+    global.fetch = fetchWith(calls, []);
+    document.body.innerHTML += componentHtml(path.join(COMPONENTS, "hub.html"));
+    window.history.replaceState({}, "", "/clients/ow/launch?route=manage&source=3");
+
+    await window.pfStopSharing("3");
+
+    const patch = calls.find(([, opts]) => opts && opts.method === "PATCH");
+    expect(JSON.parse(patch[1].body)).toEqual({ study_scope_consents: [{ study_id: 101, scope_consents: [{ coding_system: "sys", coding_code: "ieee:sleep-episode:1.0", consented: false }] }] });
+    expect(window.location.search).toBe("?route=hub");
+  });
+});

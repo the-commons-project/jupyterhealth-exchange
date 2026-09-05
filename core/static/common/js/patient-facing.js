@@ -459,6 +459,34 @@ async function renderDone(params) {
   });
 }
 
+async function renderManage(params) {
+  var source = await pfSource(params.source);
+  if (!source || !source.consented.length) return pfNav("hub");
+  var fhirSource = pfLatestFhirSource(await pfFhirSources(), source.id);
+  pfRender("t-manage", {
+    sourceId: source.id,
+    sourceName: source.name,
+    icon: source.icon,
+    detail: fhirSource && fhirSource.facility ? pfCardDesc(source, fhirSource) : null,
+    rows: source.consentedLabels,
+    receipt: pfSourceReceipt(fhirSource),
+  });
+}
+
+// Revoke every consented scope of the source (rows stay, consented becomes false), then back to the hub.
+async function pfStopSharing(sourceId) {
+  pfShowLoading();
+  try {
+    await pfWriteConsents((await pfSource(sourceId)).consented, false);
+  } catch (e) {
+    pfHideLoading();
+    showFlowError("We couldn't stop sharing", e.message);
+    return;
+  }
+  pfHideLoading();
+  await pfNav("hub");
+}
+
 // ────────────────────────────────────────────────────
 // Routes
 // ────────────────────────────────────────────────────
@@ -468,6 +496,7 @@ var PF_ROUTES = {
   consent: renderConsent,
   connect: renderConnect,
   done: renderDone,
+  manage: renderManage,
   error: renderError,
 };
 
@@ -522,4 +551,6 @@ if (typeof window !== "undefined") {
   window.pfReceipt = pfReceipt;
   window.pfSourceReceipt = pfSourceReceipt;
   window.renderDone = renderDone;
+  window.renderManage = renderManage;
+  window.pfStopSharing = pfStopSharing;
 }
