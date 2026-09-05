@@ -362,6 +362,29 @@ function pfCardDesc(source, fhirSource) {
   return fhirSource.facility + " · " + labels + " · " + pfRecordCount(fhirSource) + " records";
 }
 
+// Per-type synced counts, a zero row per expected-but-missing type, and the total.
+function pfReceipt(counts, expectedTypes) {
+  var synced = Object.keys(counts)
+    .map(function (type) { return { label: pfResourceLabel(type), n: counts[type] }; })
+    .sort(function (a, b) { return b.n - a.n || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0); });
+  var notSynced = expectedTypes
+    .filter(function (type) { return !(type in counts); })
+    .map(function (type) { return { label: pfResourceLabel(type), n: 0 }; })
+    .sort(function (a, b) { return a.label < b.label ? -1 : a.label > b.label ? 1 : 0; });
+  return { synced: synced, notSynced: notSynced, total: pfRecordCount({ resourceCounts: counts }) };
+}
+
+function pfSourceReceipt(fhirSource) {
+  return fhirSource ? pfReceipt(fhirSource.resourceCounts || {}, PATIENT_PORTAL_CONFIG.expectedResourceTypes) : null;
+}
+
+function pfLatestConsented(sources) {
+  return sources.reduce(function (latest, source) {
+    var time = Math.max.apply(null, source.consented.map(function (s) { return Date.parse(s.consentedTime) || 0; }));
+    return !latest || time > latest.time ? { source: source, time: time } : latest;
+  }, null);
+}
+
 // ────────────────────────────────────────────────────
 // Screens
 // ────────────────────────────────────────────────────
@@ -420,6 +443,22 @@ async function renderConnect(params) {
   await pfClient.connect(source);
 }
 
+// The source just connected (?source=), else this client's most recently consented source.
+async function renderDone(params) {
+  var consented = (await pfSourcesNow()).filter(function (s) { return s.isConsented; });
+  var primary = consented.filter(function (s) { return String(s.id) === String(params.source); })[0];
+  if (!primary && consented.length) primary = pfLatestConsented(consented).source;
+  var fhirSource = primary ? pfLatestFhirSource(await pfFhirSources(), primary.id) : null;
+  var study = primary && primary.studies.length === 1 ? primary.studies[0] : "your study team";
+  pfRender("t-done", {
+    lede: primary
+      ? "You've agreed to share your selected data with " + study + ". You can manage or disconnect any source anytime."
+      : "Nothing is shared yet.",
+    rows: primary ? [{ name: primary.name, detail: pfCardDesc(primary, fhirSource) }] : [],
+    receipt: pfSourceReceipt(fhirSource),
+  });
+}
+
 // ────────────────────────────────────────────────────
 // Routes
 // ────────────────────────────────────────────────────
@@ -428,6 +467,7 @@ var PF_ROUTES = {
   hub: renderHub,
   consent: renderConsent,
   connect: renderConnect,
+  done: renderDone,
   error: renderError,
 };
 
@@ -479,4 +519,7 @@ if (typeof window !== "undefined") {
   window.renderConsent = renderConsent;
   window.renderConnect = renderConnect;
   window.pfAgree = pfAgree;
+  window.pfReceipt = pfReceipt;
+  window.pfSourceReceipt = pfSourceReceipt;
+  window.renderDone = renderDone;
 }

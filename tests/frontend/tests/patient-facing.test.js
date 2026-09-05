@@ -357,3 +357,48 @@ describe("Open Wearables hook", () => {
   });
   // jsdom cannot navigate, so the final `window.location.href = ...` logs "Not implemented: navigation"; that is the redirect.
 });
+
+describe("pfReceipt", () => {
+  test("sorts synced rows by count then label, lists expected-but-missing types as not synced, and totals", () => {
+    const receipt = window.pfReceipt({ Observation: 5, Patient: 1, Condition: 5 }, ["Patient", "Observation", "AllergyIntolerance", "Condition"]);
+    expect(receipt.synced).toEqual([{ label: "Conditions", n: 5 }, { label: "Observations", n: 5 }, { label: "Demographics", n: 1 }]);
+    expect(receipt.notSynced).toEqual([{ label: "Allergies", n: 0 }]);
+    expect(receipt.total).toBe(11);
+  });
+});
+
+describe("renderDone", () => {
+  test("shows the source named in the URL with its receipt, and names its single study", async () => {
+    document.body.innerHTML += componentHtml(path.join(COMPONENTS, "done.html")) + componentHtml(path.join(COMPONENTS, "receipt.html"));
+    window.pfRegisterPartials();
+    window.storeToken("tok");
+    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.fetch = jest.fn((url) => {
+      if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 1 } }) });
+      if (url.includes("/consents")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(CONSENTS) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ results: [{ id: 2, dataSource: 3, facility: "Oura Cloud", resourceCounts: { Observation: 7 } }] }) });
+    });
+
+    await window.renderDone({ source: "3" });
+
+    const main = document.getElementById("pf_main");
+    expect(main.querySelector(".pf-lede").textContent).toBe("You've agreed to share your selected data with Lifespan Study on Sleep & BP. You can manage or disconnect any source anytime.");
+    expect(main.querySelector(".pf-consent-row__label").textContent).toBe("Oura · Oura Cloud · Sleep episode · 7 records");
+    expect(main.querySelector(".pf-receipt__row--total .pf-receipt__n").textContent).toBe("7");
+  });
+
+  test("with nothing consented it says nothing is shared", async () => {
+    document.body.innerHTML += componentHtml(path.join(COMPONENTS, "done.html")) + componentHtml(path.join(COMPONENTS, "receipt.html"));
+    window.storeToken("tok");
+    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
+    global.fetch = jest.fn((url) => {
+      if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 1 } }) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(CONSENTS) });
+    });
+
+    await window.renderDone({});
+
+    expect(document.querySelector("#pf_main .pf-lede").textContent).toBe("Nothing is shared yet.");
+    expect(document.querySelector("#pf_main .pf-receipt")).toBeNull();
+  });
+});
