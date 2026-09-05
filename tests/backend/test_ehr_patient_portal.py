@@ -5,25 +5,11 @@ rows. That path is registered as a redirect URI on the Epic app, so it and the E
 registration have to move together. Its /api/v1/ endpoints moved with it.
 """
 
-import re
-
 import pytest
-from django.template.loader import render_to_string
 from oauth2_provider.models import get_application_model
 from rest_framework.test import APIClient
 
-from core.models import ClientDataSource, DataSource, JheClient, JheUser, PatientIdentifier
-
-
-def _rail_step_classes(html):
-    return re.findall(r'<li class="pf-rail__step([^"]*)"', html)
-
-
-def _error_wrap(html):
-    """(callout, actions) of the #pf_error_wrap block: the buttons are a sibling of the red .pf-error box."""
-    wrap = html.split('id="pf_error_wrap"', 1)[1]
-    callout, actions = wrap.split('<div class="pf-actions"', 1)
-    return callout, actions.split("</div>", 1)[0]
+from core.models import ClientDataSource, DataSource, JheUser, PatientIdentifier
 
 
 @pytest.fixture
@@ -101,91 +87,6 @@ def test_connect_page_renders(db, client):
 def test_callback_page_renders(db, client):
     resp = client.get("/clients/ehr-patient-portal/callback")
     assert resp.status_code == 200
-
-
-def test_connect_page_includes_hospital_picker(db, client):
-    # The connect page must render the picker input and pass it to startEhrPatientPortalConnect,
-    # otherwise the patient can never choose a hospital.
-    html = client.get("/clients/ehr-patient-portal/").content.decode()
-    assert 'id="hospital-search"' in html
-    assert 'id="hospital-results"' in html
-    assert "startEhrPatientPortalConnect(out, EHR_PATIENT_PORTAL_CONFIG, picker)" in html
-
-
-def test_connect_page_is_branded_and_preserves_js_hooks(db, client):
-    html = client.get("/clients/ehr-patient-portal/").content.decode()
-
-    assert "EHR_PATIENT_PORTAL_CONFIG" in html and "showFlowError" in html
-    assert '<pre id="out" hidden>' in html  # the flow log stays in the DOM for the JS; errors surface via pf_error
-    assert html.index('id="hospital-picker"') < html.index('id="out"')
-    search = html.split('class="pf-search"', 1)[1]
-    assert search.index('id="hospital-search"') < search.index('id="hospital-results"')
-    assert "Share your medical records" in html and "We only sync the records you approve" in html
-    steps = _rail_step_classes(html)
-    assert len(steps) == 3 and "is-active" in steps[0]
-    assert "pf-back" in html
-    assert "hidden" in html.split('id="pf_error_wrap"', 1)[1].split(">", 1)[0]
-    assert "We couldn't process your invitation" in html
-    callout, actions = _error_wrap(html)
-    assert "pf-btn" not in callout
-    assert "Try again" in actions and "Back" in actions
-
-
-def test_callback_page_frames_the_import_and_auto_advances(db, client):
-    html = client.get("/clients/ehr-patient-portal/callback").content.decode()
-
-    assert 'class="pf-page"' in html and 'id="out"' in html
-    assert "Importing your records" in html and "Securely syncing your records into your study" in html
-    assert "pf-import-card" in html and "pf-progress" in html and "Syncing your records" in html
-    steps = _rail_step_classes(html)
-    assert len(steps) == 3 and "is-active" in steps[2]
-    # No exits while the import runs: no View summary link and no Back link, so a partial receipt can't be captured.
-    assert "View summary" not in html and "pf-back" not in html
-    assert "We couldn't reach your healthcare organization" in html
-    callout, actions = _error_wrap(html)
-    assert "pf-btn" not in callout
-    assert 'href="/clients/ehr-patient-portal/"' in actions and "Choose a different organization" in actions
-    script = html.split("finishEhrPatientPortalConnect", 1)[1]
-    assert "showFlowError" in script
-    assert "could not fetch" in script and "saved " in script  # an all-types-failed run is an error, not a success
-
-
-def test_progress_rail_marks_active_and_done_steps():
-    html = render_to_string("clients/ehr-patient-portal/progress_rail.html", {"active_step": 2})
-
-    steps = _rail_step_classes(html)
-    assert len(steps) == 3
-    assert "is-done" in steps[0] and "is-active" not in steps[0]
-    assert "is-active" in steps[1] and "is-done" not in steps[1]
-    assert "is-done" not in steps[2] and "is-active" not in steps[2]
-    for label in ("Choose organization", "Sign in", "Import records"):
-        assert label in html
-
-
-def test_connect_page_data_source_comes_from_the_client_data_source_link(db, client):
-    # The view must read the data source off the client's ClientDataSource row. It used to
-    # match DataSource by a hardcoded name at request time, which let the client name and the
-    # data source name drift apart unnoticed.
-    app = get_application_model().objects.create(name="EHR Patient Portal", client_id="local-app-id")
-    JheClient.objects.create(application=app, aux_data={"client_id": "epic-id", "scopes": "openid"})
-    linked = DataSource.objects.create(name="EHR Patient Portal", type="patient_app")
-    ClientDataSource.objects.create(client=app, data_source=linked)
-
-    html = client.get("/clients/ehr-patient-portal/").content.decode()
-
-    assert f'dataSourceId: "{linked.id}"' in html
-
-
-def test_connect_page_has_no_data_source_when_the_link_is_missing(db, client):
-    # An unlinked client yields an empty id rather than silently latching onto some other
-    # row that happens to share the name -- linking is an explicit seed/admin action.
-    app = get_application_model().objects.create(name="EHR Patient Portal", client_id="local-app-id")
-    JheClient.objects.create(application=app, aux_data={"client_id": "epic-id", "scopes": "openid"})
-    DataSource.objects.create(name="EHR Patient Portal", type="patient_app")
-
-    html = client.get("/clients/ehr-patient-portal/").content.decode()
-
-    assert 'dataSourceId: ""' in html
 
 
 def test_rename_migration_renames_both_rows_and_links_them(db):

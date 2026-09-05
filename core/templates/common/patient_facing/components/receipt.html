@@ -1,12 +1,1 @@
-<div class="pf-receipt">
-{% for label, n in receipt.synced %}
-<div class="pf-receipt__row"><span>{{ label }}</span><span class="pf-receipt__n">{{ n }}</span></div>
-{% endfor %}
-{% if receipt.not_synced %}
-<div class="pf-receipt__heading">Not synced</div>
-{% for label, n in receipt.not_synced %}
-<div class="pf-receipt__row pf-receipt__row--pending"><span>{{ label }}</span><span class="pf-receipt__n">{{ n }}</span></div>
-{% endfor %}
-{% endif %}
-<div class="pf-receipt__row pf-receipt__row--total"><span>Total synced</span><span class="pf-receipt__n">{{ receipt.total }}</span></div>
-</div>
+{% verbatim %}<script id="t-receipt" type="text/template"></script>{% endverbatim %}

@@ -25,6 +25,7 @@ from oauthlib.common import Request
 from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
 from core.models import JheUser
 from core.services.jhe_settings import get_setting
+from core.views.patient_facing import patient_portal_config
 
 from ..forms import UserRegistrationForm
 
@@ -213,7 +214,8 @@ def portal(request, path):
 
 
 def ow_launch(request):
-    return render(request, "clients/ow/launch.html")
+    config = patient_portal_config("Open Wearables", "ow", reverse("ow-launch"))
+    return render(request, "clients/ow/launch.html", {"config": config})
 
 
 def ow_complete(request):

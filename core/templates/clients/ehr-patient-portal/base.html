@@ -4,11 +4,4 @@
 {% block pf_head %}
   <script src="{% static 'clients/ehr-patient-portal/js/fhir-client.min.js' %}"></script>
   <script src="{% static 'clients/ehr-patient-portal/js/client-ehr-patient-portal.js' %}"></script>
-  <script>
-    var EHR_PATIENT_PORTAL_CONFIG = {
-      clientId: "{{ ehr_patient_portal_client_id|escapejs }}",
-      scope: "{{ ehr_patient_portal_scopes|escapejs }}",
-      dataSourceId: "{{ ehr_patient_portal_data_source_id|escapejs }}",
-    };
-  </script>
 {% endblock %}

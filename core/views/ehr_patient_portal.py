@@ -1,19 +1,17 @@
 import logging
 
-from django.db.models import Prefetch, Q
+from django.db.models import Q
 from django.shortcuts import render
-from oauth2_provider.models import get_application_model
+from django.urls import reverse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from core.models import ClientDataSource, EhrBrandLocation, PatientIdentifier
+from core.models import EhrBrandLocation, PatientIdentifier
+from core.views.patient_facing import patient_portal_config
 
 logger = logging.getLogger(__name__)
-Application = get_application_model()
 
-# The seeded Application row this client is served from. Its DataSource of the same name is
-# NOT looked up by name here -- see _config_context.
 EHR_PATIENT_PORTAL_CLIENT_NAME = "EHR Patient Portal"
 BRANDS_DEFAULT_LIMIT = 25
 BRANDS_MAX_LIMIT = 100
@@ -75,41 +73,20 @@ US_STATES = {
 }
 
 
-def _ehr_patient_portal_client():
-    """The seeded EHR Patient Portal Application, with its JheClient and data-source links."""
-    return (
-        Application.objects.filter(name=EHR_PATIENT_PORTAL_CLIENT_NAME)
-        .select_related("jhe_client")
-        .prefetch_related(Prefetch("data_sources", queryset=ClientDataSource.objects.order_by("id")))
-        .first()
+def _config():
+    return patient_portal_config(
+        EHR_PATIENT_PORTAL_CLIENT_NAME, "ehr-patient-portal", reverse("ehr-patient-portal-connect")
     )
 
 
-def _config_context():
-    app = _ehr_patient_portal_client()
-    jhe_client = getattr(app, "jhe_client", None) if app else None
-    aux = (jhe_client.aux_data if jhe_client else None) or {}
-    # The FhirSource the browser registers needs a DataSource id. It is read off the client's
-    # ClientDataSource link -- established by seed or by an admin -- so the association is
-    # declared data, not something this view infers by matching on a name at request time.
-    # The portal client has exactly one link; ordering by id keeps the choice stable rather
-    # than arbitrary if an admin ever adds a second.
-    link = next(iter(app.data_sources.all()), None) if app else None
-    return {
-        "ehr_patient_portal_client_id": aux.get("client_id", ""),
-        "ehr_patient_portal_scopes": aux.get("scopes", ""),
-        "ehr_patient_portal_data_source_id": link.data_source_id if link else "",
-    }
-
-
 def ehr_patient_portal_connect(request):
-    """Patient-facing start page: invitation -> JHE token -> Epic authorize."""
-    return render(request, "clients/ehr-patient-portal/connect.html", _config_context())
+    """Patient-facing start page: invitation -> hub -> consent -> hospital picker -> Epic authorize."""
+    return render(request, "clients/ehr-patient-portal/connect.html", {"config": _config()})
 
 
 def ehr_patient_portal_callback(request):
-    """Return page: FHIR.oauth2.ready() -> store id -> pull Labs -> write to JHE."""
-    return render(request, "clients/ehr-patient-portal/callback.html", _config_context())
+    """Epic's return page: finish the SMART handshake, import the records, then hand off to the done screen."""
+    return render(request, "clients/ehr-patient-portal/callback.html", {"config": _config()})
 
 
 def _parse_limit(raw):
