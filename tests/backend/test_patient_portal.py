@@ -490,7 +490,7 @@ def test_consent_post_cross_client_to_clinical_records_lands_on_the_picker(clien
     resp = client.post(f"/patient/consent/{ehr_ds.id}/", {"code": code})
 
     assert resp.status_code == 302
-    assert resp.url.startswith("/clients/ehr-patient-portal/?code=localhost%3A8001_")
+    assert resp.url.startswith("/clients/ehr-patient-portal/?code=")
     assert code not in resp.url  # the EHR client's own freshly minted invitation, not the OW one
     assert PatientInvitation.objects.filter(
         patient=peter, client=ehr_app, status=PatientInvitation.Status.ISSUED

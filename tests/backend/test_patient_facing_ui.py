@@ -141,7 +141,7 @@ def test_ow_launch_without_a_code_renders_the_branded_connect_card(seeded, clien
 
 
 def test_ow_complete_redirects_to_done_or_renders_the_error_callout(db, client):
-    assert client.get("/clients/ow/manage").status_code == 404  # legacy JS manage page retired; /patient/manage/ replaces it
+    assert client.get("/clients/ow/manage").status_code == 404  # legacy JS manage page retired
 
     resp = client.get("/clients/ow/complete?provider=oura")
     assert (resp.status_code, resp["Location"]) == (302, "/patient/done/")
