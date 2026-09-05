@@ -1,7 +1,14 @@
 import { describe, test, expect, beforeAll, beforeEach, jest } from "@jest/globals";
+const path = require("path");
 
-// client-ehr-patient-portal.js exposes eppPullResourceType + eppWriteResource on window.
+const STATIC = path.resolve(__dirname, "../../../core/static");
+
+// client-ehr-patient-portal.js references getStoredToken/pfRender from patient-facing.js, and
+// exposes eppPullResourceType + eppWriteResource on window.
 beforeAll(() => {
+  global.Handlebars = require(path.join(STATIC, "common/js/handlebars.min.js"));
+  require(path.join(STATIC, "common/js/common.js"));
+  require(path.join(STATIC, "common/js/patient-facing.js"));
   require("../../../core/static/clients/ehr-patient-portal/js/client-ehr-patient-portal.js");
 });
 
@@ -266,14 +273,14 @@ describe("finishEhrPatientPortalConnect", () => {
   const PICKED = "https://mercy.example.org/FHIR/R4";
   // A configured default that is NOT the hospital the patient picked; provenance must
   // never fall back to it, otherwise multi-hospital records are labelled with the wrong iss.
-  const CONFIG = { iss: "https://seeded-default.example.org/FHIR/R4", dataSourceId: 3 };
+  const CONFIG = { iss: "https://seeded-default.example.org/FHIR/R4", dataSourceIds: [3] };
 
   function jsonOk(body) {
     return Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
   }
 
   beforeEach(() => {
-    sessionStorage.setItem("ehr_patient_portal_jhe_access_token", "tok");
+    window.storeToken("tok");
     sessionStorage.removeItem("ehr_patient_portal_brand_location_id");
     // No records to pull, so the run stops after identifier + FhirSource registration.
     const client = {

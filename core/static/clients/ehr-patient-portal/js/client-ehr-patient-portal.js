@@ -1,26 +1,18 @@
 // ────────────────────────────────────────────────────
 // EHR Patient Portal Client - SMART on FHIR patient EHR-records flow.
-// Browser-side: invitation -> JHE token -> Epic PKCE -> pull USCDI records -> write to JHE.
+// Registers the connect step (hospital picker) and the callback entry point for the shared
+// patient-facing app (core/static/common/js/patient-facing.js).
+// Browser-side: JHE token -> Epic PKCE -> pull USCDI records -> write to JHE.
 // Uses common.js (parseInvitationCode) and SMART fhir-client.js (FHIR.oauth2.*).
 // ────────────────────────────────────────────────────
 
-var TOKEN_ENDPOINT = window.location.origin + "/o/token/";
 var API_ENDPOINT = window.location.origin + "/api/v1/";
 // Epic serves R4; JHE validates R5. Writes go through the R4 import endpoint, which converts
 // R4->R5 (cross_version engine) then runs the normal create. It returns a batch-response Bundle.
 var IMPORT_ENDPOINT = window.location.origin + "/fhir-import/R4/";
-var JHE_TOKEN_KEY = "ehr_patient_portal_jhe_access_token";
 // The picked hospital row is chosen before the SMART redirect and needed after it, and the
 // server cannot re-derive it: iss identifies a brand, and a brand has many locations.
 var BRAND_LOCATION_KEY = "ehr_patient_portal_brand_location_id";
-
-function eppStoreToken(token) {
-  sessionStorage.setItem(JHE_TOKEN_KEY, token);
-}
-
-function eppGetToken() {
-  return sessionStorage.getItem(JHE_TOKEN_KEY);
-}
 
 function eppStoreBrandLocationId(id) {
   if (id === undefined || id === null) return;
@@ -29,58 +21,6 @@ function eppStoreBrandLocationId(id) {
 
 function eppGetBrandLocationId() {
   return sessionStorage.getItem(BRAND_LOCATION_KEY);
-}
-
-// Exchange a JHE invitation auth code for a JHE access token (PKCE verifier = the token).
-async function eppExchangeCodeForToken(clientId, code, codeVerifier, redirectUri) {
-  var payload = {
-    code: code,
-    grant_type: "authorization_code",
-    redirect_uri: redirectUri,
-    client_id: clientId,
-    code_verifier: codeVerifier,
-  };
-  var response = await fetch(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "Cache-Control": "no-cache" },
-    body: new URLSearchParams(payload).toString(),
-  });
-  if (!response.ok) return null;
-  return await response.json();
-}
-
-// Redeem the ?code= invitation and obtain + store a JHE access token. Returns true on success.
-async function eppRedeemInvitation(out) {
-  var params = new URLSearchParams(window.location.search);
-  var code = params.get("code");
-  if (!code) {
-    out.textContent += "\nError: no invitation code in URL";
-    return false;
-  }
-  var link = parseInvitationCode(code);
-  if (!link) {
-    out.textContent += "\nError: invalid invitation code format";
-    return false;
-  }
-  out.textContent += "\nRedeeming invitation...";
-  var invitationResponse = await fetch(
-    window.location.protocol + "//" + link.host + "/api/v1/invitation/" + link.token,
-    { method: "POST", headers: { "Cache-Control": "no-cache" } }
-  );
-  if (!invitationResponse.ok) {
-    out.textContent += "\nError: failed to redeem invitation (" + invitationResponse.status + ")";
-    return false;
-  }
-  var grant = (await invitationResponse.json()).grant;
-  var codeVerifier = btoa(link.token).replace(/=/g, "");
-  var tokens = await eppExchangeCodeForToken(grant.client_id, grant.code, codeVerifier, grant.redirect_uri);
-  if (!tokens || !tokens.access_token) {
-    out.textContent += "\nError: failed to exchange invitation for JHE token";
-    return false;
-  }
-  eppStoreToken(tokens.access_token);
-  out.textContent += "\nJHE access token received";
-  return true;
 }
 
 // Attach the Epic patient id to the JHE patient (additive). Returns true on success.
@@ -394,28 +334,22 @@ function eppRenderBrandResults(container, results, onSelect) {
   return results.length;
 }
 
-// Connect page entry point: redeem the invitation, then show the hospital picker.
-// Selecting a hospital launches the Epic SMART authorize against that hospital's iss.
-// `picker` = { input, results } DOM elements from the connect page.
-async function startEhrPatientPortalConnect(out, config, picker) {
-  out.textContent = "Processing your invitation...";
-  var ok = await eppRedeemInvitation(out);
-  if (!ok) return;
-  out.textContent += "\n\nChoose your hospital to continue.";
-
-  var jheToken = eppGetToken();
+// Connect step: the hospital picker; picking a row launches the SMART authorize against that hospital.
+pfClient.connect = async function () {
+  pfRender("t-connect", { rail: pfRail(1) });
+  var picker = {
+    container: document.getElementById("hospital-picker"),
+    input: document.getElementById("hospital-search"),
+    results: document.getElementById("hospital-results"),
+  };
+  var jheToken = getStoredToken();
   var onSelect = function (row) {
-    out.textContent += "\n\nRedirecting to " + row.brandName + " login...";
     eppStoreBrandLocationId(row.id);
-    eppAuthorizeWithIss(config, row.fhirBaseUrl);
+    eppAuthorizeWithIss(PATIENT_PORTAL_CONFIG, row.fhirBaseUrl);
   };
-
   var runSearch = async function () {
-    var results = await eppSearchBrands(jheToken, picker.input.value);
-    eppRenderBrandResults(picker.results, results, onSelect);
+    eppRenderBrandResults(picker.results, await eppSearchBrands(jheToken, picker.input.value), onSelect);
   };
-
-  // Debounced live search as the patient types; initial call lists everything.
   var timer = null;
   picker.input.addEventListener("input", function () {
     if (timer) clearTimeout(timer);
@@ -423,12 +357,45 @@ async function startEhrPatientPortalConnect(out, config, picker) {
   });
   picker.container.hidden = false;
   await runSearch();
+};
+
+// The failure text of an import log: every type failed to fetch, or the last "Error:" line; null on success.
+function eppImportFailure(log) {
+  if (log.indexOf("could not fetch") !== -1 && log.indexOf("saved ") === -1) return "none of your record types could be fetched";
+  var lines = log.split("\n");
+  for (var i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].indexOf("Error:") === 0) return lines[i].slice("Error:".length).trim();
+  }
+  return null;
+}
+
+// Callback page entry: importing screen, run the import, then the done screen (or the error callout).
+async function eppCallback() {
+  pfRegisterPartials();
+  await renderImporting();
+  var out = document.getElementById("out");
+  var config = PATIENT_PORTAL_CONFIG;
+  try {
+    await finishEhrPatientPortalConnect(out, config);
+  } catch (e) {
+    out.textContent += "\nError: " + (e && e.message ? e.message : e);
+  }
+  var failure = eppImportFailure(out.textContent);
+  var sourceParam = "&source=" + config.dataSourceIds[0];
+  if (failure) {
+    showFlowError("We couldn't reach your healthcare organization", failure, {
+      retryLabel: "Choose a different organization",
+      retryHref: config.pageUrl + "?route=connect" + sourceParam,
+    });
+    return;
+  }
+  window.location.href = config.pageUrl + "?route=done" + sourceParam;
 }
 
 // Callback page entry point: finish Epic handshake, store id, pull USCDI records, write to JHE.
 async function finishEhrPatientPortalConnect(out, config) {
   out.textContent = "Completing connection...";
-  var jheToken = eppGetToken();
+  var jheToken = getStoredToken();
   if (!jheToken) {
     out.textContent += "\nError: no JHE session. Restart from your invitation link.";
     return;
@@ -466,7 +433,7 @@ async function finishEhrPatientPortalConnect(out, config) {
   }
   out.textContent += "\nStored EHR Patient Portal patient id in JHE";
 
-  var sourceId = await eppCreateFhirSource(jheToken, iss, config.dataSourceId);
+  var sourceId = await eppCreateFhirSource(jheToken, iss, config.dataSourceIds[0]);
   if (!sourceId) {
     out.textContent += "\nError: failed to register data source";
     return;
@@ -549,4 +516,6 @@ if (typeof window !== "undefined") {
   window.eppSavePatientIdentifier = eppSavePatientIdentifier;
   window.eppStoreBrandLocationId = eppStoreBrandLocationId;
   window.finishEhrPatientPortalConnect = finishEhrPatientPortalConnect;
+  window.eppImportFailure = eppImportFailure;
+  window.eppCallback = eppCallback;
 }

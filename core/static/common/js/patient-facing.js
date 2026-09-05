@@ -389,6 +389,22 @@ function pfLatestConsented(sources) {
 // Screens
 // ────────────────────────────────────────────────────
 
+var PF_RAIL_STEPS = ["Choose organization", "Sign in", "Import records"];
+
+// The three-step rail with the active step and everything before it marked.
+function pfRail(activeStep) {
+  return {
+    steps: PF_RAIL_STEPS.map(function (label, i) {
+      var num = i + 1;
+      return { num: num, label: label, cls: num === activeStep ? " is-active" : num < activeStep ? " is-done" : "" };
+    }),
+  };
+}
+
+async function renderImporting() {
+  pfRender("t-importing", { rail: pfRail(3) });
+}
+
 async function renderHub() {
   var sources = await pfSourcesNow();
   var fhirSources = sources.some(function (s) { return s.isConsented; }) ? await pfFhirSources() : [];
@@ -495,6 +511,7 @@ var PF_ROUTES = {
   hub: renderHub,
   consent: renderConsent,
   connect: renderConnect,
+  importing: renderImporting,
   done: renderDone,
   manage: renderManage,
   error: renderError,
@@ -547,6 +564,8 @@ if (typeof window !== "undefined") {
   window.pfWriteConsents = pfWriteConsents;
   window.renderConsent = renderConsent;
   window.renderConnect = renderConnect;
+  window.pfRail = pfRail;
+  window.renderImporting = renderImporting;
   window.pfAgree = pfAgree;
   window.pfReceipt = pfReceipt;
   window.pfSourceReceipt = pfSourceReceipt;
