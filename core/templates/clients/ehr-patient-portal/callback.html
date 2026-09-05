@@ -19,7 +19,7 @@
   </div>
   <div class="pf-actions">
     <a class="pf-btn" href="{% url 'ehr-patient-portal-connect' %}">Choose a different organization</a>
-    <a class="pf-btn pf-btn--ghost" href="{% url 'patient-landing' %}">Back</a>
+    <a class="pf-btn pf-btn--ghost" href="#">Back</a>
   </div>
 </div>
 
@@ -51,7 +51,7 @@
       if (out.textContent.indexOf("Error:") !== -1) {
         showFlowError(out, pfErrorWrap);
       } else {
-        window.location.href = "{% url 'patient-done' %}";
+        window.location.href = "#";
       }
     });
 </script>

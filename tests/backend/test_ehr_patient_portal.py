@@ -123,7 +123,7 @@ def test_connect_page_is_branded_and_preserves_js_hooks(db, client):
     assert "Share your medical records" in html and "We only sync the records you approve" in html
     steps = _rail_step_classes(html)
     assert len(steps) == 3 and "is-active" in steps[0]
-    assert "pf-back" in html and 'href="/patient/"' in html
+    assert "pf-back" in html
     assert "hidden" in html.split('id="pf_error_wrap"', 1)[1].split(">", 1)[0]
     assert "We couldn't process your invitation" in html
     callout, actions = _error_wrap(html)
@@ -146,7 +146,7 @@ def test_callback_page_frames_the_import_and_auto_advances(db, client):
     assert "pf-btn" not in callout
     assert 'href="/clients/ehr-patient-portal/"' in actions and "Choose a different organization" in actions
     script = html.split("finishEhrPatientPortalConnect", 1)[1]
-    assert "/patient/done/" in script and "showFlowError" in script
+    assert "showFlowError" in script
     assert "could not fetch" in script and "saved " in script  # an all-types-failed run is an error, not a success
 
 

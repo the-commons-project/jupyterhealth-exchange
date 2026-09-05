@@ -147,21 +147,6 @@ class Study(models.Model):
 
         return list(study_id_studies_map.values())
 
-    @staticmethod
-    def scope_consents_for_data_source(patient_id, data_source, pending=False):
-        # (study, scope_consent) pairs for the scopes this data source supports, limited to the
-        # studies that collect through it (StudyDataSource link). Same decoration as
-        # studies_with_scopes: pending=True gives never-asked scopes, pending=False the rows
-        # that exist (consented or revoked).
-        supported = {s.id for s in data_source.supported_scopes}
-        return [
-            (study, c)
-            for study in Study.studies_with_scopes(patient_id, pending=pending)
-            if any(d.id == data_source.id for d in study.data_sources)
-            for c in (study.pending_scope_consents if pending else study.scope_consents)
-            if c["code"]["id"] in supported
-        ]
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pending_scope_consents = []

@@ -103,14 +103,6 @@ class PatientInvitation(models.Model):
         redemption_window_hours = get_setting("auth.patient.invitation_redemption_window_hours", 12)
         return (timezone.now() - self.last_updated).total_seconds() / 3600 <= redemption_window_hours
 
-    def is_valid(self):
-        """Same rules redeem() enforces, as a side-effect-free check."""
-        if self.status == PatientInvitation.Status.ISSUED:
-            return not self._issued_expired()
-        if self.status == PatientInvitation.Status.REDEEMED:
-            return self._redemption_window_open()
-        return False
-
     # https://github.com/jazzband/django-oauth-toolkit/blob/102c85141ec44549e17080c676292e79e5eb46cc/oauth2_provider/oauth2_validators.py#L675
     @staticmethod
     def redeem(token):

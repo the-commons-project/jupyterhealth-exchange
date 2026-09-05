@@ -18,14 +18,13 @@ from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from oauth2_provider.models import get_access_token_model, get_application_model
+from oauth2_provider.models import get_access_token_model
 from oauth2_provider.views import TokenView
 from oauthlib.common import Request
 
 from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
-from core.models import DataSource, JheUser, Study
+from core.models import JheUser
 from core.services.jhe_settings import get_setting
-from core.views.patient_portal import _patient_label, _resolve_patient, consent_gate
 
 from ..forms import UserRegistrationForm
 
@@ -214,32 +213,16 @@ def portal(request, path):
 
 
 def ow_launch(request):
-    patient, _invitation, code = _resolve_patient(request)  # seeds the session the done page needs after Oura returns
-    app = get_application_model().objects.filter(name="Open Wearables").first()
-    link = app.data_sources.order_by("id").first() if app else None
-    sources = DataSource.data_sources_with_scopes(data_source_id=link.data_source_id) if link else []
-    ds = sources[0] if sources else None
-    labels = [scope.text for scope in ds.supported_scopes] if ds else []
-    if ds and patient is not None:
-        redirect_to_consent = consent_gate(patient, code, ds.id)  # an OW-issued invitation still consents first
-        if redirect_to_consent is not None:
-            return redirect_to_consent
-        labels = [
-            c["code"]["text"] for _study, c in Study.scope_consents_for_data_source(patient.id, ds) if c["consented"]
-        ]
-    context = {
-        "source_name": ds.name if ds else "your wearable",
-        "source_labels": ", ".join(_patient_label(text) for text in labels if text),
-    }
-    return render(request, "clients/ow/launch.html", context)
+    return render(request, "clients/ow/launch.html")
 
 
 def ow_complete(request):
-    """Open Wearables OAuth return: success goes to the shared done page, an error renders the callout."""
+    """Open Wearables OAuth return: the client page shows the done screen, or the error callout on ?error=."""
     error = request.GET.get("error")
-    if not error:
-        return redirect(reverse("patient-done"))
-    return render(request, "clients/ow/complete.html", {"error": error})
+    if error:
+        query = urlencode({"route": "error", "title": "We couldn't connect your wearable", "message": error})
+        return redirect(reverse("ow-launch") + "?" + query)
+    return redirect(reverse("ow-launch") + "?route=done")
 
 
 def json_error(msg, status_code=400):

@@ -388,8 +388,6 @@ class Command(BaseCommand):
                 "name": "Open Wearables",
                 "invitation_url": "http://localhost:8001/clients/ow/launch?code=CODE",
                 "data_sources": ["Oura"],
-                # Has its own patient-facing flow; the /patient/ hub only lists sources flagged this way.
-                "aux_data": {"patient_facing": True},
             },
             {
                 # SMART on FHIR patient EHR-records client (issue #489). Served on JHE's
@@ -407,8 +405,7 @@ class Command(BaseCommand):
                 # jhe.fly.dev equivalent) are registered separately on the Epic app at
                 # fhir.epic.com -- they must be updated there in step with this path.
                 "name": "EHR Patient Portal",
-                # Lands on the /patient/ hub so the patient picks a source first.
-                "invitation_url": "http://localhost:8001/patient/?code=CODE",
+                "invitation_url": "http://localhost:8001/clients/ehr-patient-portal/?code=CODE",
                 # The client and its DataSource are one and the same product (as with CareX),
                 # so they share a name and are linked here. That ClientDataSource row is the
                 # only link: the connect page reads the data source id through it, never by
@@ -416,7 +413,6 @@ class Command(BaseCommand):
                 "data_sources": ["EHR Patient Portal"],
                 # No iss here: the hospital the patient picks supplies it (EhrBrand.fhir_base_url).
                 "aux_data": {
-                    "patient_facing": True,
                     # Non-production client id of the Epic app "JupyterHealth Exchange -
                     # USCDI v3" (appId 55446), the app that has the localhost:8001 +
                     # jhe.fly.dev /clients/ehr-patient-portal/callback redirect URIs registered.

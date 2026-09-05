@@ -125,33 +125,17 @@ def test_theme_stylesheet_setting_loads_after_the_base_stylesheet(db, client):
     cache.delete("jhe_setting:site.ui.theme_css")
 
 
-def test_ow_launch_without_a_code_renders_the_branded_connect_card(seeded, client):
-    html = client.get("/clients/ow/launch").content.decode()
-
-    assert 'class="pf-page"' in html and "clients/ow/js/client-ow.js" in html
-    assert "Connect your Oura" in html and "Continue to Oura" in html
-    assert "(OMH)" not in html and "(IEEE)" not in html
-    assert 'id="out"' in html and 'id="ow_connect"' in html and 'id="ow_continue"' in html
-    assert 'id="pf_error_wrap"' in html and "We couldn't connect your wearable" in html
-    assert "pf-btn" not in html.split('id="pf_error_wrap"', 1)[1].split("</div>\n</div>", 1)[0]
-    assert "Try again" not in html
-    for entrypoint in ("run(", "parseInvitationCode(", "continueOwFlow(", "getOuraAuthUrl("):
-        assert entrypoint in html, f"missing flow entrypoint {entrypoint}"
-    assert 'id="consent_form"' not in html and "renderConsentForm(" not in html  # consent is recorded server-side
-
-
-def test_ow_complete_redirects_to_done_or_renders_the_error_callout(db, client):
+def test_ow_complete_hands_off_to_the_client_page(db, client):
     assert client.get("/clients/ow/manage").status_code == 404  # legacy JS manage page retired
 
     resp = client.get("/clients/ow/complete?provider=oura")
-    assert (resp.status_code, resp["Location"]) == (302, "/patient/done/")
+    assert (resp.status_code, resp["Location"]) == (302, "/clients/ow/launch?route=done")
 
     resp = client.get("/clients/ow/complete?error=access_denied")
-    assert resp.status_code == 200
-    html = resp.content.decode()
-    assert "We couldn't connect your wearable" in html and "access_denied" in html
-    assert 'id="out"' not in html and "Manage Consents" not in html
-    assert "pf-back" in html and 'href="/patient/"' in html
+    assert resp.status_code == 302
+    assert resp["Location"].startswith("/clients/ow/launch?route=error&")
+    assert "message=access_denied" in resp["Location"]
+    assert "title=We+couldn%27t+connect+your+wearable" in resp["Location"]
 
 
 def _render_email(**extra):
