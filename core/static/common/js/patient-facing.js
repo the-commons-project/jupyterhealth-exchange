@@ -443,6 +443,8 @@ var PF_ROUTE_TITLES = {
 
 // Exposed for unit tests; browser runs load this as a plain <script> and ignore it.
 if (typeof window !== "undefined") {
+  window.TOKEN_ENDPOINT = TOKEN_ENDPOINT;
+  window.API_ENDPOINT = API_ENDPOINT;
   window.pfClient = pfClient;
   window.storeToken = storeToken;
   window.getStoredToken = getStoredToken;
@@ -451,6 +453,8 @@ if (typeof window !== "undefined") {
   window.pfRouteAndParams = pfRouteAndParams;
   window.pfUrl = pfUrl;
   window.pfRender = pfRender;
+  window.pfShowLoading = pfShowLoading;
+  window.pfHideLoading = pfHideLoading;
   window.pfRegisterPartials = pfRegisterPartials;
   window.pfApi = pfApi;
   window.showFlowError = showFlowError;

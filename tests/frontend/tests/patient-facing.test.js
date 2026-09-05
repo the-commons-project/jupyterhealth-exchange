@@ -4,6 +4,7 @@ const path = require("path");
 
 const STATIC = path.resolve(__dirname, "../../../core/static");
 const COMPONENTS = path.resolve(__dirname, "../../../core/templates/common/patient_facing/components");
+const TEMPLATES_DIR = path.resolve(__dirname, "../../../core/templates");
 
 // A Django component file is a {% verbatim %}-wrapped <script type="text/template">; strip the tags to get the HTML.
 function componentHtml(file) {
@@ -321,4 +322,38 @@ describe("consent flow", () => {
     expect(window.pfClient.connect).not.toHaveBeenCalled();
     expect(window.location.search).toBe("?route=consent&source=5");
   });
+});
+
+describe("Open Wearables hook", () => {
+  beforeAll(() => {
+    require(path.join(STATIC, "clients/ow/js/client-ow.js"));
+  });
+
+  test("connect renders the launch card with the consented labels; Continue creates the OW user and redirects to Oura", async () => {
+    document.body.innerHTML += fs.readFileSync(path.resolve(TEMPLATES_DIR, "clients/ow/components/launch.html"), "utf8").replace(/{% ?verbatim ?%}|{% ?endverbatim ?%}/g, "");
+    window.storeToken("tok");
+    global.PATIENT_PORTAL_CONFIG.siteTitle = "Meridian Exchange";
+    const [oura] = window.pfSources(CONSENTS, OW_CONFIG);
+
+    await window.pfClient.connect(oura);
+
+    const main = document.getElementById("pf_main");
+    expect(main.querySelector(".pf-h1").textContent).toBe("Connect your Oura");
+    expect(main.querySelector(".pf-lede").textContent).toContain("Meridian Exchange never sees your Oura username or password");
+    expect(main.querySelector(".pf-card__desc").textContent).toBe("Sleep episode");
+    expect(main.querySelector("#ow_continue").textContent).toBe("Continue to Oura");
+    expect(main.querySelector(".pf-btn--ghost").getAttribute("onclick")).toContain("pfNav('hub')");
+
+    global.fetch = jest.fn((url) => {
+      if (url.includes("ow/users")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ ow_user_id: "u1" }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ authorizationUrl: "https://oura.example/authorize" }) });
+    });
+
+    await window.owContinue();
+
+    expect(global.fetch.mock.calls[0][0]).toBe("http://localhost/api/v1/ow/users");
+    expect(global.fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer tok");
+    expect(global.fetch.mock.calls[1][0]).toContain("redirect_uri=http%3A%2F%2Flocalhost%2Fclients%2Fow%2Fcomplete");
+  });
+  // jsdom cannot navigate, so the final `window.location.href = ...` logs "Not implemented: navigation"; that is the redirect.
 });
