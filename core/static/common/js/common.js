@@ -55,17 +55,7 @@ function parseInvitationCode(code) {
   };
 }
 
-// Reveal a patient-facing error callout (wrapEl) with the last "Error:" line a flow wrote to its log element.
-function showFlowError(out, wrapEl) {
-  var lines = out.textContent.split("\n");
-  var msg = "";
-  for (var i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].indexOf("Error:") === 0) {
-      msg = lines[i].slice("Error:".length).trim();
-      break;
-    }
-  }
-  if (!msg) return;
-  wrapEl.querySelector(".pf-error__msg").textContent = msg;
-  wrapEl.hidden = false;
+// Exposed for unit tests; browser runs load this as a plain <script> and ignore it.
+if (typeof window !== "undefined") {
+  window.parseInvitationCode = parseInvitationCode;
 }

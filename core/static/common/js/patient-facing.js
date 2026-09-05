@@ -1,0 +1,253 @@
+// ────────────────────────────────────────────────────
+// Patient-facing app: the invitation journey (hub ->
+// consent -> connect -> done / manage) as vanilla
+// JavaScript + Handlebars components, the same shape
+// as client-jhe-admin.js. A client page injects
+// PATIENT_PORTAL_CONFIG, rolls up the components and
+// calls patientApp(). The client script (client-ow.js
+// or client-ehr-patient-portal.js) registers
+// pfClient.connect(source) for its own connect step.
+// ────────────────────────────────────────────────────
+
+var TOKEN_ENDPOINT = window.location.origin + "/o/token/";
+var API_ENDPOINT = window.location.origin + "/api/v1/";
+var PF_TOKEN_KEY = "pf_access_token";
+var PF_DEFAULT_ROUTE = "hub";
+var PF_INVALID_INVITATION_TITLE = "This invitation link isn't valid";
+var PF_INVALID_INVITATION_MESSAGE = "It may have expired or been replaced. Ask your study team for a new link.";
+
+// The client script fills this in; the shared screens only ever call pfClient.connect(source).
+var pfClient = { connect: null };
+
+// ────────────────────────────────────────────────────
+// Token
+// ────────────────────────────────────────────────────
+
+// Keep the bearer token in sessionStorage (tab-scoped, cleared on tab close).
+function storeToken(token) {
+  try {
+    sessionStorage.setItem(PF_TOKEN_KEY, token);
+  } catch (e) {
+    // sessionStorage unavailable (e.g. incognito with storage disabled)
+  }
+}
+
+function getStoredToken() {
+  try {
+    return sessionStorage.getItem(PF_TOKEN_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+// Exchange an authorization code for an access token; null on failure.
+async function exchangeCodeForToken(clientId, code, codeVerifier, redirectUri) {
+  var payload = {
+    code: code,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    code_verifier: codeVerifier,
+  };
+  var response = await fetch(TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Cache-Control": "no-cache" },
+    body: new URLSearchParams(payload).toString(),
+  });
+  if (!response.ok) return null;
+  return await response.json();
+}
+
+// Redeem the ?code= invitation (host_token) for a JHE access token and store it; throws patient-readable text.
+async function pfRedeemInvitation(code) {
+  var link = parseInvitationCode(code);
+  if (!link) throw new Error(PF_INVALID_INVITATION_MESSAGE);
+  var response = await fetch(window.location.protocol + "//" + link.host + "/api/v1/invitation/" + link.token, {
+    method: "POST",
+    headers: { "Cache-Control": "no-cache" },
+  });
+  if (!response.ok) throw new Error(PF_INVALID_INVITATION_MESSAGE);
+  var grant = (await response.json()).grant;
+  // The PKCE verifier is derived from the invitation token (see server-side issuance).
+  var codeVerifier = btoa(link.token).replace(/=/g, "");
+  var tokens = await exchangeCodeForToken(grant.client_id, grant.code, codeVerifier, grant.redirect_uri);
+  if (!tokens || !tokens.access_token) throw new Error(PF_INVALID_INVITATION_MESSAGE);
+  storeToken(tokens.access_token);
+}
+
+// ────────────────────────────────────────────────────
+// Routing and rendering
+// ────────────────────────────────────────────────────
+
+// Route and params from the query string: "?route=consent&source=12" -> {route: "consent", params: {source: "12"}}.
+function pfRouteAndParams(search) {
+  var params = Object.fromEntries(new URLSearchParams(search === undefined ? window.location.search : search));
+  var route = params.route || PF_DEFAULT_ROUTE;
+  delete params.route;
+  return { route: route, params: params };
+}
+
+// The current page's URL for a route and its params.
+function pfUrl(route, params) {
+  var query = new URLSearchParams(Object.assign({ route: route }, params || {})).toString();
+  return window.location.pathname + "?" + query;
+}
+
+// Compile the component <script id="templateId"> and render it into #pf_main.
+function pfRender(templateId, context) {
+  var template = Handlebars.compile(document.getElementById(templateId).innerHTML);
+  document.getElementById("pf_main").innerHTML = template(context || {});
+  window.scrollTo(0, 0);
+}
+
+// Register the components other components include ({{> receipt}}, {{> rail}}) when the page carries them.
+function pfRegisterPartials() {
+  ["receipt", "rail"].forEach(function (name) {
+    var el = document.getElementById("t-" + name);
+    if (el) Handlebars.registerPartial(name, el.innerHTML);
+  });
+}
+
+function pfShowLoading() {
+  var overlay = document.getElementById("navLoadingOverlay");
+  if (overlay) overlay.style.display = "flex";
+}
+
+function pfHideLoading() {
+  var overlay = document.getElementById("navLoadingOverlay");
+  if (overlay) overlay.style.display = "none";
+}
+
+// The patient-readable text of a failed API response.
+async function pfErrorText(response) {
+  try {
+    var data = await response.json();
+    if (typeof data === "string") return data;
+    return data.error || data.detail || response.status + " " + response.statusText;
+  } catch (e) {
+    return response.status + " " + response.statusText;
+  }
+}
+
+// Bearer-authenticated JSON request against /api/v1/; resolves to the parsed body (null for 204), throws on error.
+async function pfApi(method, path, body) {
+  var headers = { Authorization: "Bearer " + getStoredToken(), "Cache-Control": "no-cache" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  var response = await fetch(API_ENDPOINT + path, {
+    method: method,
+    headers: headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await pfErrorText(response));
+  if (response.status === 204) return null;
+  return await response.json();
+}
+
+// Replace the screen with the error callout; Try again re-runs the current route unless actions.retryHref is given.
+function showFlowError(title, message, actions) {
+  actions = actions || {};
+  pfRender("t-error", {
+    title: title,
+    message: message,
+    retryLabel: actions.retryLabel || "Try again",
+    retryHref: actions.retryHref || null,
+    backHref: PATIENT_PORTAL_CONFIG.pageUrl,
+  });
+}
+
+// Re-run the app from the current URL (a ?code= still present is redeemed again).
+function pfRetry() {
+  return patientApp();
+}
+
+// Navigate to a route: push (or replace) history, render the screen, show the overlay while it loads.
+async function pfNav(route, params, replace) {
+  if (!PF_ROUTES[route]) route = PF_DEFAULT_ROUTE;
+  params = params || {};
+  var url = pfUrl(route, params);
+  if (url !== window.location.pathname + window.location.search) {
+    window.history[replace ? "replaceState" : "pushState"]({}, "", url);
+  }
+  document.title = PATIENT_PORTAL_CONFIG.siteTitle + " - " + PF_ROUTE_TITLES[route];
+  pfShowLoading();
+  try {
+    await PF_ROUTES[route](params);
+  } catch (e) {
+    console.error(e);
+    showFlowError("Something went wrong", e && e.message ? e.message : String(e));
+  } finally {
+    pfHideLoading();
+  }
+}
+
+window.addEventListener("popstate", function () {
+  var current = pfRouteAndParams();
+  pfNav(current.route, current.params, true);
+});
+
+// Error route: ?route=error&title=...&message=... (how /clients/ow/complete reports an Oura failure).
+async function renderError(params) {
+  showFlowError(params.title || "Something went wrong", params.message || "");
+}
+
+// Entry point: redeem a ?code= if present, require a token, then render the route in the URL.
+async function patientApp() {
+  pfRegisterPartials();
+  var current = pfRouteAndParams();
+  if (current.params.code) {
+    pfShowLoading();
+    try {
+      await pfRedeemInvitation(current.params.code);
+    } catch (e) {
+      pfHideLoading();
+      showFlowError(PF_INVALID_INVITATION_TITLE, e && e.message ? e.message : PF_INVALID_INVITATION_MESSAGE);
+      return;
+    }
+    pfHideLoading();
+    delete current.params.code;
+    window.history.replaceState({}, "", pfUrl(current.route, current.params));
+  }
+  if (!getStoredToken()) {
+    showFlowError(PF_INVALID_INVITATION_TITLE, PF_INVALID_INVITATION_MESSAGE);
+    return;
+  }
+  await pfNav(current.route, current.params, true);
+}
+
+// ────────────────────────────────────────────────────
+// Routes
+// ────────────────────────────────────────────────────
+
+var PF_ROUTES = {
+  error: renderError,
+};
+
+var PF_ROUTE_TITLES = {
+  hub: "Choose how to share your data",
+  consent: "What you'll share",
+  connect: "Connect",
+  importing: "Importing records",
+  done: "You're all set",
+  manage: "You're sharing",
+  error: "Something went wrong",
+};
+
+// Exposed for unit tests; browser runs load this as a plain <script> and ignore it.
+if (typeof window !== "undefined") {
+  window.pfClient = pfClient;
+  window.storeToken = storeToken;
+  window.getStoredToken = getStoredToken;
+  window.exchangeCodeForToken = exchangeCodeForToken;
+  window.pfRedeemInvitation = pfRedeemInvitation;
+  window.pfRouteAndParams = pfRouteAndParams;
+  window.pfUrl = pfUrl;
+  window.pfRender = pfRender;
+  window.pfRegisterPartials = pfRegisterPartials;
+  window.pfApi = pfApi;
+  window.showFlowError = showFlowError;
+  window.pfRetry = pfRetry;
+  window.pfNav = pfNav;
+  window.renderError = renderError;
+  window.patientApp = patientApp;
+  window.PF_ROUTES = PF_ROUTES;
+}
