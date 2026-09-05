@@ -3,10 +3,9 @@
 // Registers the connect step (hospital picker) and the callback entry point for the shared
 // patient-facing app (core/static/common/js/patient-facing.js).
 // Browser-side: JHE token -> Epic PKCE -> pull USCDI records -> write to JHE.
-// Uses common.js (parseInvitationCode) and SMART fhir-client.js (FHIR.oauth2.*).
+// Uses SMART fhir-client.js (FHIR.oauth2.*). API_ENDPOINT comes from patient-facing.js.
 // ────────────────────────────────────────────────────
 
-var API_ENDPOINT = window.location.origin + "/api/v1/";
 // Epic serves R4; JHE validates R5. Writes go through the R4 import endpoint, which converts
 // R4->R5 (cross_version engine) then runs the normal create. It returns a batch-response Bundle.
 var IMPORT_ENDPOINT = window.location.origin + "/fhir-import/R4/";
