@@ -93,6 +93,8 @@ urlpatterns = [
     # oauth token exchange
     path(f"{settings.OAUTH_MOUNT_PATH.lstrip('/')}token-exchange", common.token_exchange, name="token-exchange"),
     # OW Client pages
+    path("clients/ow/", common.ow_launch, name="ow_client"),
+    path("clients/ow/complete", common.ow_complete, name="ow_client_complete"),
     path("clients/ow/launch", common.ow_launch, name="ow-launch"),
     path("clients/ow/complete", common.ow_complete, name="ow-complete"),
     # EHR Patient Portal patient EHR-records client (issue #489). The two page paths are

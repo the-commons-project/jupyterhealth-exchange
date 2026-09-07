@@ -174,6 +174,13 @@ describe("patientApp", () => {
   });
 });
 
+describe("pfPatientLabel", () => {
+  test("strips the coding-standard suffix and maps the wildcard FHIR scope to patient copy", () => {
+    expect(window.pfPatientLabel("Sleep episode (IEEE)")).toBe("Sleep episode");
+    expect(window.pfPatientLabel("All FHIR Resources")).toBe("Clinical records");
+  });
+});
+
 describe("pfSources", () => {
   test("lists only this client's sources, with the scopes their studies request through them", () => {
     const sources = window.pfSources(CONSENTS, OW_CONFIG);

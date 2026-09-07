@@ -64,7 +64,7 @@ def test_bp_hr_study_requests_clinical_records_via_ehr_patient_portal(seeded):
     study = Study.objects.get(name="Lifespan Study on BP & HR")
     ds = DataSource.objects.get(name="EHR Patient Portal")
     star = CodeableConcept.objects.get(coding_system="http://hl7.org/fhir/resource-types", coding_code="*")
-    assert star.text == "Clinical records"
+    assert star.text == "All FHIR Resources"
     assert StudyDataSource.objects.filter(study=study, data_source=ds).exists()
     assert StudyScopeRequest.objects.filter(study=study, scope_code=star).exists()
 

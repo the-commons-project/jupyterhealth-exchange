@@ -227,9 +227,13 @@ var PF_TYPE_ICONS = { patient_app: "bi-file-earmark-text", medical_device: "bi-a
 
 var pfPatient = null;
 
+// Patient copy for scope names the admin shows differently.
+var PF_SCOPE_LABELS = { "All FHIR Resources": "Clinical records" };
+
 // Scope text without a trailing coding-standard parenthetical: "Sleep episode (IEEE)" -> "Sleep episode".
 function pfPatientLabel(text) {
-  return (text || "").replace(/\s*\([^)]*\)\s*$/, "");
+  var label = (text || "").replace(/\s*\([^)]*\)\s*$/, "");
+  return PF_SCOPE_LABELS[label] || label;
 }
 
 function pfUniqueSorted(list) {

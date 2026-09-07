@@ -52,8 +52,8 @@ def _patch_consents(patient, payload):
     return response
 
 
-@patch("core.services.ow_ingest.requests.delete")
-@patch("core.services.ow_ingest.get_setting", side_effect=_ow_setting)
+@patch("requests.delete")
+@patch("core.views.patient.get_setting", side_effect=_ow_setting)
 def test_revoking_the_last_consented_scope_disconnects_oura(_get_setting, mock_delete, organization, ow_patient):
     mock_delete.return_value = MagicMock(status_code=204, text="")
     study = create_study(organization=organization, codes=[Code.HeartRate])
@@ -65,8 +65,8 @@ def test_revoking_the_last_consented_scope_disconnects_oura(_get_setting, mock_d
     assert mock_delete.call_args[0][0].endswith("/api/v1/users/abc/connections/oura")
 
 
-@patch("core.services.ow_ingest.requests.delete")
-@patch("core.services.ow_ingest.get_setting", side_effect=_ow_setting)
+@patch("requests.delete")
+@patch("core.views.patient.get_setting", side_effect=_ow_setting)
 def test_no_disconnect_while_another_scope_stays_consented(_get_setting, mock_delete, organization, ow_patient):
     study = create_study(organization=organization, codes=[Code.HeartRate, Code.BloodPressure])
     add_patient_to_study(ow_patient, study)

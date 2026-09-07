@@ -80,8 +80,8 @@ def sleep_episode_data_point(start, hours_asleep, awakenings):
 
 # aux_data keys seed owns outright: their value is derived from application code (the
 # scope list must match EHR_PATIENT_PORTAL_PULLS), so a stale deployed value is a bug and seed
-# overwrites it on every run. Every other key -- notably the EHR-registered `client_id`, which
-# differs per deployment -- belongs to whoever set it and is preserved.
+# overwrites it on every run. Every other key -- notably the EHR-registered `client_id`,
+# which differs per deployment -- belongs to whoever set it and is preserved.
 SEED_MANAGED_AUX_KEYS = frozenset({"scopes"})
 
 
@@ -329,7 +329,7 @@ class Command(BaseCommand):
             # wildcard -- a data source scoped to it supplies FHIR resources of any type, which is
             # what an EHR patient-portal pull does (17 types today, all stored as aux rows).
             ("http://hl7.org/fhir/resource-types", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
-            ("http://hl7.org/fhir/resource-types", "*", "Clinical records"),
+            ("http://hl7.org/fhir/resource-types", "*", "All FHIR Resources"),
         ]
         # bulk create thing
         for system, code, text in codes:
