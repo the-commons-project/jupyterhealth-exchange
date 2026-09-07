@@ -31,7 +31,8 @@ Observations are filed under, and is intersected with the patient's consented
 scopes so a poll can never widen consent. A type only belongs there once
 omh-shim converts it to a schema id JHE can resolve: ``core/utils.py`` resolves
 the ``omh`` and ``ieee`` namespaces only, which is why ``heart_rate_variability``
-is absent (omh-shim targets ``local:heart-rate-variability:1.0``).
+is absent (omh-shim 2.0 dropped the ``local:heart-rate-variability:1.0`` schema
+it used to target).
 
 ``RAW_SUPPORTED_TYPES`` is narrower than ``OW_TYPE_TO_CODE`` because raw mode
 reads Oura API payloads, and Oura exposes no glucose.
