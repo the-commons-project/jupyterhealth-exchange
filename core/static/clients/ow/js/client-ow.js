@@ -5,10 +5,10 @@
 
 // Create an OW user via JHE proxy endpoint; returns the response JSON (has ow_user_id), or null on failure.
 async function createOwUser(accessToken) {
-  var response = await fetch(API_ENDPOINT + "ow/users", {
+  const response = await fetch(`${API_ENDPOINT}ow/users`, {
     method: "POST",
     headers: {
-      Authorization: "Bearer " + accessToken,
+      Authorization: `Bearer ${accessToken}`,
       "Cache-Control": "no-cache",
     },
   });
@@ -20,12 +20,12 @@ async function createOwUser(accessToken) {
 
 // Get the Oura OAuth authorization URL via JHE proxy endpoint; returns the response JSON (has authorizationUrl), or null on failure.
 async function getOuraAuthUrl(accessToken, redirectUri) {
-  var params = new URLSearchParams({ redirect_uri: redirectUri });
-  var response = await fetch(
-    API_ENDPOINT + "ow/oauth/oura/authorize?" + params.toString(),
+  const params = new URLSearchParams({ redirect_uri: redirectUri });
+  const response = await fetch(
+    `${API_ENDPOINT}ow/oauth/oura/authorize?${params.toString()}`,
     {
       headers: {
-        Authorization: "Bearer " + accessToken,
+        Authorization: `Bearer ${accessToken}`,
         "Cache-Control": "no-cache",
       },
     }
@@ -38,9 +38,9 @@ async function getOuraAuthUrl(accessToken, redirectUri) {
 
 // Get patient's wearable connection status from OW; returns { connections: [...], connected: bool }, or null on failure.
 async function getWearableStatus(accessToken, patientId) {
-  var response = await fetch(API_ENDPOINT + "patients/" + patientId + "/wearable-status", {
+  const response = await fetch(`${API_ENDPOINT}patients/${patientId}/wearable-status`, {
     headers: {
-      Authorization: "Bearer " + accessToken,
+      Authorization: `Bearer ${accessToken}`,
       "Cache-Control": "no-cache",
     },
   });
@@ -51,7 +51,7 @@ async function getWearableStatus(accessToken, patientId) {
 }
 
 // Connect step: the branded card for the consented source; Continue starts the Oura authorization.
-pfClient.connect = async function (source) {
+pfClient.connect = async (source) => {
   pfRender("t-launch", {
     sourceName: source.name,
     sourceLabels: source.consentedLabels.join(", "),
@@ -61,12 +61,13 @@ pfClient.connect = async function (source) {
 
 // Create the OW user, fetch the Oura authorize URL and redirect to it; any failure shows the error callout.
 async function owContinue() {
-  var accessToken = getStoredToken();
+  const accessToken = getStoredToken();
   pfShowLoading();
+  let ouraAuth;
   try {
-    var owUser = await createOwUser(accessToken);
+    const owUser = await createOwUser(accessToken);
     if (!owUser) throw new Error("failed to create OW user");
-    var ouraAuth = await getOuraAuthUrl(accessToken, window.location.origin + "/clients/ow/complete");
+    ouraAuth = await getOuraAuthUrl(accessToken, `${window.location.origin}/clients/ow/complete`);
     if (!ouraAuth || !ouraAuth.authorizationUrl) throw new Error("failed to get Oura auth URL");
   } catch (e) {
     pfHideLoading();

@@ -9,15 +9,15 @@
 // pfClient.connect(source) for its own connect step.
 // ────────────────────────────────────────────────────
 
-var TOKEN_ENDPOINT = window.location.origin + "/o/token/";
-var API_ENDPOINT = window.location.origin + "/api/v1/";
-var PF_TOKEN_KEY = "pf_access_token";
-var PF_DEFAULT_ROUTE = "hub";
-var PF_INVALID_INVITATION_TITLE = "This invitation link isn't valid";
-var PF_INVALID_INVITATION_MESSAGE = "It may have expired or been replaced. Ask your study team for a new link.";
+const TOKEN_ENDPOINT = `${window.location.origin}/o/token/`;
+const API_ENDPOINT = `${window.location.origin}/api/v1/`;
+const PF_TOKEN_KEY = "pf_access_token";
+const PF_DEFAULT_ROUTE = "hub";
+const PF_INVALID_INVITATION_TITLE = "This invitation link isn't valid";
+const PF_INVALID_INVITATION_MESSAGE = "It may have expired or been replaced. Ask your study team for a new link.";
 
 // The client script fills this in; the shared screens only ever call pfClient.connect(source).
-var pfClient = { connect: null };
+const pfClient = { connect: null };
 
 // ────────────────────────────────────────────────────
 // Token
@@ -42,14 +42,14 @@ function getStoredToken() {
 
 // Exchange an authorization code for an access token; null on failure.
 async function exchangeCodeForToken(clientId, code, codeVerifier, redirectUri) {
-  var payload = {
+  const payload = {
     code: code,
     grant_type: "authorization_code",
     redirect_uri: redirectUri,
     client_id: clientId,
     code_verifier: codeVerifier,
   };
-  var response = await fetch(TOKEN_ENDPOINT, {
+  const response = await fetch(TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Cache-Control": "no-cache" },
     body: new URLSearchParams(payload).toString(),
@@ -60,17 +60,17 @@ async function exchangeCodeForToken(clientId, code, codeVerifier, redirectUri) {
 
 // Redeem the ?code= invitation (host_token) for a JHE access token and store it; throws patient-readable text.
 async function pfRedeemInvitation(code) {
-  var link = parseInvitationCode(code);
+  const link = parseInvitationCode(code);
   if (!link) throw new Error(PF_INVALID_INVITATION_MESSAGE);
-  var response = await fetch(window.location.protocol + "//" + link.host + "/api/v1/invitation/" + link.token, {
+  const response = await fetch(`${window.location.protocol}//${link.host}/api/v1/invitation/${link.token}`, {
     method: "POST",
     headers: { "Cache-Control": "no-cache" },
   });
   if (!response.ok) throw new Error(PF_INVALID_INVITATION_MESSAGE);
-  var grant = (await response.json()).grant;
+  const grant = (await response.json()).grant;
   // The PKCE verifier is derived from the invitation token (see server-side issuance).
-  var codeVerifier = btoa(link.token).replace(/=/g, "");
-  var tokens = await exchangeCodeForToken(grant.client_id, grant.code, codeVerifier, grant.redirect_uri);
+  const codeVerifier = btoa(link.token).replace(/=/g, "");
+  const tokens = await exchangeCodeForToken(grant.client_id, grant.code, codeVerifier, grant.redirect_uri);
   if (!tokens || !tokens.access_token) throw new Error(PF_INVALID_INVITATION_MESSAGE);
   storeToken(tokens.access_token);
 }
@@ -81,59 +81,59 @@ async function pfRedeemInvitation(code) {
 
 // Route and params from the query string: "?route=consent&source=12" -> {route: "consent", params: {source: "12"}}.
 function pfRouteAndParams(search) {
-  var params = Object.fromEntries(new URLSearchParams(search === undefined ? window.location.search : search));
-  var route = params.route || PF_DEFAULT_ROUTE;
+  const params = Object.fromEntries(new URLSearchParams(search === undefined ? window.location.search : search));
+  const route = params.route || PF_DEFAULT_ROUTE;
   delete params.route;
   return { route: route, params: params };
 }
 
 // The current page's URL for a route and its params.
 function pfUrl(route, params) {
-  var query = new URLSearchParams(Object.assign({ route: route }, params || {})).toString();
-  return window.location.pathname + "?" + query;
+  const query = new URLSearchParams(Object.assign({ route: route }, params || {})).toString();
+  return `${window.location.pathname}?${query}`;
 }
 
 // Compile the component <script id="templateId"> and render it into #pf_main.
 function pfRender(templateId, context) {
-  var template = Handlebars.compile(document.getElementById(templateId).innerHTML);
+  const template = Handlebars.compile(document.getElementById(templateId).innerHTML);
   document.getElementById("pf_main").innerHTML = template(context || {});
   window.scrollTo(0, 0);
 }
 
 // Register the components other components include ({{> receipt}}, {{> rail}}) when the page carries them.
 function pfRegisterPartials() {
-  ["receipt", "rail"].forEach(function (name) {
-    var el = document.getElementById("t-" + name);
+  ["receipt", "rail"].forEach((name) => {
+    const el = document.getElementById(`t-${name}`);
     if (el) Handlebars.registerPartial(name, el.innerHTML);
   });
 }
 
 function pfShowLoading() {
-  var overlay = document.getElementById("navLoadingOverlay");
+  const overlay = document.getElementById("navLoadingOverlay");
   if (overlay) overlay.style.display = "flex";
 }
 
 function pfHideLoading() {
-  var overlay = document.getElementById("navLoadingOverlay");
+  const overlay = document.getElementById("navLoadingOverlay");
   if (overlay) overlay.style.display = "none";
 }
 
 // The patient-readable text of a failed API response.
 async function pfErrorText(response) {
   try {
-    var data = await response.json();
+    const data = await response.json();
     if (typeof data === "string") return data;
-    return data.error || data.detail || response.status + " " + response.statusText;
+    return data.error || data.detail || `${response.status} ${response.statusText}`;
   } catch (e) {
-    return response.status + " " + response.statusText;
+    return `${response.status} ${response.statusText}`;
   }
 }
 
 // Bearer-authenticated JSON request against /api/v1/; resolves to the parsed body (null for 204), throws on error.
 async function pfApi(method, path, body) {
-  var headers = { Authorization: "Bearer " + getStoredToken(), "Cache-Control": "no-cache" };
+  const headers = { Authorization: `Bearer ${getStoredToken()}`, "Cache-Control": "no-cache" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  var response = await fetch(API_ENDPOINT + path, {
+  const response = await fetch(API_ENDPOINT + path, {
     method: method,
     headers: headers,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -164,12 +164,12 @@ function pfRetry() {
 async function pfNav(route, params, replace) {
   if (!Object.prototype.hasOwnProperty.call(PF_ROUTES, route)) route = PF_DEFAULT_ROUTE;
   params = params || {};
-  var url = pfUrl(route, params);
+  const url = pfUrl(route, params);
   if (url !== window.location.pathname + window.location.search) {
     window.history[replace ? "replaceState" : "pushState"]({}, "", url);
   }
-  document.title = PATIENT_PORTAL_CONFIG.siteTitle + " - " + PF_ROUTE_TITLES[route];
-  if (route === "error" && params.title) document.title = PATIENT_PORTAL_CONFIG.siteTitle + " - " + params.title;
+  document.title = `${PATIENT_PORTAL_CONFIG.siteTitle} - ${PF_ROUTE_TITLES[route]}`;
+  if (route === "error" && params.title) document.title = `${PATIENT_PORTAL_CONFIG.siteTitle} - ${params.title}`;
   pfShowLoading();
   try {
     await PF_ROUTES[route](params);
@@ -181,8 +181,8 @@ async function pfNav(route, params, replace) {
   }
 }
 
-window.addEventListener("popstate", function () {
-  var current = pfRouteAndParams();
+window.addEventListener("popstate", () => {
+  const current = pfRouteAndParams();
   pfNav(current.route, current.params, true);
 });
 
@@ -197,7 +197,7 @@ async function renderError(params) {
 // Entry point: redeem a ?code= if present, require a token, then render the route in the URL.
 async function patientApp() {
   pfRegisterPartials();
-  var current = pfRouteAndParams();
+  const current = pfRouteAndParams();
   if (current.params.code) {
     pfShowLoading();
     try {
@@ -223,25 +223,25 @@ async function patientApp() {
 // ────────────────────────────────────────────────────
 
 // DataSource.type -> bootstrap-icons glyph on its card.
-var PF_TYPE_ICONS = { patient_app: "bi-file-earmark-text", medical_device: "bi-activity", personal_device: "bi-smartwatch" };
+const PF_TYPE_ICONS = { patient_app: "bi-file-earmark-text", medical_device: "bi-activity", personal_device: "bi-smartwatch" };
 
-var pfPatient = null;
+let pfPatient = null;
 
 // Patient copy for scope names the admin shows differently.
-var PF_SCOPE_LABELS = { "All FHIR Resources": "Clinical records" };
+const PF_SCOPE_LABELS = { "All FHIR Resources": "Clinical records" };
 
 // Scope text without a trailing coding-standard parenthetical: "Sleep episode (IEEE)" -> "Sleep episode".
 function pfPatientLabel(text) {
-  var label = (text || "").replace(/\s*\([^)]*\)\s*$/, "");
+  const label = (text || "").replace(/\s*\([^)]*\)\s*$/, "");
   return PF_SCOPE_LABELS[label] || label;
 }
 
 function pfUniqueSorted(list) {
-  return list.filter(function (item, i) { return list.indexOf(item) === i; }).sort();
+  return list.filter((item, i) => list.indexOf(item) === i).sort();
 }
 
 // FhirAuxResource.resource_type -> receipt row label; anything else is pluralized CamelCase words.
-var PF_RESOURCE_LABELS = {
+const PF_RESOURCE_LABELS = {
   Patient: "Demographics",
   MedicationRequest: "Medications",
   MedicationDispense: "Medication dispenses",
@@ -255,31 +255,31 @@ var PF_RESOURCE_LABELS = {
 };
 
 function pfResourceLabel(type) {
-  return PF_RESOURCE_LABELS[type] || (type.match(/[A-Z][a-z0-9]*/g) || [type]).join(" ") + "s";
+  return PF_RESOURCE_LABELS[type] || `${(type.match(/[A-Z][a-z0-9]*/g) || [type]).join(" ")}s`;
 }
 
 // Comma-joined expected-type labels for the consent subtext, "Demographics" first; "" when the client has none.
 function pfScopeDetail(expectedTypes) {
-  var labels = expectedTypes.map(pfResourceLabel).sort();
+  const labels = expectedTypes.map(pfResourceLabel).sort();
   if (!labels.length) return "";
-  var i = labels.indexOf("Demographics");
+  const i = labels.indexOf("Demographics");
   if (i > 0) labels.splice(0, 0, labels.splice(i, 1)[0]);
-  return [labels[0]].concat(labels.slice(1).map(function (l) { return l.toLowerCase(); })).join(", ");
+  return [labels[0]].concat(labels.slice(1).map((l) => l.toLowerCase())).join(", ");
 }
 
 // One view model per data source of this client, from the consents payload (only config.dataSourceIds are listed).
 function pfSources(consents, config) {
-  var wanted = config.dataSourceIds.map(String);
-  var byId = {};
+  const wanted = config.dataSourceIds.map(String);
+  const byId = {};
   function collect(studies, pending) {
-    (studies || []).forEach(function (study) {
-      var rows = pending ? study.pendingScopeConsents : study.scopeConsents;
-      (study.dataSources || []).forEach(function (ds) {
+    (studies || []).forEach((study) => {
+      const rows = pending ? study.pendingScopeConsents : study.scopeConsents;
+      (study.dataSources || []).forEach((ds) => {
         if (wanted.indexOf(String(ds.id)) === -1) return;
-        var supported = ds.supportedScopes.map(function (s) { return s.id; });
-        rows.forEach(function (row) {
+        const supported = ds.supportedScopes.map((s) => s.id);
+        rows.forEach((row) => {
           if (supported.indexOf(row.code.id) === -1) return;
-          var source = byId[ds.id] || (byId[ds.id] = {
+          const source = byId[ds.id] || (byId[ds.id] = {
             id: ds.id,
             name: config.sourceLabels[ds.id] || ds.name,
             type: ds.type,
@@ -288,7 +288,7 @@ function pfSources(consents, config) {
             pending: [],
             consented: [],
           });
-          var scope = {
+          const scope = {
             studyId: study.id,
             codingSystem: row.code.codingSystem,
             codingCode: row.code.codingCode,
@@ -305,14 +305,14 @@ function pfSources(consents, config) {
   }
   collect(consents.studiesPendingConsent, true);
   collect(consents.studies, false);
-  return Object.keys(byId).map(function (id) {
-    var source = byId[id];
+  return Object.keys(byId).map((id) => {
+    const source = byId[id];
     source.isConsented = source.pending.length === 0 && source.consented.length > 0;
-    source.labels = pfUniqueSorted(source.pending.concat(source.consented).map(function (s) { return s.label; }));
-    source.consentedLabels = pfUniqueSorted(source.consented.map(function (s) { return s.label; }));
+    source.labels = pfUniqueSorted(source.pending.concat(source.consented).map((s) => s.label));
+    source.consentedLabels = pfUniqueSorted(source.consented.map((s) => s.label));
     source.studies.sort();
     return source;
-  }).sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+  }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 }
 
 // Test-only: drop the cached profile so a following test's own profile mock is used.
@@ -326,30 +326,30 @@ async function pfPatientId() {
 }
 
 async function pfSourcesNow() {
-  var consents = await pfApi("GET", "patients/" + (await pfPatientId()) + "/consents");
+  const consents = await pfApi("GET", `patients/${await pfPatientId()}/consents`);
   return pfSources(consents, PATIENT_PORTAL_CONFIG);
 }
 
 async function pfSource(id) {
-  return (await pfSourcesNow()).filter(function (s) { return String(s.id) === String(id); })[0];
+  return (await pfSourcesNow()).filter((s) => String(s.id) === String(id))[0];
 }
 
 // The consents API body per request method: never-asked scopes are POSTed, existing rows PATCHed, grouped by study.
 function pfConsentWrites(scopes, consented) {
-  var writes = { POST: {}, PATCH: {} };
-  scopes.forEach(function (scope) {
-    var byStudy = writes[scope.method];
-    var entry = byStudy[scope.studyId] || (byStudy[scope.studyId] = { study_id: scope.studyId, scope_consents: [] });
+  const writes = { POST: {}, PATCH: {} };
+  scopes.forEach((scope) => {
+    const byStudy = writes[scope.method];
+    const entry = byStudy[scope.studyId] || (byStudy[scope.studyId] = { study_id: scope.studyId, scope_consents: [] });
     entry.scope_consents.push({ coding_system: scope.codingSystem, coding_code: scope.codingCode, consented: consented });
   });
   return { POST: Object.values(writes.POST), PATCH: Object.values(writes.PATCH) };
 }
 
 async function pfWriteConsents(scopes, consented) {
-  var patientId = await pfPatientId();
-  var writes = pfConsentWrites(scopes, consented);
-  if (writes.POST.length) await pfApi("POST", "patients/" + patientId + "/consents", { study_scope_consents: writes.POST });
-  if (writes.PATCH.length) await pfApi("PATCH", "patients/" + patientId + "/consents", { study_scope_consents: writes.PATCH });
+  const patientId = await pfPatientId();
+  const writes = pfConsentWrites(scopes, consented);
+  if (writes.POST.length) await pfApi("POST", `patients/${patientId}/consents`, { study_scope_consents: writes.POST });
+  if (writes.PATCH.length) await pfApi("PATCH", `patients/${patientId}/consents`, { study_scope_consents: writes.PATCH });
 }
 
 async function pfFhirSources() {
@@ -359,31 +359,31 @@ async function pfFhirSources() {
 // The newest FhirSource registered for a data source, or null.
 function pfLatestFhirSource(fhirSources, dataSourceId) {
   return fhirSources
-    .filter(function (fs) { return String(fs.dataSource) === String(dataSourceId); })
-    .sort(function (a, b) { return b.id - a.id; })[0] || null;
+    .filter((fs) => String(fs.dataSource) === String(dataSourceId))
+    .sort((a, b) => b.id - a.id)[0] || null;
 }
 
 function pfRecordCount(fhirSource) {
-  var counts = fhirSource.resourceCounts || {};
-  return Object.keys(counts).reduce(function (sum, type) { return sum + counts[type]; }, 0);
+  const counts = fhirSource.resourceCounts || {};
+  return Object.keys(counts).reduce((sum, type) => sum + counts[type], 0);
 }
 
 // "facility · labels · N records" once a FhirSource names a facility, else the scope labels.
 function pfCardDesc(source, fhirSource) {
-  var labels = source.labels.join(", ");
+  const labels = source.labels.join(", ");
   if (!fhirSource || !fhirSource.facility) return labels;
-  return fhirSource.facility + " · " + labels + " · " + pfRecordCount(fhirSource) + " records";
+  return `${fhirSource.facility} · ${labels} · ${pfRecordCount(fhirSource)} records`;
 }
 
 // Per-type synced counts, a zero row per expected-but-missing type, and the total.
 function pfReceipt(counts, expectedTypes) {
-  var synced = Object.keys(counts)
-    .map(function (type) { return { label: pfResourceLabel(type), n: counts[type] }; })
-    .sort(function (a, b) { return b.n - a.n || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0); });
-  var notSynced = expectedTypes
-    .filter(function (type) { return !(type in counts); })
-    .map(function (type) { return { label: pfResourceLabel(type), n: 0 }; })
-    .sort(function (a, b) { return a.label < b.label ? -1 : a.label > b.label ? 1 : 0; });
+  const synced = Object.keys(counts)
+    .map((type) => ({ label: pfResourceLabel(type), n: counts[type] }))
+    .sort((a, b) => b.n - a.n || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+  const notSynced = expectedTypes
+    .filter((type) => !(type in counts))
+    .map((type) => ({ label: pfResourceLabel(type), n: 0 }))
+    .sort((a, b) => a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
   return { synced: synced, notSynced: notSynced, total: pfRecordCount({ resourceCounts: counts }) };
 }
 
@@ -392,8 +392,8 @@ function pfSourceReceipt(fhirSource) {
 }
 
 function pfLatestConsented(sources) {
-  return sources.reduce(function (latest, source) {
-    var time = Math.max.apply(null, source.consented.map(function (s) { return Date.parse(s.consentedTime) || 0; }));
+  return sources.reduce((latest, source) => {
+    const time = Math.max.apply(null, source.consented.map((s) => Date.parse(s.consentedTime) || 0));
     return !latest || time > latest.time ? { source: source, time: time } : latest;
   }, null);
 }
@@ -402,13 +402,13 @@ function pfLatestConsented(sources) {
 // Screens
 // ────────────────────────────────────────────────────
 
-var PF_RAIL_STEPS = ["Choose organization", "Sign in", "Import records"];
+const PF_RAIL_STEPS = ["Choose organization", "Sign in", "Import records"];
 
 // The three-step rail with the active step and everything before it marked.
 function pfRail(activeStep) {
   return {
-    steps: PF_RAIL_STEPS.map(function (label, i) {
-      var num = i + 1;
+    steps: PF_RAIL_STEPS.map((label, i) => {
+      const num = i + 1;
       return { num: num, label: label, cls: num === activeStep ? " is-active" : num < activeStep ? " is-done" : "" };
     }),
   };
@@ -419,13 +419,13 @@ async function renderImporting() {
 }
 
 async function renderHub() {
-  var sources = await pfSourcesNow();
-  var fhirSources = sources.some(function (s) { return s.isConsented; }) ? await pfFhirSources() : [];
-  var studies = pfUniqueSorted([].concat.apply([], sources.map(function (s) { return s.studies; })));
+  const sources = await pfSourcesNow();
+  const fhirSources = sources.some((s) => s.isConsented) ? await pfFhirSources() : [];
+  const studies = pfUniqueSorted([].concat.apply([], sources.map((s) => s.studies)));
   pfRender("t-hub", {
     eyebrow: studies.length === 1 ? studies[0] : "Your studies",
-    cards: sources.map(function (source) {
-      var fhirSource = source.isConsented ? pfLatestFhirSource(fhirSources, source.id) : null;
+    cards: sources.map((source) => {
+      const fhirSource = source.isConsented ? pfLatestFhirSource(fhirSources, source.id) : null;
       return {
         id: source.id,
         title: source.name,
@@ -440,13 +440,13 @@ async function renderHub() {
 }
 
 async function renderConsent(params) {
-  var source = await pfSource(params.source);
+  const source = await pfSource(params.source);
   if (!source || !source.pending.length) return pfNav("hub", {}, true);
   pfRender("t-consent", {
     sourceId: source.id,
     eyebrow: [source.name].concat(source.studies).join(" · "),
     sourceName: source.name,
-    rows: pfUniqueSorted(source.pending.map(function (s) { return s.label; })),
+    rows: pfUniqueSorted(source.pending.map((s) => s.label)),
     scopeDetail: pfScopeDetail(PATIENT_PORTAL_CONFIG.expectedResourceTypes),
   });
 }
@@ -466,7 +466,7 @@ async function pfAgree(sourceId) {
 }
 
 async function renderConnect(params) {
-  var source = await pfSource(params.source);
+  const source = await pfSource(params.source);
   if (!source) return pfNav("hub", {}, true);
   if (!source.isConsented) return pfNav("consent", { source: String(source.id) }, true);
   await pfClient.connect(source);
@@ -474,14 +474,14 @@ async function renderConnect(params) {
 
 // The source just connected (?source=), else this client's most recently consented source.
 async function renderDone(params) {
-  var consented = (await pfSourcesNow()).filter(function (s) { return s.isConsented; });
-  var primary = consented.filter(function (s) { return String(s.id) === String(params.source); })[0];
+  const consented = (await pfSourcesNow()).filter((s) => s.isConsented);
+  let primary = consented.filter((s) => String(s.id) === String(params.source))[0];
   if (!primary && consented.length) primary = pfLatestConsented(consented).source;
-  var fhirSource = primary ? pfLatestFhirSource(await pfFhirSources(), primary.id) : null;
-  var study = primary && primary.studies.length === 1 ? primary.studies[0] : "your study team";
+  const fhirSource = primary ? pfLatestFhirSource(await pfFhirSources(), primary.id) : null;
+  const study = primary && primary.studies.length === 1 ? primary.studies[0] : "your study team";
   pfRender("t-done", {
     lede: primary
-      ? "You've agreed to share your selected data with " + study + ". You can manage or disconnect any source anytime."
+      ? `You've agreed to share your selected data with ${study}. You can manage or disconnect any source anytime.`
       : "Nothing is shared yet.",
     rows: primary ? [{ name: primary.name, detail: pfCardDesc(primary, fhirSource) }] : [],
     receipt: pfSourceReceipt(fhirSource),
@@ -489,9 +489,9 @@ async function renderDone(params) {
 }
 
 async function renderManage(params) {
-  var source = await pfSource(params.source);
+  const source = await pfSource(params.source);
   if (!source || !source.consented.length) return pfNav("hub", {}, true);
-  var fhirSource = pfLatestFhirSource(await pfFhirSources(), source.id);
+  const fhirSource = pfLatestFhirSource(await pfFhirSources(), source.id);
   pfRender("t-manage", {
     sourceId: source.id,
     sourceName: source.name,
@@ -520,7 +520,7 @@ async function pfStopSharing(sourceId) {
 // Routes
 // ────────────────────────────────────────────────────
 
-var PF_ROUTES = {
+const PF_ROUTES = {
   hub: renderHub,
   consent: renderConsent,
   connect: renderConnect,
@@ -530,7 +530,7 @@ var PF_ROUTES = {
   error: renderError,
 };
 
-var PF_ROUTE_TITLES = {
+const PF_ROUTE_TITLES = {
   hub: "Choose how to share your data",
   consent: "What you'll share",
   connect: "Connect",
