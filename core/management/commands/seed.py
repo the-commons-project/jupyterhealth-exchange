@@ -319,10 +319,10 @@ class Command(BaseCommand):
             (omh, "omh:step-count:3.0", "Step count (OMH)"),
             (omh, "omh:sleep-episode:1.1", "Sleep episode (OMH)"),
             (omh, "omh:sleep-duration:2.0", "Sleep duration (OMH)"),
-            (omh, "omh:total-sleep-time:1.0", "Total sleep time (OMH)"),
             (ieee, "ieee:sleep-stage-summary:1.0", "Sleep stage summary (IEEE)"),
             (ieee, "ieee:physical-activity:1.0", "Physical activity (IEEE)"),
             (ieee, "ieee:sleep-episode:1.0", "Sleep episode (IEEE)"),
+            (ieee, "ieee:total-sleep-time:1.0", "Total sleep time (IEEE)"),
             (ieee, "ieee:time-in-bed:1.0", "Time in bed (IEEE)"),
             # Not OMH/IEEE data points: FHIR resource types, so they carry no suffix. "*" is the
             # wildcard -- a data source scoped to it supplies FHIR resources of any type, which is
