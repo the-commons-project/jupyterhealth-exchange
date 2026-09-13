@@ -43,7 +43,7 @@ SCOPES = [
     "omh:heart-rate:2.0",
     "omh:respiratory-rate:2.0",
     "omh:oxygen-saturation:2.0",
-    "omh:total-sleep-time:1.0",
+    "ieee:total-sleep-time:1.0",
     "omh:sleep-episode:1.1",
 ]
 
@@ -193,9 +193,9 @@ def _generate_day(day, day_index, age, risk, rng):
     }
     records["omh:oxygen-saturation:2.0"] = o2
 
-    tst = _header("omh:total-sleep-time:1.0")
+    tst = _header("ieee:total-sleep-time:1.0")
     tst["body"] = {"total_sleep_time": _dur(total_sleep_sec), **sleep_iv}
-    records["omh:total-sleep-time:1.0"] = tst
+    records["ieee:total-sleep-time:1.0"] = tst
 
     omh_sleep = _header("omh:sleep-episode:1.1")
     omh_sleep["body"] = {
