@@ -329,7 +329,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.140.13,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "mcp", specifier = ">=1.29.0,<1.30" },
-    { name = "omh-shim", specifier = ">=1.4.0" },
+    { name = "omh-shim", specifier = ">=1.6.0,<2" },
     { name = "pydantic", specifier = ">=2.13,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.0" },
