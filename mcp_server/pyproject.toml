@@ -17,12 +17,12 @@ dependencies = [
     "pydantic>=2.13,<3",
     "fastapi>=0.140.13,<1",
     "uvicorn[standard]>=0.51.0,<1",
-    # First-party, additive (new OMH schemas land frequently). Floor must cover
-    # every code JHE seeds — see tests/unit/test_omh_registry.py drift guard;
-    # 1.4.0 adds the IEEE ieee:sleep-stage-summary:1.0 body schema. Uncapped so
-    # additive releases flow; Dependabot (.github/dependabot.yaml, uv /
-    # mcp_server) moves the lock.
-    "omh-shim>=1.4.0",
+    # First-party. Floor must cover every code JHE seeds — see
+    # tests/unit/test_omh_registry.py drift guard; 1.6.0 adds the IEEE
+    # total-sleep-time and time-in-bed bodies. Capped below 2.0, which remaps
+    # converter outputs to IEEE ids (sleep-duration -> ieee:total-sleep-time) and
+    # so must land with the matching JHE seed change, not automatically.
+    "omh-shim>=1.6.0,<2",
     "cryptography>=50.0.0,<51",
 ]
 
