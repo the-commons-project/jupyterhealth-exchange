@@ -131,7 +131,7 @@ def build_server(
         """Return the full OMH JSON schema for a data type short name.
 
         Known names: blood-glucose, blood-pressure, body-temperature,
-        heart-rate, heart-rate-variability, oxygen-saturation,
+        heart-rate, oxygen-saturation,
         physical-activity, respiratory-rate, rr-interval,
         sleep-duration, sleep-episode, step-count.
         """

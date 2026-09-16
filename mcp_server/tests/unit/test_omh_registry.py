@@ -55,7 +55,7 @@ def test_short_name_extraction():
     assert short_name("omh:heart-rate:2.0") == "heart-rate"
     assert short_name("omh:blood-pressure:4.0") == "blood-pressure"
     assert short_name("ieee:sleep-stage-summary:1.0") == "sleep-stage-summary"
-    assert short_name("local:heart-rate-variability:1.0") == "heart-rate-variability"
+    assert short_name("ieee:total-sleep-time:1.0") == "total-sleep-time"
 
 
 def test_lookup_code_known():

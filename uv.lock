@@ -785,7 +785,7 @@ requires-dist = [
     { name = "gunicorn" },
     { name = "ipython" },
     { name = "jsonschema" },
-    { name = "omh-shim", specifier = "==1.5.0" },
+    { name = "omh-shim", specifier = "==2.0.0" },
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pyhumps" },
@@ -954,15 +954,15 @@ wheels = [
 
 [[package]]
 name = "omh-shim"
-version = "1.5.0"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsonschema" },
     { name = "referencing" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/85/e5/6a2f1f8251ed836a41af6438efad3e5c180bdd4fa976b16a80923e96df76/omh_shim-1.5.0.tar.gz", hash = "sha256:aa0af84bab5d489421127536e7144212d28e54e034d7a45e1a9050f1bef9c755", size = 38904, upload-time = "2026-08-31T18:45:39.826Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/3d/33a5e602ab1995e0db408fbcb1dc4437f615e1b7cdc77a2a13e518b53eee/omh_shim-2.0.0.tar.gz", hash = "sha256:8b712dc07cebc53b74b4c4d9417eb96b3d12fcbd59477de1f226f34d28b542cd", size = 53434, upload-time = "2026-09-16T23:24:07.197Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/fb/1c76ccecef5dd27c60595b5ba70e87b29c210bfca16c3baf38d3d40bb97d/omh_shim-1.5.0-py3-none-any.whl", hash = "sha256:66fc3e4cc6ad088ac7888a14704da801aabb58689d6f8994197a9b4ae5696a5d", size = 58260, upload-time = "2026-08-31T18:45:38.649Z" },
+    { url = "https://files.pythonhosted.org/packages/43/7b/f4bfea3ee6233c911660100fed3ab7f61458e663cf374dc0049afe9c5258/omh_shim-2.0.0-py3-none-any.whl", hash = "sha256:ff059896cdf75099b82f2604d5465e8bb08b76dd9333bea9ba0230672462a397", size = 67730, upload-time = "2026-09-16T23:24:05.844Z" },
 ]
 
 [[package]]
