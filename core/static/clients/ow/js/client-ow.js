@@ -55,7 +55,7 @@ pfClient.connect = async (source) => {
   pfRender("t-launch", {
     sourceName: source.name,
     sourceLabels: source.consentedLabels.join(", "),
-    siteTitle: PATIENT_PORTAL_CONFIG.siteTitle,
+    siteTitle: PATIENT_FACING_CONFIG.siteTitle,
   });
 };
 

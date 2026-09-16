@@ -3,7 +3,7 @@
 // consent -> connect -> done / manage) as vanilla
 // JavaScript + Handlebars components, the same shape
 // as client-jhe-admin.js. A client page injects
-// PATIENT_PORTAL_CONFIG, rolls up the components and
+// PATIENT_FACING_CONFIG, rolls up the components and
 // calls patientApp(). The client script (client-ow.js
 // or client-ehr-patient-portal.js) registers
 // pfClient.connect(source) for its own connect step.
@@ -151,7 +151,7 @@ function showFlowError(title, message, actions) {
     message: message,
     retryLabel: actions.retryLabel || "Try again",
     retryHref: actions.retryHref || null,
-    backHref: PATIENT_PORTAL_CONFIG.pageUrl,
+    backHref: PATIENT_FACING_CONFIG.pageUrl,
   });
 }
 
@@ -168,8 +168,8 @@ async function pfNav(route, params, replace) {
   if (url !== window.location.pathname + window.location.search) {
     window.history[replace ? "replaceState" : "pushState"]({}, "", url);
   }
-  document.title = `${PATIENT_PORTAL_CONFIG.siteTitle} - ${PF_ROUTE_TITLES[route]}`;
-  if (route === "error" && params.title) document.title = `${PATIENT_PORTAL_CONFIG.siteTitle} - ${params.title}`;
+  document.title = `${PATIENT_FACING_CONFIG.siteTitle} - ${PF_ROUTE_TITLES[route]}`;
+  if (route === "error" && params.title) document.title = `${PATIENT_FACING_CONFIG.siteTitle} - ${params.title}`;
   pfShowLoading();
   try {
     await PF_ROUTES[route](params);
@@ -190,7 +190,7 @@ window.addEventListener("popstate", () => {
 async function renderError(params) {
   // Re-rendering this route would just show the same error, so Try again restarts the connect step.
   showFlowError(params.title || "Something went wrong", params.message || "", {
-    retryHref: pfUrl("connect", { source: String(PATIENT_PORTAL_CONFIG.dataSourceIds[0]) }),
+    retryHref: pfUrl("connect", { source: String(PATIENT_FACING_CONFIG.dataSourceIds[0]) }),
   });
 }
 
@@ -327,7 +327,7 @@ async function pfPatientId() {
 
 async function pfSourcesNow() {
   const consents = await pfApi("GET", `patients/${await pfPatientId()}/consents`);
-  return pfSources(consents, PATIENT_PORTAL_CONFIG);
+  return pfSources(consents, PATIENT_FACING_CONFIG);
 }
 
 async function pfSource(id) {
@@ -371,8 +371,8 @@ function pfRecordCount(fhirSource) {
 // "facility · labels · N records" once a FhirSource names a facility, else the scope labels.
 function pfCardDesc(source, fhirSource) {
   const labels = source.labels.join(", ");
-  if (!fhirSource || !fhirSource.facility) return labels;
-  return `${fhirSource.facility} · ${labels} · ${pfRecordCount(fhirSource)} records`;
+  if (!fhirSource || !fhirSource.ehrBrandLocationName) return labels;
+  return `${fhirSource.ehrBrandLocationName} · ${labels} · ${pfRecordCount(fhirSource)} records`;
 }
 
 // Per-type synced counts, a zero row per expected-but-missing type, and the total.
@@ -388,7 +388,7 @@ function pfReceipt(counts, expectedTypes) {
 }
 
 function pfSourceReceipt(fhirSource) {
-  return fhirSource ? pfReceipt(fhirSource.resourceCounts || {}, PATIENT_PORTAL_CONFIG.expectedResourceTypes) : null;
+  return fhirSource ? pfReceipt(fhirSource.resourceCounts || {}, PATIENT_FACING_CONFIG.expectedResourceTypes) : null;
 }
 
 function pfLatestConsented(sources) {
@@ -447,7 +447,7 @@ async function renderConsent(params) {
     eyebrow: [source.name].concat(source.studies).join(" · "),
     sourceName: source.name,
     rows: pfUniqueSorted(source.pending.map((s) => s.label)),
-    scopeDetail: pfScopeDetail(PATIENT_PORTAL_CONFIG.expectedResourceTypes),
+    scopeDetail: pfScopeDetail(PATIENT_FACING_CONFIG.expectedResourceTypes),
   });
 }
 
@@ -496,7 +496,7 @@ async function renderManage(params) {
     sourceId: source.id,
     sourceName: source.name,
     icon: source.icon,
-    detail: fhirSource && fhirSource.facility ? pfCardDesc(source, fhirSource) : null,
+    detail: fhirSource && fhirSource.ehrBrandLocationName ? pfCardDesc(source, fhirSource) : null,
     rows: source.consentedLabels,
     receipt: pfSourceReceipt(fhirSource),
   });

@@ -18,8 +18,8 @@ def _expected_resource_types(scopes):
     return sorted(types - {"*"})
 
 
-def patient_portal_config(client_name, client_key, page_url):
-    """The PATIENT_PORTAL_CONFIG a client page injects: its OAuth config and the DataSources linked through ClientDataSource."""
+def patient_facing_config(client_name, client_key, page_url):
+    """The PATIENT_FACING_CONFIG a client page injects: its OAuth config and the DataSources linked through ClientDataSource."""
     app = (
         Application.objects.filter(name=client_name)
         .select_related("jhe_client")

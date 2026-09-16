@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.models import EhrBrandLocation, PatientIdentifier
-from core.views.patient_facing import patient_portal_config
+from core.views.patient_facing import patient_facing_config
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ US_STATES = {
 
 
 def _config():
-    return patient_portal_config(
+    return patient_facing_config(
         EHR_PATIENT_PORTAL_CLIENT_NAME, "ehr-patient-portal", reverse("ehr-patient-portal-connect")
     )
 

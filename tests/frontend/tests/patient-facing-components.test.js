@@ -25,7 +25,7 @@ beforeAll(() => {
   global.Handlebars = require(path.join(STATIC, "common/js/handlebars.min.js"));
   require(path.join(STATIC, "common/js/common.js"));
   require(path.join(STATIC, "common/js/patient-facing.js"));
-  global.PATIENT_PORTAL_CONFIG = { pageUrl: "/clients/ow/launch", siteTitle: "JupyterHealth Exchange" };
+  global.PATIENT_FACING_CONFIG = { pageUrl: "/clients/ow/launch", siteTitle: "JupyterHealth Exchange" };
   document.body.innerHTML = `<div id="pf_main"></div>` + COMPONENTS.map(componentHtml).join("");
   window.pfRegisterPartials();
 });

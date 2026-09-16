@@ -1099,7 +1099,7 @@ def test_legacy_lowercase_base_serves_discovery_and_points_at_the_canonical_base
     assert api_client.get("/fhir/r5/.well-known/smart-configuration").status_code == 200
 
 
-def test_fhir_source_list_reports_resource_counts_and_facility(patient, device, fhir_source):
+def test_fhir_source_list_reports_resource_counts_and_ehr_brand_location_name(patient, device, fhir_source):
     for resource_type in ("Observation", "Observation", "Patient"):
         FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type=resource_type)
     brand = EhrBrand.objects.create(name="Epic Sandbox", fhir_base_url="https://epic.example.org/FHIR/R4")
@@ -1120,6 +1120,6 @@ def test_fhir_source_list_reports_resource_counts_and_facility(patient, device, 
     rows = {row["id"]: row for row in client.get("/api/v1/fhir_sources").json()["results"]}
 
     assert rows[fhir_source.id]["resourceCounts"] == {"Observation": 2, "Patient": 1}
-    assert rows[fhir_source.id]["facility"] == ""
+    assert rows[fhir_source.id]["ehrBrandLocationName"] is None
     assert rows[located.id]["resourceCounts"] == {}
-    assert rows[located.id]["facility"] == "Epic Sandbox - Madison Campus"
+    assert rows[located.id]["ehrBrandLocationName"] == "Epic Sandbox - Madison Campus"

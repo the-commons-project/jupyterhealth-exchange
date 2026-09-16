@@ -8,7 +8,7 @@ class FhirSourceSerializer(serializers.ModelSerializer):
     """A patient-registered upstream FHIR source; ``patient`` is set server-side from the requesting user, never the request body."""
 
     resource_counts = serializers.SerializerMethodField()
-    facility = serializers.SerializerMethodField()
+    ehr_brand_location_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FhirSource
@@ -18,7 +18,7 @@ class FhirSourceSerializer(serializers.ModelSerializer):
             "data_source",
             "label",
             "ehr_brand_location",
-            "facility",
+            "ehr_brand_location_name",
             "resource_counts",
             "last_updated",
         ]
@@ -34,5 +34,5 @@ class FhirSourceSerializer(serializers.ModelSerializer):
         )
         return dict(counts)
 
-    def get_facility(self, obj):
-        return obj.ehr_brand_location.name if obj.ehr_brand_location else ""
+    def get_ehr_brand_location_name(self, obj):
+        return obj.ehr_brand_location.name if obj.ehr_brand_location else None

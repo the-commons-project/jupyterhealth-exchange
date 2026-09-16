@@ -306,7 +306,7 @@ pfClient.connect = async (source) => {
   const jheToken = getStoredToken();
   const onSelect = (row) => {
     eppStoreBrandLocationId(row.id);
-    eppAuthorizeWithIss(PATIENT_PORTAL_CONFIG, row.fhirBaseUrl);
+    eppAuthorizeWithIss(PATIENT_FACING_CONFIG, row.fhirBaseUrl);
   };
   const runSearch = async () => {
     eppRenderBrandResults(picker.results, await eppSearchBrands(jheToken, picker.input.value), onSelect);
@@ -335,7 +335,7 @@ async function eppCallback() {
   pfRegisterPartials();
   await renderImporting();
   const out = document.getElementById("out");
-  const config = PATIENT_PORTAL_CONFIG;
+  const config = PATIENT_FACING_CONFIG;
   try {
     await finishEhrPatientPortalConnect(out, config);
   } catch (e) {

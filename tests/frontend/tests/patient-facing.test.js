@@ -44,7 +44,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  global.PATIENT_PORTAL_CONFIG = { client: "ow", pageUrl: "/clients/ow/launch", siteTitle: "JupyterHealth Exchange", dataSourceIds: [3], sourceLabels: { 3: "Oura" }, expectedResourceTypes: [] };
+  global.PATIENT_FACING_CONFIG = { client: "ow", pageUrl: "/clients/ow/launch", siteTitle: "JupyterHealth Exchange", dataSourceIds: [3], sourceLabels: { 3: "Oura" }, expectedResourceTypes: [] };
   document.body.innerHTML = `<div id="pf_main"></div><div id="navLoadingOverlay" style="display:none"></div>` + componentHtml(path.join(COMPONENTS, "error.html"));
   window.sessionStorage.clear();
   window.pfResetPatient();
@@ -217,8 +217,8 @@ describe("card description", () => {
   test("joins the labels, and leads with the facility and record count once a FhirSource has one", () => {
     const [oura] = window.pfSources(CONSENTS, OW_CONFIG);
     expect(window.pfCardDesc(oura, null)).toBe("Sleep episode");
-    expect(window.pfCardDesc(oura, { facility: "Epic Sandbox", resourceCounts: { Observation: 3, Patient: 1 } })).toBe("Epic Sandbox · Sleep episode · 4 records");
-    expect(window.pfCardDesc(oura, { facility: "", resourceCounts: {} })).toBe("Sleep episode");
+    expect(window.pfCardDesc(oura, { ehrBrandLocationName: "Epic Sandbox", resourceCounts: { Observation: 3, Patient: 1 } })).toBe("Epic Sandbox · Sleep episode · 4 records");
+    expect(window.pfCardDesc(oura, { ehrBrandLocationName: null, resourceCounts: {} })).toBe("Sleep episode");
   });
 
   test("pfLatestFhirSource picks the newest source registered for the data source", () => {
@@ -288,7 +288,7 @@ describe("consent flow", () => {
   test("renderConsent shows the pending scopes for the source and the client's scope detail", async () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "consent.html"));
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: ["Patient", "Observation"] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: ["Patient", "Observation"] });
     global.fetch = consentsFetch(CONSENTS, []);
 
     await window.renderConsent({ source: "5" });
@@ -301,7 +301,7 @@ describe("consent flow", () => {
 
   test("pfAgree writes the pending scopes and moves to the connect route", async () => {
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
     const calls = [];
     global.fetch = consentsFetch(CONSENTS, calls, CONSENTS_AFTER);
     window.pfClient.connect = jest.fn();
@@ -319,7 +319,7 @@ describe("consent flow", () => {
 
   test("renderConnect sends an unconsented source to the consent screen first, else calls the client hook", async () => {
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = consentsFetch(CONSENTS, []);
     window.pfClient.connect = jest.fn();
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "consent.html"));
@@ -327,7 +327,7 @@ describe("consent flow", () => {
     await window.renderConnect({ source: "3" });
     expect(window.pfClient.connect).toHaveBeenCalledWith(expect.objectContaining({ id: 3, isConsented: true }));
 
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
     window.pfClient.connect.mockClear();
     await window.renderConnect({ source: "5" });
     expect(window.pfClient.connect).not.toHaveBeenCalled();
@@ -343,7 +343,7 @@ describe("Open Wearables hook", () => {
   test("connect renders the launch card with the consented labels; Continue creates the OW user and redirects to Oura", async () => {
     document.body.innerHTML += fs.readFileSync(path.resolve(TEMPLATES_DIR, "clients/ow/components/launch.html"), "utf8").replace(/{% ?verbatim ?%}|{% ?endverbatim ?%}/g, "");
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG.siteTitle = "Meridian Exchange";
+    global.PATIENT_FACING_CONFIG.siteTitle = "Meridian Exchange";
     const [oura] = window.pfSources(CONSENTS, OW_CONFIG);
 
     await window.pfClient.connect(oura);
@@ -383,11 +383,11 @@ describe("renderDone", () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "done.html")) + componentHtml(path.join(COMPONENTS, "receipt.html"));
     window.pfRegisterPartials();
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = jest.fn((url) => {
       if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 40001 } }) });
       if (url.includes("/consents")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(CONSENTS) });
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ results: [{ id: 2, dataSource: 3, facility: "Oura Cloud", resourceCounts: { Observation: 7 } }] }) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ results: [{ id: 2, dataSource: 3, ehrBrandLocationName: "Oura Cloud", resourceCounts: { Observation: 7 } }] }) });
     });
 
     await window.renderDone({ source: "3" });
@@ -402,11 +402,11 @@ describe("renderDone", () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "done.html")) + componentHtml(path.join(COMPONENTS, "receipt.html"));
     window.pfRegisterPartials();
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = jest.fn((url) => {
       if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 40001 } }) });
       if (url.includes("/consents")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(CONSENTS) });
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ results: [{ id: 2, dataSource: 3, facility: "Oura Cloud", resourceCounts: { Observation: 7 } }] }) });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ results: [{ id: 2, dataSource: 3, ehrBrandLocationName: "Oura Cloud", resourceCounts: { Observation: 7 } }] }) });
     });
 
     await window.renderDone({});
@@ -428,7 +428,7 @@ describe("renderDone", () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "done.html")) + componentHtml(path.join(COMPONENTS, "receipt.html"));
     window.pfRegisterPartials();
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [], dataSourceIds: [3, 7], sourceLabels: { 3: "Oura", 7: "CareX" } };
+    global.PATIENT_FACING_CONFIG = { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [], dataSourceIds: [3, 7], sourceLabels: { 3: "Oura", 7: "CareX" } };
     global.fetch = jest.fn((url) => {
       if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 40001 } }) });
       if (url.includes("/consents")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(TWO) });
@@ -445,7 +445,7 @@ describe("renderDone", () => {
   test("with nothing consented it says nothing is shared", async () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "done.html")) + componentHtml(path.join(COMPONENTS, "receipt.html"));
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = jest.fn((url) => {
       if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 40001 } }) });
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(CONSENTS) });
@@ -473,7 +473,7 @@ describe("manage flow", () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "manage.html")) + componentHtml(path.join(COMPONENTS, "receipt.html"));
     window.pfRegisterPartials();
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = fetchWith([], []);
 
     await window.renderManage({ source: "3" });
@@ -481,7 +481,7 @@ describe("manage flow", () => {
     expect(main.querySelector(".pf-card__title").textContent).toBe("Sleep episode");
     expect(main.querySelector(".pf-receipt")).toBeNull();
 
-    global.fetch = fetchWith([], [{ id: 2, dataSource: 3, facility: "Oura Cloud", resourceCounts: { Observation: 7 } }]);
+    global.fetch = fetchWith([], [{ id: 2, dataSource: 3, ehrBrandLocationName: "Oura Cloud", resourceCounts: { Observation: 7 } }]);
     await window.renderManage({ source: "3" });
     main = document.getElementById("pf_main");
     expect(main.querySelector(".pf-card__desc").textContent).toBe("Oura Cloud · Sleep episode · 7 records");
@@ -490,7 +490,7 @@ describe("manage flow", () => {
 
   test("pfStopSharing PATCHes every consented scope to false and returns to the hub", async () => {
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
     const calls = [];
     global.fetch = fetchWith(calls, []);
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "hub.html"));
@@ -516,7 +516,7 @@ describe("history and route guards", () => {
   test("renderConsent bounces an already-consented source to the hub without adding a history step", async () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "hub.html"));
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = guardFetch(CONSENTS);
     window.history.replaceState({}, "", "/clients/ow/launch?route=consent&source=3");
     const depth = window.history.length;
@@ -531,7 +531,7 @@ describe("history and route guards", () => {
   test("renderManage bounces a source with nothing consented to the hub", async () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "hub.html"));
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = guardFetch(CONSENTS);
     window.history.replaceState({}, "", "/clients/ehr-patient-portal/?route=manage&source=5");
 
@@ -543,7 +543,7 @@ describe("history and route guards", () => {
   test("a route name inherited from Object falls back to the hub", async () => {
     document.body.innerHTML += componentHtml(path.join(COMPONENTS, "hub.html"));
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = guardFetch(CONSENTS);
     window.history.replaceState({}, "", "/clients/ow/launch?route=constructor");
 
@@ -557,7 +557,7 @@ describe("history and route guards", () => {
 describe("failure branches", () => {
   test("a failed load shows the error callout and hides the loading overlay", async () => {
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, OW_CONFIG, { pageUrl: "/clients/ow/launch", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = jest.fn(() => Promise.resolve({ ok: false, status: 401, statusText: "Unauthorized", json: () => Promise.resolve({ detail: "Invalid token" }) }));
     window.history.replaceState({}, "", "/clients/ow/launch?route=manage&source=3");
     // pfNav logs the caught error; keep it out of the suite output.
@@ -573,7 +573,7 @@ describe("failure branches", () => {
 
   test("a rejected consent write leaves the patient where they were, with a callout", async () => {
     window.storeToken("tok");
-    global.PATIENT_PORTAL_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
+    global.PATIENT_FACING_CONFIG = Object.assign({}, EHR_CONFIG, { pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] });
     global.fetch = jest.fn((url, opts) => {
       if (url.includes("users/profile")) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ patient: { id: 40001 } }) });
       if (opts && opts.method === "POST") return Promise.resolve({ ok: false, status: 400, statusText: "Bad Request", json: () => Promise.resolve({ detail: "scope not requested" }) });

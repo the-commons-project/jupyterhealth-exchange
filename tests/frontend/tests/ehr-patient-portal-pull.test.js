@@ -363,7 +363,7 @@ describe("eppCallback", () => {
       ["common/patient_facing/components/importing.html", "common/patient_facing/components/rail.html", "common/patient_facing/components/error.html"]
         .map((file) => componentHtml(path.join(TEMPLATES, file)))
         .join("");
-    global.PATIENT_PORTAL_CONFIG = { dataSourceIds: [5], pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] };
+    global.PATIENT_FACING_CONFIG = { dataSourceIds: [5], pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] };
     window.storeToken("tok");
     sessionStorage.removeItem("ehr_patient_portal_source_id");
   });

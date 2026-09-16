@@ -31,7 +31,7 @@ beforeAll(() => {
 beforeEach(() => {
   global.fetch = jest.fn();
   delete global.FHIR;
-  global.PATIENT_PORTAL_CONFIG = { clientId: "cid", scope: "launch/patient", dataSourceIds: [5], pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] };
+  global.PATIENT_FACING_CONFIG = { clientId: "cid", scope: "launch/patient", dataSourceIds: [5], pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] };
 });
 
 describe("eppSearchBrands", () => {
@@ -133,7 +133,7 @@ describe("pfClient.connect on the EHR page", () => {
 
   test("stores the data source being connected, so the callback registers records against that source", async () => {
     // A client can be linked to more than one data source; the callback page has no route params to read it back from.
-    global.PATIENT_PORTAL_CONFIG.dataSourceIds = [5, 6];
+    global.PATIENT_FACING_CONFIG.dataSourceIds = [5, 6];
     renderPickerPage();
     window.storeToken("tok");
     global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [] }) }));
