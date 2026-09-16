@@ -1,17 +1,17 @@
 """Everything auth-related for JHE, in one place.
 
-Five concerns that all answer "how does a caller prove who they are, and where
+Four concerns that all answer "how does a caller prove who they are, and where
 do they go to do it", kept together so there is a single file to open rather
-than five one-class modules:
+than four one-class modules:
 
 1. Account activation tokens -- emailed signup/verification links.
-2. DRF authentication       -- resolves a user for client-credentials tokens.
-3. DOT OIDC validator       -- adds the email claim to /o/userinfo/.
-4. Advertised endpoint URIs -- what the FHIR discovery documents publish.
-5. EHR id_token verification -- inbound SMART on FHIR token exchange.
+2. DOT OIDC validator       -- resolves a user for client-credentials tokens,
+                                and adds the email claim to /o/userinfo/.
+3. Advertised endpoint URIs -- what the FHIR discovery documents publish.
+4. EHR id_token verification -- inbound SMART on FHIR token exchange.
 
-Referenced by dotted path from settings (``DEFAULT_AUTHENTICATION_CLASSES``,
-``OAUTH2_VALIDATOR_CLASS``), so renaming this module means editing those too.
+Referenced by dotted path from settings (``OAUTH2_VALIDATOR_CLASS``), so
+renaming this module means editing that too.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ import jwt
 import requests
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.urls import reverse
-from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from six import text_type
 
@@ -44,45 +43,38 @@ account_activation_token = TokenGenerator()
 
 
 # ---------------------------------------------------------------------------
-# 2. DRF authentication
-# ---------------------------------------------------------------------------
-
-
-class JheOAuth2Authentication(OAuth2Authentication):
-    """Resolve a user for client-credentials tokens too.
-
-    Authorization-code (and password/refresh) tokens carry the resource owner directly on the
-    token, so DRF exposes it as ``request.user``. Client-credentials tokens have no resource
-    owner -- django-oauth-toolkit saves them with ``user=None`` -- so DRF would otherwise treat
-    the request as unauthenticated. For those, fall back to the application owner
-    (``token.application.user``); for a PractitionerClient that is the practitioner who created
-    it. This keeps ``request.user`` correct everywhere without per-view changes.
-    """
-
-    def authenticate(self, request):
-        result = super().authenticate(request)
-        if result is None:
-            return None
-        user, token = result
-        if user is None and token is not None:
-            application = getattr(token, "application", None)
-            if application is not None and application.user is not None:
-                user = application.user
-        return user, token
-
-
-# ---------------------------------------------------------------------------
-# 3. DOT OIDC validator
+# 2. DOT OIDC validator
 # ---------------------------------------------------------------------------
 
 
 class JheOAuth2Validator(OAuth2Validator):
-    """Extend DOT's default validator so /o/userinfo/ returns the email claim
-    when the 'email' scope is granted.
+    """Extend DOT's default validator with two things every bearer-token
+    consumer needs -- DRF views, /o/userinfo/, /o/introspect/, and anything
+    else built on oauth2_provider -- so the fix lives in one place instead of
+    being re-derived per endpoint.
 
-    DOT's built-in ``oidc_claim_scope`` already maps ``"email" -> "email"``
-    so we only need to supply the actual claim value here.
+    1. Resolve a user for client-credentials tokens. Authorization-code (and
+       password/refresh) tokens carry the resource owner directly on the
+       token, so ``request.user`` is set correctly by the base validator.
+       Client-credentials tokens have no resource owner -- django-oauth-toolkit
+       saves them with ``user=None`` -- so anything reading ``request.user``
+       (including DOT's own /o/userinfo/ view) would otherwise see no user, or
+       crash outright. Fall back to the application owner
+       (``access_token.application.user``); for a PractitionerClient that is
+       the practitioner who created it.
+
+    2. Add the email claim to /o/userinfo/ when the 'email' scope is granted.
+       DOT's built-in ``oidc_claim_scope`` already maps ``"email" -> "email"``
+       so we only need to supply the actual claim value.
     """
+
+    def validate_bearer_token(self, token, scopes, request):
+        valid = super().validate_bearer_token(token, scopes, request)
+        if valid and request.user is None:
+            application = getattr(request, "client", None)
+            if application is not None and application.user is not None:
+                request.user = application.user
+        return valid
 
     def get_additional_claims(self, request):
         return {
@@ -91,7 +83,7 @@ class JheOAuth2Validator(OAuth2Validator):
 
 
 # ---------------------------------------------------------------------------
-# 4. Advertised OAuth endpoint URIs
+# 3. Advertised OAuth endpoint URIs
 # ---------------------------------------------------------------------------
 # Django OAuth Toolkit has no setting for its own mount point -- ``/o/`` is a
 # ``jhe/urls.py`` decision (see ``settings.OAUTH_MOUNT_PATH``). Anything that
@@ -114,7 +106,7 @@ def token_uri(request):
 
 
 # ---------------------------------------------------------------------------
-# 5. EHR id_token verification (SMART on FHIR token exchange)
+# 4. EHR id_token verification (SMART on FHIR token exchange)
 # ---------------------------------------------------------------------------
 # Uses PyJWT's PyJWKClient to validate the id_token signature against the EHR's
 # JWKS (discovered from .well-known/smart-configuration). Relies only on
