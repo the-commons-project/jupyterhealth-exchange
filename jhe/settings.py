@@ -145,7 +145,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     # 'DEFAULT_PAGINATION_CLASS': 'core.pagination.CustomPageNumberPagination',
     "PAGE_SIZE": 1000,
-    "DEFAULT_AUTHENTICATION_CLASSES": ("core.auth.JheOAuth2Authentication",),
+    # User resolution for client-credentials tokens lives in the shared
+    # OAUTH2_VALIDATOR_CLASS (core.auth.JheOAuth2Validator) below, not here, so
+    # every bearer-token consumer -- this DRF class, /o/userinfo/, /o/introspect/
+    # -- gets it for free instead of needing its own wrapper.
+    "DEFAULT_AUTHENTICATION_CLASSES": ("oauth2_provider.contrib.rest_framework.OAuth2Authentication",),
     "DEFAULT_RENDERER_CLASSES": (
         "djangorestframework_camel_case.render.CamelCaseJSONRenderer",
         "djangorestframework_camel_case.render.CamelCaseBrowsableAPIRenderer",
