@@ -282,6 +282,7 @@ describe("finishEhrPatientPortalConnect", () => {
     window.storeToken("tok");
     sessionStorage.removeItem("ehr_patient_portal_brand_location_id");
     sessionStorage.removeItem("ehr_patient_portal_source_id");
+    window.eppStoreAcceptedScopes(window.EHR_PATIENT_PORTAL_PULLS.map((pull) => pull.scope));
     // No records to pull, so the run stops after identifier + FhirSource registration.
     const client = {
       state: { serverUrl: PICKED },
@@ -366,6 +367,8 @@ describe("eppCallback", () => {
     global.PATIENT_FACING_CONFIG = { dataSourceIds: [5], pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] };
     window.storeToken("tok");
     sessionStorage.removeItem("ehr_patient_portal_source_id");
+    // Accept every scope so the pull loop below actually attempts every type (real flow: set by the scope picker).
+    window.eppStoreAcceptedScopes(window.EHR_PATIENT_PORTAL_PULLS.map((pull) => pull.scope));
   });
 
   test("a failed Epic handshake ends on the callout, with a retry that restarts the picker", async () => {

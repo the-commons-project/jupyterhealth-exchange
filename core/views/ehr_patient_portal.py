@@ -7,7 +7,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from core.models import EhrBrandLocation, PatientIdentifier
+from core.models import EhrBrandLocation, EhrVendor, PatientIdentifier
 from core.views.patient_facing import patient_facing_config
 
 logger = logging.getLogger(__name__)
@@ -73,9 +73,17 @@ US_STATES = {
 
 
 def _config():
-    return patient_facing_config(
+    config = patient_facing_config(
         EHR_PATIENT_PORTAL_CLIENT_NAME, "ehr-patient-portal", reverse("ehr-patient-portal-connect")
     )
+    # The consent screen (shown before the patient has picked a hospital) and the receipt
+    # screen both need an "expected data types" list; the actual scope is now vendor-specific
+    # and not known this early, so this is every type the client can ever pull, regardless of
+    # which brand/vendor or which of its scopes the patient goes on to select.
+    config["expectedResourceTypes"] = sorted(
+        {token.removeprefix("patient/").removesuffix(".read") for token in EhrVendor.SUPPORTED_SCOPES}
+    )
+    return config
 
 
 def ehr_patient_portal_connect(request):
@@ -99,8 +107,8 @@ def _parse_limit(raw):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def brands_search(request):
-    """GET /api/v1/ehr-patient-portal/brands?q=&state=&postal=&limit= -- searches facilities by name/city/brand (`q`) and state/postal; each result carries the brand's fhir_base_url (the SMART `iss`) the browser authorizes against."""
-    qs = EhrBrandLocation.objects.select_related("brand")
+    """GET /api/v1/ehr-patient-portal/brands?q=&state=&postal=&limit= -- searches facilities by name/city/brand (`q`) and state/postal; each result carries the brand's fhir_base_url (the SMART `iss`) plus its vendor's ehr_client_id/supported_scopes, everything the browser needs to authorize."""
+    qs = EhrBrandLocation.objects.select_related("brand__vendor")
 
     q = (request.query_params.get("q") or "").strip()
     if q:
@@ -136,6 +144,8 @@ def brands_search(request):
             "postal_code": loc.postal_code,
             "brand_name": loc.brand.name,
             "fhir_base_url": loc.brand.fhir_base_url,
+            "ehr_client_id": loc.brand.vendor.ehr_client_id,
+            "supported_scopes": loc.brand.vendor.supported_scopes,
         }
         for loc in qs
     ]

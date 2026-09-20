@@ -19,6 +19,7 @@ from core.models import (
     JHE_NATIVE_SOURCE,
     EhrBrand,
     EhrBrandLocation,
+    EhrVendor,
     FhirAuxResource,
     FhirSource,
     Observation,
@@ -1025,7 +1026,10 @@ def test_migration_0047_folds_the_dropped_base_url_into_the_label():
 def test_fhir_source_records_the_picked_ehr_brand_location(patient, device, db):
     # The facility the patient picked is recorded on the source. It is descriptive: every
     # location of a brand shares one fhir_base_url, so the connection cannot tell them apart.
-    brand = EhrBrand.objects.create(name="Mount Sinai", fhir_base_url="https://sinai.example.org/FHIR/R4")
+    vendor = EhrVendor.objects.create(name="Epic")
+    brand = EhrBrand.objects.create(
+        name="Mount Sinai", vendor=vendor, fhir_base_url="https://sinai.example.org/FHIR/R4"
+    )
     location = EhrBrandLocation.objects.create(brand=brand, name="Mount Sinai West")
     client = _patient_client(patient)
 
@@ -1045,7 +1049,8 @@ def test_fhir_source_records_the_picked_ehr_brand_location(patient, device, db):
 def test_deleting_a_brand_keeps_the_fhir_source(patient, device, db):
     # Deleting a brand cascades to its locations; the source (and every aux row under it) must
     # survive, losing only the descriptive link.
-    brand = EhrBrand.objects.create(name="Mercy", fhir_base_url="https://mercy.example.org/FHIR/R4")
+    vendor = EhrVendor.objects.create(name="Epic")
+    brand = EhrBrand.objects.create(name="Mercy", vendor=vendor, fhir_base_url="https://mercy.example.org/FHIR/R4")
     location = EhrBrandLocation.objects.create(brand=brand, name="Mercy STL")
     source = FhirSource.objects.create(patient=patient, data_source=device, label="Mercy", ehr_brand_location=location)
 
@@ -1102,7 +1107,10 @@ def test_legacy_lowercase_base_serves_discovery_and_points_at_the_canonical_base
 def test_fhir_source_list_reports_resource_counts_and_ehr_brand_location_name(patient, device, fhir_source):
     for resource_type in ("Observation", "Observation", "Patient"):
         FhirAuxResource.objects.create(fhir_source=fhir_source, resource_type=resource_type)
-    brand = EhrBrand.objects.create(name="Epic Sandbox", fhir_base_url="https://epic.example.org/FHIR/R4")
+    vendor = EhrVendor.objects.create(name="Epic")
+    brand = EhrBrand.objects.create(
+        name="Epic Sandbox", vendor=vendor, fhir_base_url="https://epic.example.org/FHIR/R4"
+    )
     location = EhrBrandLocation.objects.create(
         brand=brand,
         name="Epic Sandbox - Madison Campus",

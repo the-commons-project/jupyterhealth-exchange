@@ -18,6 +18,8 @@ from .fhir import FHIRResourceView  # noqa
 
 from .data_source import DataSourceViewSet  # noqa
 
+from .ehr_vendor import EhrVendorViewSet  # noqa
+
 from .jhe_setting import JheSettingViewSet  # noqa
 
 from .client import ClientViewSet  # noqa

@@ -8,7 +8,6 @@ seed still completes.
 import pytest
 from oauth2_provider.models import get_application_model
 
-from core.management.commands.seed import SEED_MANAGED_AUX_KEYS
 from core.models import (
     ClientDataSource,
     CodeableConcept,
@@ -87,7 +86,6 @@ def test_patient_clients_invite_to_their_own_page(seeded, name, path):
     jhe_client = JheClient.objects.get(application__name=name)
     assert jhe_client.invitation_url.endswith(path)
     assert "patient_facing" not in (jhe_client.aux_data or {})
-    assert SEED_MANAGED_AUX_KEYS == {"scopes"}
 
 
 @pytest.mark.parametrize("key", ["site.ui.logo", "site.ui.theme_css"])

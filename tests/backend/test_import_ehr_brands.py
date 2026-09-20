@@ -6,7 +6,7 @@ from pathlib import Path
 from django.core.management import call_command
 
 from core.management.commands.import_ehr_brands import DEFAULT_SAMPLE, import_brands_bundle
-from core.models import EhrBrand, EhrBrandLocation
+from core.models import EhrBrand, EhrBrandLocation, EhrVendor
 
 
 def _bundle():
@@ -67,10 +67,59 @@ def test_imports_brand_and_locations(db):
 
     brand = EhrBrand.objects.get(fhir_base_url="https://fhir.mountsinai.org/api/FHIR/R4")
     assert brand.name == "Mount Sinai"
-    assert brand.npi == "1234567890"
+    assert brand.npi_type_2 == "1234567890"
     assert brand.locations.count() == 2
     assert counts["brands"] == 1
     assert counts["locations"] == 2
+    # A brand with no "sandbox" in its name is a real customer -> Epic Production, never the
+    # sandbox vendor whose ehr_client_id only works against Epic's shared test FHIR server.
+    assert brand.vendor.name == "Epic Production"
+
+
+def test_sandbox_brand_gets_the_sandbox_vendor(db):
+    bundle = {
+        "resourceType": "Bundle",
+        "entry": [
+            {
+                "resource": {
+                    "resourceType": "Endpoint",
+                    "id": "ep-sandbox",
+                    "address": "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/",
+                }
+            },
+            {
+                "resource": {
+                    "resourceType": "Organization",
+                    "id": "brand-sandbox",
+                    "name": "Epic Health System (Sandbox)",
+                    "endpoint": [{"reference": "Endpoint/ep-sandbox"}],
+                }
+            },
+        ],
+    }
+    import_brands_bundle(bundle)
+    brand = EhrBrand.objects.get(fhir_base_url="https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/")
+    assert brand.vendor.name == "Epic Sandbox"
+
+
+def test_production_and_sandbox_brands_share_only_their_own_vendor(db):
+    # Importing the curated sample (sandbox + AACI + Mount Sinai) must produce exactly the two
+    # vendors, not one per brand and not one shared "Epic" vendor for everything.
+    bundle = json.loads(Path(DEFAULT_SAMPLE).read_text(encoding="utf-8"))
+    import_brands_bundle(bundle)
+
+    assert set(EhrVendor.objects.values_list("name", flat=True)) == {"Epic Production", "Epic Sandbox"}
+    sandbox = EhrVendor.objects.get(name="Epic Sandbox")
+    production = EhrVendor.objects.get(name="Epic Production")
+    assert list(sandbox.brands.values_list("name", flat=True)) == ["Epic Health System (Sandbox)"]
+    assert set(production.brands.values_list("name", flat=True)) == {
+        "Asian Americans for Community Involvement (AACI)",
+        "Mount Sinai Health System",
+    }
+
+    # Re-importing must not create a second "Epic Production"/"Epic Sandbox" row.
+    import_brands_bundle(bundle)
+    assert EhrVendor.objects.count() == 2
 
 
 def test_import_is_idempotent(db):
