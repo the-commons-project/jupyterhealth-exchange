@@ -43,13 +43,14 @@ def test_ow_launch_is_a_shell_configured_from_the_open_wearables_client(seeded, 
 def test_ehr_connect_is_a_shell_configured_from_the_ehr_client(seeded, client):
     html = client.get("/clients/ehr-patient-portal/").content.decode()
     ehr = DataSource.objects.get(name="EHR Patient Portal")
-    aux = JheClient.objects.get(application__name="EHR Patient Portal").aux_data
 
     _assert_shell(html, "t-connect", "patientApp()")
     assert "fhir-client.min.js" in html and "client-ehr-patient-portal.js" in html
     config = _config(html)
     assert config["client"] == "ehr-patient-portal" and config["pageUrl"] == "/clients/ehr-patient-portal/"
-    assert config["clientId"] == aux["client_id"] and config["scope"] == aux["scopes"]
+    # clientId/scope are no longer known at page-load: each EhrBrand carries its own, resolved
+    # once the patient picks a hospital (see client-ehr-patient-portal.js's scope picker).
+    assert config["clientId"] == "" and config["scope"] == ""
     assert config["dataSourceIds"] == [ehr.id] and config["sourceLabels"] == {str(ehr.id): "EHR Patient Portal"}
     assert config["expectedResourceTypes"][:3] == ["AllergyIntolerance", "CarePlan", "CareTeam"]
     assert "Patient" in config["expectedResourceTypes"] and "openid" not in config["expectedResourceTypes"]

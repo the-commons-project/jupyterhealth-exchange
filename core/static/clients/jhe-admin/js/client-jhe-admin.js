@@ -71,6 +71,12 @@ const ROUTES = {
     iconClass: "bi-boxes",
     action: "renderDataSources",
   },
+  ehrs: {
+    label: "EHRs",
+    iconClass: "bi-hospital",
+    action: "renderEhrVendors",
+    superuserOnly: true,
+  },
   debug: {
     label: "Debug",
     iconClass: "bi-bug",
@@ -97,6 +103,7 @@ const actions = {
   renderFhir,
   renderClients,
   renderDataSources,
+  renderEhrVendors,
   renderDebug,
   renderProfile,
 };
@@ -2337,6 +2344,122 @@ async function removeScopeFromDataSource(scopeCodeId, dataSourceId) {
     }
   );
   if (response.ok) navReload();
+}
+
+// ────────────────────────────────────────────────────
+// EHRs (EhrVendor; EhrBrand/EhrBrandLocation are read-only, nested for display)
+// ────────────────────────────────────────────────────
+
+// {token, label} per CONSTANTS.EHR_SUPPORTED_SCOPES entry, checked when it appears in the
+// vendor's space-delimited supportedScopes string.
+function buildEhrVendorScopeOptions(selectedString) {
+  const selected = (selectedString || "").split(/\s+/).filter(Boolean);
+  return Object.entries(CONSTANTS.EHR_SUPPORTED_SCOPES).map(([token, label]) => ({
+    token: token,
+    label: label,
+    checked: selected.indexOf(token) !== -1,
+  }));
+}
+
+// Friendly labels for a vendor's space-delimited supportedScopes string, for the list table.
+function ehrVendorScopeLabels(selectedString) {
+  return (selectedString || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => CONSTANTS.EHR_SUPPORTED_SCOPES[token])
+    .filter(Boolean);
+}
+
+function readEhrVendorScopeCheckboxes() {
+  return Array.from(document.querySelectorAll(".ehrVendorScopeCheckbox:checked"))
+    .map((el) => el.value)
+    .join(" ");
+}
+
+async function renderEhrVendors(queryParams) {
+  const content = Handlebars.compile(
+    document.getElementById("t-ehr-vendors").innerHTML
+  );
+
+  const ehrVendorsResponse = await apiRequest("GET", "ehr_vendors");
+  const ehrVendorsPaginated = await ehrVendorsResponse.json();
+  const ehrVendors = ehrVendorsPaginated.results.map((vendor) => ({
+    ...vendor,
+    scopeLabels: ehrVendorScopeLabels(vendor.supportedScopes),
+  }));
+  let ehrVendorRecord = {};
+
+  if (queryParams.read || queryParams.update || queryParams.delete) {
+    const ehrVendorRecordResponse = await apiRequest(
+      "GET",
+      `ehr_vendors/${queryParams.id}`
+    );
+    ehrVendorRecord = await ehrVendorRecordResponse.json();
+  }
+
+  ehrVendorRecord.scopeOptions = buildEhrVendorScopeOptions(ehrVendorRecord.supportedScopes);
+
+  if (queryParams.read) {
+    // Flattened across every brand under this vendor, each location tagged with its brand's
+    // name so the "Locations" list below reads sensibly with more than one brand.
+    ehrVendorRecord.allLocations = [];
+    (ehrVendorRecord.brands || []).forEach((brand) => {
+      (brand.locations || []).forEach((location) => {
+        ehrVendorRecord.allLocations.push({ ...location, brandName: brand.name });
+      });
+    });
+  }
+
+  Handlebars.registerPartial(
+    "crudButton",
+    document.getElementById("t-crudButton").innerHTML
+  );
+
+  const renderParams = {
+    ...queryParams,
+    ehrVendors: ehrVendors,
+    ehrVendorRecord: ehrVendorRecord,
+    // The EHRs route is superuserOnly, so anyone who can reach this page can manage it.
+    canManageEhrVendors: true,
+  };
+
+  return content(renderParams);
+}
+
+function validateEhrVendorForm() {
+  const errors = [];
+  const name = document.getElementById("ehrVendorName")?.value?.trim() || "";
+  if (!name) errors.push("Name is required.");
+  return errors;
+}
+
+function readEhrVendorForm() {
+  return {
+    name: document.getElementById("ehrVendorName").value || null,
+    ehrClientId: document.getElementById("ehrVendorEhrClientId").value || null,
+    supportedScopes: readEhrVendorScopeCheckboxes() || null,
+  };
+}
+
+async function createEhrVendor() {
+  clearModalValidationErrors();
+  const errors = validateEhrVendorForm();
+  if (errors.length) return displayModalValidationError(errors);
+  if (await apiRequest("POST", `ehr_vendors`, readEhrVendorForm()))
+    await navReturnFromCrud();
+}
+
+async function updateEhrVendor(id) {
+  clearModalValidationErrors();
+  const errors = validateEhrVendorForm();
+  if (errors.length) return displayModalValidationError(errors);
+  const response = await apiRequest("PATCH", `ehr_vendors/${id}`, readEhrVendorForm());
+  if (response.ok) await navReturnFromCrud();
+}
+
+async function deleteEhrVendor(id) {
+  if (await apiRequest("DELETE", `ehr_vendors/${id}`))
+    await navReturnFromCrud();
 }
 
 // ────────────────────────────────────────────────────

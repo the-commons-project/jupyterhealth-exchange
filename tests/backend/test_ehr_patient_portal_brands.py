@@ -3,7 +3,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from core.models import EhrBrand, EhrBrandLocation
+from core.models import EhrBrand, EhrBrandLocation, EhrVendor
 
 URL = "/api/v1/ehr-patient-portal/brands"
 
@@ -17,8 +17,17 @@ def patient_client(patient):
 
 
 @pytest.fixture
-def seeded_brands(db):
-    sinai = EhrBrand.objects.create(name="Mount Sinai", fhir_base_url="https://sinai.example.org/FHIR/R4")
+def epic_vendor(db):
+    return EhrVendor.objects.create(
+        name="Epic", ehr_client_id="epic-vendor-client-id", supported_scopes="patient/Patient.read"
+    )
+
+
+@pytest.fixture
+def seeded_brands(epic_vendor):
+    sinai = EhrBrand.objects.create(
+        name="Mount Sinai", vendor=epic_vendor, fhir_base_url="https://sinai.example.org/FHIR/R4"
+    )
     EhrBrandLocation.objects.create(
         brand=sinai,
         name="Mount Sinai Hospital",
@@ -35,7 +44,9 @@ def seeded_brands(db):
         state="NY",
         postal_code="10019",
     )
-    mercy = EhrBrand.objects.create(name="Mercy Health", fhir_base_url="https://mercy.example.org/FHIR/R4")
+    mercy = EhrBrand.objects.create(
+        name="Mercy Health", vendor=epic_vendor, fhir_base_url="https://mercy.example.org/FHIR/R4"
+    )
     EhrBrandLocation.objects.create(
         brand=mercy,
         name="Mercy Hospital St Louis",
@@ -61,6 +72,9 @@ def test_brands_returns_facilities_with_brand_and_base_url(seeded_brands, patien
     assert row["brandName"] == "Mount Sinai"
     assert row["fhirBaseUrl"] == "https://sinai.example.org/FHIR/R4"
     assert "addressText" in row and "facilityName" in row
+    # ehrClientId/supportedScopes come from the brand's vendor, not the brand itself.
+    assert row["ehrClientId"] == "epic-vendor-client-id"
+    assert row["supportedScopes"] == "patient/Patient.read"
 
 
 def test_brands_filter_by_query_matches_facility_name(seeded_brands, patient_client):
@@ -104,10 +118,12 @@ def test_search_returns_the_location_id(patient_client, seeded_brands):
 
 
 @pytest.fixture
-def epic_sandbox_location(db):
+def epic_sandbox_location(epic_vendor):
     # Epic's real sandbox address (Verona, WI) -- a facility a patient would plausibly search
     # for by state name/abbreviation or ZIP, none of which the free-text `q` matched before.
-    epic = EhrBrand.objects.create(name="Epic Sandbox", fhir_base_url="https://epic.example.org/FHIR/R4")
+    epic = EhrBrand.objects.create(
+        name="Epic Sandbox", vendor=epic_vendor, fhir_base_url="https://epic.example.org/FHIR/R4"
+    )
     return EhrBrandLocation.objects.create(
         brand=epic,
         name="Epic Sandbox - Madison Campus",

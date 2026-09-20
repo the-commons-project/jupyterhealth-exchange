@@ -10,6 +10,9 @@
 const IMPORT_ENDPOINT = `${window.location.origin}/fhir-import/R4/`;
 // The picked hospital row is chosen before the SMART redirect and needed after it; the server cannot re-derive it since iss identifies a brand, and a brand has many locations.
 const BRAND_LOCATION_KEY = "ehr_patient_portal_brand_location_id";
+// Which resource scopes the patient agreed to share, chosen from the brand's supportedScopes
+// in the scope picker; needed after the redirect to skip pulling types the patient declined.
+const ACCEPTED_SCOPES_KEY = "ehr_patient_portal_accepted_scopes";
 // Which of this client's data sources the patient is connecting; the callback page has no route params to read it from.
 const SOURCE_ID_KEY = "ehr_patient_portal_source_id";
 
@@ -20,6 +23,18 @@ function eppStoreBrandLocationId(id) {
 
 function eppGetBrandLocationId() {
   return sessionStorage.getItem(BRAND_LOCATION_KEY);
+}
+
+function eppStoreAcceptedScopes(scopeTokens) {
+  sessionStorage.setItem(ACCEPTED_SCOPES_KEY, JSON.stringify(scopeTokens || []));
+}
+
+function eppGetAcceptedScopes() {
+  try {
+    return JSON.parse(sessionStorage.getItem(ACCEPTED_SCOPES_KEY)) || [];
+  } catch (e) {
+    return [];
+  }
 }
 
 function eppStoreSourceId(id) {
@@ -162,28 +177,28 @@ async function eppWriteBundle(jheToken, sourceId, resources) {
   return resources.map((resource, i) => eppEntryWrite(entries[i]));
 }
 
-// Every patient-compartment clinical type JHE can ingest today (each has an R4->R5 StructureMap and an aux_resources entry in fhir_config.json; reference/meta types like Practitioner, Location and Provenance are resolved from citing resources, not pulled); `single` reads one instance, the rest are patient-scoped searches, in display order, with failures isolated per type.
+// Every patient-compartment clinical type JHE can ingest today (each has an R4->R5 StructureMap and an aux_resources entry in fhir_config.json; reference/meta types like Practitioner, Location and Provenance are resolved from citing resources, not pulled); `single` reads one instance, the rest are patient-scoped searches, in display order, with failures isolated per type. `scope` is the governing patient/<Type>.read token (CONSTANTS.EHR_SUPPORTED_SCOPES key) gating this pull -- the two Observation pulls share one scope, since Epic grants Observation access as a single scope regardless of category.
 const EHR_PATIENT_PORTAL_PULLS = [
-  { label: "Demographics", type: "Patient", query: "Patient", single: true },
-  { label: "Conditions", type: "Condition", query: "Condition" },
-  { label: "Medications", type: "MedicationRequest", query: "MedicationRequest" },
-  { label: "Medication Dispenses", type: "MedicationDispense", query: "MedicationDispense" },
-  { label: "Allergies", type: "AllergyIntolerance", query: "AllergyIntolerance" },
-  { label: "Immunizations", type: "Immunization", query: "Immunization" },
-  { label: "Procedures", type: "Procedure", query: "Procedure" },
+  { label: "Demographics", type: "Patient", query: "Patient", single: true, scope: "patient/Patient.read" },
+  { label: "Conditions", type: "Condition", query: "Condition", scope: "patient/Condition.read" },
+  { label: "Medications", type: "MedicationRequest", query: "MedicationRequest", scope: "patient/MedicationRequest.read" },
+  { label: "Medication Dispenses", type: "MedicationDispense", query: "MedicationDispense", scope: "patient/MedicationDispense.read" },
+  { label: "Allergies", type: "AllergyIntolerance", query: "AllergyIntolerance", scope: "patient/AllergyIntolerance.read" },
+  { label: "Immunizations", type: "Immunization", query: "Immunization", scope: "patient/Immunization.read" },
+  { label: "Procedures", type: "Procedure", query: "Procedure", scope: "patient/Procedure.read" },
   // Epic requires a category (or code) filter on Observation searches, so each pulled category is its own query, mapping to the "Observation - ..." views in the JHE FHIR Resources browser; OMH device data is JHE-native and never pulled from the EHR.
-  { label: "Labs", type: "Observation", query: "Observation?category=laboratory" },
-  { label: "Vital Signs", type: "Observation", query: "Observation?category=vital-signs" },
-  { label: "Diagnostic Reports", type: "DiagnosticReport", query: "DiagnosticReport" },
-  { label: "Documents", type: "DocumentReference", query: "DocumentReference?category=clinical-note" },
-  { label: "Encounters", type: "Encounter", query: "Encounter" },
-  { label: "Care Plans", type: "CarePlan", query: "CarePlan?category=assess-plan" },
-  { label: "Care Teams", type: "CareTeam", query: "CareTeam?status=active" },
-  { label: "Goals", type: "Goal", query: "Goal" },
-  { label: "Service Requests", type: "ServiceRequest", query: "ServiceRequest" },
+  { label: "Labs", type: "Observation", query: "Observation?category=laboratory", scope: "patient/Observation.read" },
+  { label: "Vital Signs", type: "Observation", query: "Observation?category=vital-signs", scope: "patient/Observation.read" },
+  { label: "Diagnostic Reports", type: "DiagnosticReport", query: "DiagnosticReport", scope: "patient/DiagnosticReport.read" },
+  { label: "Documents", type: "DocumentReference", query: "DocumentReference?category=clinical-note", scope: "patient/DocumentReference.read" },
+  { label: "Encounters", type: "Encounter", query: "Encounter", scope: "patient/Encounter.read" },
+  { label: "Care Plans", type: "CarePlan", query: "CarePlan?category=assess-plan", scope: "patient/CarePlan.read" },
+  { label: "Care Teams", type: "CareTeam", query: "CareTeam?status=active", scope: "patient/CareTeam.read" },
+  { label: "Goals", type: "Goal", query: "Goal", scope: "patient/Goal.read" },
+  { label: "Service Requests", type: "ServiceRequest", query: "ServiceRequest", scope: "patient/ServiceRequest.read" },
   // fhir-client's patient.request cannot scope Device (no compartment param), so it carries the patient param explicitly through plain client.request; Specimen is not pulled since Epic's Specimen API 400s on a patient-level search.
-  { label: "Devices", type: "Device", query: "Device?patient=", explicitPatient: true },
-  { label: "Questionnaire Responses", type: "QuestionnaireResponse", query: "QuestionnaireResponse" },
+  { label: "Devices", type: "Device", query: "Device?patient=", explicitPatient: true, scope: "patient/Device.read" },
+  { label: "Questionnaire Responses", type: "QuestionnaireResponse", query: "QuestionnaireResponse", scope: "patient/QuestionnaireResponse.read" },
 ];
 
 // Pull one resource type and write each item to JHE, isolated so one type's failure doesn't abort the others; seenIds (optional Set) dedupes ids an earlier pull of the same run already wrote, e.g. an Observation categorized as both laboratory and vital-signs.
@@ -248,15 +263,44 @@ async function eppSearchBrands(jheToken, query) {
   return data.results || [];
 }
 
-// Launch the Epic SMART authorize against the selected hospital's FHIR base URL (iss); fhir-client.js discovers the authorize/token endpoints from {iss}/.well-known/smart-configuration, so no per-hospital endpoint config is needed.
-function eppAuthorizeWithIss(config, iss) {
+// Launch the Epic SMART authorize against the selected hospital's FHIR base URL (iss) and client id (both EhrBrand-specific, since each brand is its own vendor app-store registration); fhir-client.js discovers the authorize/token endpoints from {iss}/.well-known/smart-configuration, so no per-hospital endpoint config is needed.
+function eppAuthorizeWithIss(clientId, scope, iss) {
   FHIR.oauth2.authorize({
     iss: iss,
-    clientId: config.clientId,
-    scope: config.scope,
+    clientId: clientId,
+    scope: scope,
     redirectUri: `${window.location.origin}/clients/ehr-patient-portal/callback`,
     pkceMode: "ifSupported",
   });
+}
+
+// One row per resource scope the brand supports (row.supportedScopes, space-delimited patient/<Type>.read tokens), pre-checked, labeled from CONSTANTS.EHR_SUPPORTED_SCOPES; unrecognized tokens are skipped since there is no label to show. Calls onContinue(acceptedTokens) when the patient clicks Continue.
+function eppRenderScopePicker(container, continueButton, row, onContinue) {
+  container.innerHTML = "";
+  const supported = (row.supportedScopes || "").split(/\s+/).filter(Boolean);
+  const checkboxes = [];
+  supported.forEach((token) => {
+    const label = CONSTANTS.EHR_SUPPORTED_SCOPES[token];
+    if (!label) return;
+    const card = document.createElement("label");
+    card.className = "pf-card";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    const body = document.createElement("div");
+    body.className = "pf-card__body";
+    const title = document.createElement("div");
+    title.className = "pf-card__title";
+    title.textContent = label;
+    body.appendChild(title);
+    card.appendChild(checkbox);
+    card.appendChild(body);
+    container.appendChild(card);
+    checkboxes.push({ token: token, checkbox: checkbox });
+  });
+  continueButton.onclick = () => {
+    onContinue(checkboxes.filter((c) => c.checkbox.checked).map((c) => c.token));
+  };
 }
 
 // Render hospital search results as clickable rows (name + address); clicking a row calls onSelect(row). Returns the number of rows rendered (0 => shows a message).
@@ -306,7 +350,19 @@ pfClient.connect = async (source) => {
   const jheToken = getStoredToken();
   const onSelect = (row) => {
     eppStoreBrandLocationId(row.id);
-    eppAuthorizeWithIss(PATIENT_FACING_CONFIG, row.fhirBaseUrl);
+    picker.container.hidden = true;
+    const scopePicker = document.getElementById("scope-picker");
+    scopePicker.hidden = false;
+    eppRenderScopePicker(
+      document.getElementById("scope-picker-list"),
+      document.getElementById("scope-picker-continue"),
+      row,
+      (acceptedScopes) => {
+        eppStoreAcceptedScopes(acceptedScopes);
+        const scope = [CONSTANTS.EHR_PATIENT_PORTAL_BASE_SCOPES].concat(acceptedScopes).join(" ");
+        eppAuthorizeWithIss(row.ehrClientId, scope, row.fhirBaseUrl);
+      }
+    );
   };
   const runSearch = async () => {
     eppRenderBrandResults(picker.results, await eppSearchBrands(jheToken, picker.input.value), onSelect);
@@ -398,11 +454,13 @@ async function finishEhrPatientPortalConnect(out, config) {
     return;
   }
 
-  // Pull each USCDI type independently; pageLimit:0 + flat:true makes fhir-client.js follow every `next` link so patients with more than one page of records aren't truncated.
+  // Pull each USCDI type independently; pageLimit:0 + flat:true makes fhir-client.js follow every `next` link so patients with more than one page of records aren't truncated. Only pull types the patient actually accepted in the scope picker -- Epic would 403 the rest anyway, and that would just show up as spurious failures below.
+  const acceptedScopes = eppGetAcceptedScopes();
+  const pulls = EHR_PATIENT_PORTAL_PULLS.filter((pull) => acceptedScopes.indexOf(pull.scope) !== -1);
   const summary = [];
   const observationSeen = new Set(); // dedupe across the per-category Observation pulls
-  for (let p = 0; p < EHR_PATIENT_PORTAL_PULLS.length; p++) {
-    const pull = EHR_PATIENT_PORTAL_PULLS[p];
+  for (let p = 0; p < pulls.length; p++) {
+    const pull = pulls[p];
     out.textContent += `\n\nFetching ${pull.label} from EHR Patient Portal...`;
     let result;
     try {
@@ -463,8 +521,11 @@ if (typeof window !== "undefined") {
   window.eppSearchBrands = eppSearchBrands;
   window.eppAuthorizeWithIss = eppAuthorizeWithIss;
   window.eppRenderBrandResults = eppRenderBrandResults;
+  window.eppRenderScopePicker = eppRenderScopePicker;
   window.eppSavePatientIdentifier = eppSavePatientIdentifier;
   window.eppStoreBrandLocationId = eppStoreBrandLocationId;
+  window.eppStoreAcceptedScopes = eppStoreAcceptedScopes;
+  window.eppGetAcceptedScopes = eppGetAcceptedScopes;
   window.eppStoreSourceId = eppStoreSourceId;
   window.eppGetSourceId = eppGetSourceId;
   window.finishEhrPatientPortalConnect = finishEhrPatientPortalConnect;

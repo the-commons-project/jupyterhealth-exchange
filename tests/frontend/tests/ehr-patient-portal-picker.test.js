@@ -31,7 +31,12 @@ beforeAll(() => {
 beforeEach(() => {
   global.fetch = jest.fn();
   delete global.FHIR;
-  global.PATIENT_FACING_CONFIG = { clientId: "cid", scope: "launch/patient", dataSourceIds: [5], pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] };
+  global.PATIENT_FACING_CONFIG = { dataSourceIds: [5], pageUrl: "/clients/ehr-patient-portal/", siteTitle: "T", expectedResourceTypes: [] };
+  // The scope picker's catalog + always-required plumbing scopes, normally injected by server-settings.js.
+  global.CONSTANTS = {
+    EHR_SUPPORTED_SCOPES: { "patient/Patient.read": "Demographics", "patient/Condition.read": "Conditions" },
+    EHR_PATIENT_PORTAL_BASE_SCOPES: "openid profile launch/patient",
+  };
 });
 
 describe("eppSearchBrands", () => {
@@ -58,12 +63,11 @@ describe("eppSearchBrands", () => {
 });
 
 describe("eppAuthorizeWithIss", () => {
-  test("launches SMART authorize with the selected hospital's iss", () => {
+  test("launches SMART authorize with the given client id, scope and hospital iss", () => {
     const authorize = jest.fn();
     global.FHIR = { oauth2: { authorize } };
-    const config = { clientId: "cid", scope: "launch/patient" };
 
-    window.eppAuthorizeWithIss(config, "https://sinai/FHIR/R4");
+    window.eppAuthorizeWithIss("cid", "launch/patient", "https://sinai/FHIR/R4");
 
     expect(authorize).toHaveBeenCalledTimes(1);
     const arg = authorize.mock.calls[0][0];
@@ -112,10 +116,28 @@ describe("eppImportFailure", () => {
 });
 
 describe("pfClient.connect on the EHR page", () => {
-  test("renders the picker at rail step 1 and searches brands as the patient types", async () => {
+  test("renders the picker at rail step 1, then the scope picker, then authorizes with the brand's own client id and chosen scopes", async () => {
     renderPickerPage();
     window.storeToken("tok");
-    global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ results: [{ id: 9, brandName: "Epic Sandbox", facilityName: "Madison", fhirBaseUrl: "https://epic/FHIR/R4", addressText: "WI" }] }) }));
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            results: [
+              {
+                id: 9,
+                brandName: "Epic Sandbox",
+                facilityName: "Madison",
+                fhirBaseUrl: "https://epic/FHIR/R4",
+                addressText: "WI",
+                ehrClientId: "brand-cid",
+                supportedScopes: "patient/Patient.read patient/Condition.read",
+              },
+            ],
+          }),
+      }),
+    );
 
     await window.pfClient.connect({ id: 5, name: "EHR Patient Portal" });
 
@@ -127,8 +149,59 @@ describe("pfClient.connect on the EHR page", () => {
     const authorize = jest.fn();
     global.FHIR = { oauth2: { authorize } };
     main.querySelector("#hospital-results [data-brand-result]").click();
-    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ iss: "https://epic/FHIR/R4", clientId: "cid" }));
+
+    // Picking a hospital swaps the picker for a checklist of that brand's supported scopes, all pre-checked.
+    expect(main.querySelector("#hospital-picker").hidden).toBe(true);
+    expect(main.querySelector("#scope-picker").hidden).toBe(false);
+    const checkboxes = main.querySelectorAll("#scope-picker-list input[type=checkbox]");
+    expect(checkboxes).toHaveLength(2);
+    expect([...checkboxes].every((c) => c.checked)).toBe(true);
+    expect(authorize).not.toHaveBeenCalled();
+
+    document.getElementById("scope-picker-continue").click();
+
+    expect(authorize).toHaveBeenCalledTimes(1);
+    const arg = authorize.mock.calls[0][0];
+    expect(arg.iss).toBe("https://epic/FHIR/R4");
+    expect(arg.clientId).toBe("brand-cid");
+    expect(arg.scope).toBe("openid profile launch/patient patient/Patient.read patient/Condition.read");
     expect(window.sessionStorage.getItem("ehr_patient_portal_brand_location_id")).toBe("9");
+    expect(JSON.parse(window.sessionStorage.getItem("ehr_patient_portal_accepted_scopes"))).toEqual([
+      "patient/Patient.read",
+      "patient/Condition.read",
+    ]);
+  });
+
+  test("unchecking a scope before continuing excludes it from the authorize request", async () => {
+    renderPickerPage();
+    window.storeToken("tok");
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            results: [
+              {
+                id: 9,
+                brandName: "Epic Sandbox",
+                fhirBaseUrl: "https://epic/FHIR/R4",
+                ehrClientId: "brand-cid",
+                supportedScopes: "patient/Patient.read patient/Condition.read",
+              },
+            ],
+          }),
+      }),
+    );
+    await window.pfClient.connect({ id: 5, name: "EHR Patient Portal" });
+    const main = document.getElementById("pf_main");
+    const authorize = jest.fn();
+    global.FHIR = { oauth2: { authorize } };
+    main.querySelector("#hospital-results [data-brand-result]").click();
+
+    main.querySelectorAll("#scope-picker-list input[type=checkbox]")[1].click();
+    document.getElementById("scope-picker-continue").click();
+
+    expect(authorize.mock.calls[0][0].scope).toBe("openid profile launch/patient patient/Patient.read");
   });
 
   test("stores the data source being connected, so the callback registers records against that source", async () => {

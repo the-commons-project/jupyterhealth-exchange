@@ -746,11 +746,10 @@ def test_import_bundle_reports_per_entry_error(api_client, patient, fhir_source)
 # ---------------------------------------------------------------------------
 # Pull-list invariants: everything the EHR Patient Portal client pulls must convert
 # to valid R5 (with import-path enrichment applied), and every pulled type must
-# have a matching seeded scope. These are the invariants RFC 0003 states.
+# have a matching entry in EhrBrand.SUPPORTED_SCOPES. These are the invariants RFC 0003 states.
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-_SEED_PY_PATH = _REPO_ROOT / "core" / "management" / "commands" / "seed.py"
 _CLIENT_JS = _REPO_ROOT / "core" / "static" / "clients" / "ehr-patient-portal" / "js" / "client-ehr-patient-portal.js"
 
 
@@ -759,15 +758,6 @@ def _pulled_types():
     match = re.search(r"const EHR_PATIENT_PORTAL_PULLS = \[(.*?)\n\];", text, re.DOTALL)
     assert match, "EHR_PATIENT_PORTAL_PULLS not found in client-ehr-patient-portal.js — was it renamed or reformatted?"
     return set(re.findall(r'type: "(\w+)"', match.group(1)))
-
-
-def _ehr_patient_portal_seed_scopes():
-    # Scope the parse to the EHR Patient Portal client's aux_data block — a future client with
-    # its own patient/*.read scopes elsewhere in seed.py must not bleed into this invariant.
-    text = _SEED_PY_PATH.read_text()
-    match = re.search(r'"name": "EHR Patient Portal".*?"scopes": \((.*?)\)', text, re.DOTALL)
-    assert match, 'EHR Patient Portal client "scopes" block not found in seed.py'
-    return match.group(1)
 
 
 # Minimal Epic-shaped R4 instance per pulled type (Patient/Condition/Observation etc. are
@@ -843,16 +833,19 @@ def test_every_pulled_type_converts_to_valid_r5(resource_type):
     validate_fhir_resource(resource_type, r5)
 
 
-def test_pulled_types_match_seeded_scopes():
-    scoped = set(re.findall(r"patient/(\w+)\.read", _ehr_patient_portal_seed_scopes()))
-    assert scoped == _pulled_types(), "seed.py EHR Patient Portal scopes and EHR_PATIENT_PORTAL_PULLS diverged"
+def test_pulled_types_match_supported_scopes_catalog():
+    from core.models import EhrVendor
+
+    scoped = {token.removeprefix("patient/").removesuffix(".read") for token in EhrVendor.SUPPORTED_SCOPES}
+    assert scoped == _pulled_types(), "EhrVendor.SUPPORTED_SCOPES and EHR_PATIENT_PORTAL_PULLS diverged"
 
 
-def test_scope_migration_matches_seed_and_updates_existing_clients(db):
-    # Migration 0043 widened the scopes on already-deployed rows, back when seed.py wrote
-    # aux_data only on creation. seed now refreshes the seed-managed keys on every run
-    # (test_seed_refreshes_scopes_on_existing_client), but 0043 stays: it is the only thing
-    # that fixes a database still sitting behind it, and `migrate` is all a deploy runs.
+def test_scope_migration_still_applies_to_a_historical_deployed_row(db):
+    # Migration 0043 widened the scopes on already-deployed rows, back when scopes lived on
+    # JheClient.aux_data (moved to EhrBrand.supported_scopes since). It is frozen history --
+    # the only thing that fixes a database still sitting behind it, and `migrate` is all a
+    # deploy runs -- so it is never touched, even though nothing in the live app reads
+    # JheClient.aux_data["scopes"] anymore.
     #
     # It filters on the *old* client name — it ran before 0046 renamed the row to
     # "EHR Patient Portal", and applied migrations are frozen history. The row created below
@@ -866,13 +859,6 @@ def test_scope_migration_matches_seed_and_updates_existing_clients(db):
 
     migration = importlib.import_module("core.migrations.0043_patient_access_scopes")
 
-    # Lockstep guard: the migration's scope list is a copy of seed.py's and must cover the pulls.
-    assert set(re.findall(r"patient/(\w+)\.read", migration.NEW_SCOPES)) == _pulled_types()
-    assert migration.NEW_SCOPES == "".join(
-        part.strip().strip('"') for part in _ehr_patient_portal_seed_scopes().splitlines() if part.strip()
-    )
-
-    # Functional guard: an existing deployed row gets the new scopes; its client_id survives.
     app = get_application_model().objects.create(name="Patient Access", client_id="local-app-id")
     JheClient.objects.create(
         application=app, aux_data={"client_id": "deployed-epic-id", "scopes": migration.OLD_SCOPES}
@@ -883,36 +869,25 @@ def test_scope_migration_matches_seed_and_updates_existing_clients(db):
     assert aux["client_id"] == "deployed-epic-id"
 
 
-def test_seed_refreshes_scopes_on_existing_client_without_clobbering_client_id(db):
-    # The create-only `if created:` guard is what forced migration 0043 to exist: a deployed
-    # row could never pick a code-owned aux_data value up from seed. Seed now refreshes the
-    # seed-managed keys on every run, while deployment-specific ones (the EHR-registered
-    # client_id) still survive re-seeding.
-    import importlib
-
-    from oauth2_provider.models import get_application_model
-
+def test_seed_fills_ehr_vendor_client_config_without_clobbering_operator_value(db):
+    # ehr_client_id/supported_scopes are operator-editable (via the EHRs admin page) once a
+    # vendor exists, so re-seeding must fill them in only when blank -- never overwrite an
+    # operator's edit, the same fill-gap contract the old aux_data client_id had.
     from core.management.commands.seed import Command
-    from core.models import JheClient
+    from core.models import EhrVendor
 
-    migration = importlib.import_module("core.migrations.0043_patient_access_scopes")
+    vendor = EhrVendor.objects.create(name="Epic Sandbox")
 
-    app = get_application_model().objects.create(name="EHR Patient Portal", client_id="local-app-id")
-    JheClient.objects.create(
-        application=app,
-        invitation_url="https://deployed.example/invite/CODE",
-        aux_data={"client_id": "deployed-epic-id", "scopes": migration.OLD_SCOPES},
-    )
+    Command.seed_ehr_vendor_sandbox_config()
+    vendor.refresh_from_db()
+    assert vendor.ehr_client_id
+    assert set(vendor.supported_scopes.split()) == set(EhrVendor.SUPPORTED_SCOPES)
 
-    command = Command()
-    command.seed_codeable_concepts()
-    command.seed_data_sources()
-    command.seed_clients()
-
-    jhe_client = JheClient.objects.get(application=app)
-    assert jhe_client.aux_data["scopes"] == migration.NEW_SCOPES, "seed did not refresh the code-owned scopes"
-    assert jhe_client.aux_data["client_id"] == "deployed-epic-id", "seed clobbered a deployment-specific value"
-    assert jhe_client.invitation_url == "https://deployed.example/invite/CODE"
+    vendor.ehr_client_id = "operator-set-id"
+    vendor.save()
+    Command.seed_ehr_vendor_sandbox_config()
+    vendor.refresh_from_db()
+    assert vendor.ehr_client_id == "operator-set-id", "reseeding clobbered an operator-set client id"
 
 
 def test_seed_links_the_portal_client_to_its_data_source(db):

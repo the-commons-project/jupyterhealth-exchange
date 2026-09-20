@@ -17,7 +17,7 @@ import os
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from core.models import EhrBrand, EhrBrandLocation
+from core.models import EhrBrand, EhrBrandLocation, EhrVendor
 
 DEFAULT_SAMPLE = os.path.join("core", "data", "ehr_brands.sample.json")
 
@@ -44,7 +44,7 @@ def _local_ref_id(reference):
     return reference.split("/")[-1]
 
 
-def _npi(org):
+def _npi_type_2(org):
     for ident in org.get("identifier", []) or []:
         if "us-npi" in (ident.get("system") or ""):
             return ident.get("value")
@@ -90,6 +90,19 @@ def import_brands_bundle(bundle):
     brand_orgs = [o for o in orgs if o.get("endpoint")]
     facility_orgs = [o for o in orgs if o.get("partOf") and not o.get("endpoint")]
 
+    # This importer is Epic-specific in practice (see module docstring). Epic's user-access
+    # directory carries exactly one sandbox brand alongside every real customer brand; that one
+    # entry is JHE's own OAuth registration for testing (its ehr_client_id is a sandbox app id,
+    # not something that would ever work against a production hospital), so it gets its own
+    # vendor rather than sharing config with every real brand.
+    vendor_cache = {}
+
+    def _vendor_for(org):
+        name = "Epic Sandbox" if "sandbox" in (org.get("name") or "").lower() else "Epic Production"
+        if name not in vendor_cache:
+            vendor_cache[name], _ = EhrVendor.objects.get_or_create(name=name)
+        return vendor_cache[name]
+
     brand_by_org_id = {}  # source Organization id -> EhrBrand
     brand_count = 0
     for org in brand_orgs:
@@ -98,7 +111,11 @@ def import_brands_bundle(bundle):
             continue
         brand, _ = EhrBrand.objects.update_or_create(
             fhir_base_url=base_url,
-            defaults={"name": org.get("name") or base_url, "npi": _npi(org)},
+            defaults={
+                "name": org.get("name") or base_url,
+                "npi_type_2": _npi_type_2(org),
+                "vendor": _vendor_for(org),
+            },
         )
         brand_by_org_id[org.get("id")] = (brand, org)
         brand_count += 1

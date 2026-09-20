@@ -8,6 +8,7 @@ from core.models import (
     DataSourceSupportedScope,
     EhrBrand,
     EhrBrandLocation,
+    EhrVendor,
     FhirAuxResource,
     FhirSource,
     JheClient,
@@ -307,11 +308,18 @@ class ClientDataSourceAdmin(admin.ModelAdmin):
     raw_id_fields = ("client", "data_source")
 
 
+@admin.register(EhrVendor)
+class EhrVendorAdmin(admin.ModelAdmin):
+    list_display = ("name", "ehr_client_id", "id")
+    search_fields = ("name",)
+
+
 @admin.register(EhrBrand)
 class EhrBrandAdmin(admin.ModelAdmin):
-    list_display = ("name", "vendor", "fhir_base_url", "npi", "id")
-    search_fields = ("name", "fhir_base_url", "npi")
+    list_display = ("name", "vendor", "fhir_base_url", "npi_type_2", "id")
+    search_fields = ("name", "fhir_base_url", "npi_type_2")
     list_filter = ("vendor",)
+    raw_id_fields = ("vendor",)
 
 
 @admin.register(EhrBrandLocation)
