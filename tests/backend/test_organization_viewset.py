@@ -5,7 +5,6 @@ from core.models import JheUser, Organization, PractitionerOrganization
 from .utils import fetch_paginated
 
 
-# TODO: refine organization permissions for non-members
 # ref: https://github.com/jupyterhealth/jupyterhealth-exchange/issues/270
 def test_list_organizations(api_client, organization):
     for i in range(10):
@@ -14,7 +13,67 @@ def test_list_organizations(api_client, organization):
             type="other",
         )
     orgs = fetch_paginated(api_client, "/api/v1/organizations", {"pageSize": 2})
-    assert len(orgs) == Organization.objects.all().count()
+    assert len(orgs) == 1
+    assert orgs[0]["id"] == organization.id
+
+
+def test_organization_visibility_scoping(api_client, organization):
+    # Ancestors of an organization the user belongs to are visible (existence only)...
+    root = Organization.objects.create(name="Root", type="other")
+    organization.part_of = root
+    organization.save()
+
+    # ...but a sibling of that organization, and an unrelated top-level organization,
+    # are not.
+    sibling = Organization.objects.create(name="Sibling", type="other", part_of=root)
+    Organization.objects.create(name="Unrelated top-level", type="other")
+
+    orgs = fetch_paginated(api_client, "/api/v1/organizations", {"pageSize": 2})
+    visible_ids = {o["id"] for o in orgs}
+    assert visible_ids == {organization.id, root.id}
+    assert sibling.id not in visible_ids
+
+    # Retrieving the ancestor by id works (existence-only visibility)...
+    r = api_client.get(f"/api/v1/organizations/{root.id}")
+    assert r.status_code == 200, r.text
+
+    # ...but the sibling 404s rather than leaking its existence.
+    r = api_client.get(f"/api/v1/organizations/{sibling.id}")
+    assert r.status_code == 404, r.text
+
+    # Ancestor visibility doesn't extend to the ancestor's members, tree, or studies --
+    # those require a direct role in that exact organization.
+    r = api_client.get(f"/api/v1/organizations/{root.id}/users")
+    assert r.status_code == 403, r.text
+    r = api_client.get(f"/api/v1/organizations/{root.id}/tree")
+    assert r.status_code == 403, r.text
+    r = api_client.get(f"/api/v1/organizations/{root.id}/studies")
+    assert r.status_code == 403, r.text
+
+
+def test_viewer_cannot_view_organization_members(organization):
+    viewer_user = JheUser.objects.create_user(
+        email="org-viewer@example.org",
+        user_type="practitioner",
+    )
+    PractitionerOrganization.objects.create(
+        practitioner=viewer_user.practitioner,
+        organization=organization,
+        role="viewer",
+    )
+    client = APIClient()
+    client.default_format = "json"
+    client.force_authenticate(viewer_user)
+
+    r = client.get(f"/api/v1/organizations/{organization.id}/users")
+    assert r.status_code == 403, r.text
+
+    # A viewer can still see the org itself and its tree -- only the member roster is
+    # restricted.
+    r = client.get(f"/api/v1/organizations/{organization.id}")
+    assert r.status_code == 200, r.text
+    r = client.get(f"/api/v1/organizations/{organization.id}/tree")
+    assert r.status_code == 200, r.text
 
 
 def test_create_delete_organization(api_client, organization):

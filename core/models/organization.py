@@ -79,6 +79,28 @@ class Organization(models.Model):
         return Organization.objects.filter(practitioners__jhe_user_id=practitioner_user_id)
 
     @staticmethod
+    def visible_to(user):
+        # Organizations `user` may see via the admin REST API (OrganizationViewSet): every
+        # organization for a superuser, otherwise the organizations they directly belong to
+        # (any PractitionerOrganization role) plus the ancestors of those organizations --
+        # visible so the hierarchy above a membership makes sense, but existence-only, since
+        # ancestor membership grants no role there. Narrower checks (member roster, tree,
+        # studies) are gated separately in core/permissions.py / OrganizationViewSet.
+        if user.is_superuser:
+            return Organization.objects.order_by("name")
+
+        visible_ids = set(Organization.for_practitioner(user.id).values_list("id", flat=True))
+        frontier = set(visible_ids)
+        while frontier:
+            parent_ids = set(
+                Organization.objects.filter(id__in=frontier, part_of__isnull=False).values_list("part_of_id", flat=True)
+            )
+            frontier = parent_ids - visible_ids
+            visible_ids |= frontier
+
+        return Organization.objects.filter(id__in=visible_ids).order_by("name")
+
+    @staticmethod
     def for_patient(patient_user_id):
         # Return the organizations the patient identified by patient_user_id belongs to. The
         # traversal walks Organization -> PatientOrganization -> Patient -> JheUser via the

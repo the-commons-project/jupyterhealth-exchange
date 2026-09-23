@@ -24,6 +24,7 @@ ROLE_PERMISSIONS = {
     "super_user": [
         "organization.manage_for_practitioners",
         "organization.create_top_level",
+        "organization.view_members",
         "patient.manage_for_organization",
         "patient.manage_data",
         "study.manage_for_organization",
@@ -32,11 +33,17 @@ ROLE_PERMISSIONS = {
     ],
     "manager": [
         "organization.manage_for_practitioners",
+        "organization.view_members",
         "patient.manage_for_organization",
         "patient.manage_data",
         "study.manage_for_organization",
     ],
-    "member": ["patient.manage_for_organization", "patient.manage_data", "study.manage_for_organization"],
+    "member": [
+        "organization.view_members",
+        "patient.manage_for_organization",
+        "patient.manage_data",
+        "study.manage_for_organization",
+    ],
     "viewer": [],
 }
 
@@ -63,6 +70,22 @@ def user_can(user, organization_id, permission):
     around a single ModelViewSet action -- from write paths that resolve their own
     organization, such as the FHIR Observation and FhirAuxResource write guards."""
     return role_permits(organization_role(user, organization_id), permission)
+
+
+class IsOrganizationMember(permissions.IsAuthenticated):
+    """Any role (including viewer) in the organization named by the `pk` URL kwarg, or a
+    superuser. For read actions -- OrganizationViewSet's `tree` and `studies` -- where the
+    org's existence may already be visible via ancestor visibility (Organization.visible_to)
+    but the action exposes detail that should stop at direct membership, not extend to
+    ancestors. Unlike IfUserCan, this doesn't consult ROLE_PERMISSIONS: any role at all
+    qualifies, since (unlike the member roster) nothing here calls out viewers specially."""
+
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        if request.user.is_superuser:
+            return True
+        return organization_role(request.user, view.kwargs.get("pk")) is not None
 
 
 def IfUserCan(resource_and_action: str):
@@ -103,9 +126,10 @@ def IfUserCan(resource_and_action: str):
                     model_obj = view.model_class.objects.filter(id=view.kwargs.get("pk")).first()
                     organization_id = model_obj.organization.id if model_obj else None
                 elif resource == "organization":
-                    if view.action in ["user", "remove_user"]:
-                        # managing practitioners within an organization: authority is
-                        # checked against that organization itself, not its parent.
+                    if view.action in ["user", "remove_user", "users"]:
+                        # managing (or viewing) practitioners within an organization:
+                        # authority is checked against that organization itself, not its
+                        # parent.
                         organization_id = view.kwargs.get("pk")
                     else:
                         # update/destroy the organization entity: authority comes from

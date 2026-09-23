@@ -9,7 +9,7 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.models import JheUser, Organization, PractitionerOrganization
 from core.pagination import CustomPageNumberPagination
-from core.permissions import IfUserCan
+from core.permissions import IfUserCan, IsOrganizationMember
 from core.serializers import (
     OrganizationSerializer,
     OrganizationUsersSerializer,
@@ -36,14 +36,18 @@ class OrganizationViewSet(ModelViewSet):
         """
         if self.action in ["create", "destroy", "update", "partial_update"]:
             return [IfUserCan("organization.manage_for_practitioners")()]
+        if self.action == "users":
+            return [IfUserCan("organization.view_members")()]
+        if self.action in ["tree", "studies"]:
+            return [IsOrganizationMember()]
         return [permission() for permission in self.permission_classes]
 
     def get_queryset(self):
+        queryset = Organization.visible_to(self.request.user)
         param_part_of = self.request.query_params.get("part_of")
         if param_part_of:
-            return Organization.objects.filter(part_of=param_part_of).order_by("name")
-        else:
-            return Organization.objects.order_by("name")
+            return queryset.filter(part_of=param_part_of)
+        return queryset
 
     def create(self, request, *args, **kwargs):
         is_sub_organization = bool(request.data.get("part_of"))

@@ -56,11 +56,58 @@
       {{/if}}
     {{/unless}}
   </form>
+
   <div id="subOrganizations">
     <ul style="list-style-type: none;" class="m-3">
       {{> recursiveOrganizationTree}}
     </ul>
   </div>
+
+  {{#if myOrganizations.length}}
+  <div id="myOrganizations">
+    <p class="ms-3 mt-5">Your suborganizations:</p>
+    <ul style="list-style-type: none;" class="m-3">
+      {{#each myOrganizations}}
+      <li>
+        <i class="bi bi-arrow-right"></i>
+        {{name}}
+
+        {{> crudButton iconRead=true recordId=id
+          onclick="nav('organizations',{
+            id: this.dataset.recordid,
+            read: true
+          })"
+        }}
+
+        {{#if canManage}}
+
+        {{> crudButton iconUpdate=true recordId=id
+          onclick="nav('organizations',{
+            id: this.dataset.recordid,
+            update: true
+          })"
+        }}
+
+        {{> crudButton iconCreate=true recordId=id
+          onclick="nav('organizations',{
+            partOf: this.dataset.recordid,
+            create: true
+          })"
+        }}
+
+        {{> crudButton iconDelete=true recordId=id
+          onclick="nav('organizations',{
+            id: this.dataset.recordid,
+            delete: true
+          })"
+        }}
+
+        {{/if}}
+      </li>
+      {{/each}}
+    </ul>
+  </div>
+  {{/if}}
 
 
   <!-- MODAL -->
@@ -203,6 +250,9 @@
                 </div>
               </div>
             </div>
+              {{#if organizationRecord.usersHidden}}
+                <p class="text-muted"><small>You don't have permission to view this organization's members.</small></p>
+              {{else}}
               <ul>
                 {{#each organizationRecord.users}}
                   <li>
@@ -220,6 +270,7 @@
                   </li>
                 {{/each}}
               </ul>
+              {{/if}}
               <p>
                 Studies
                 {{#if @root.canManagePractitionersInOrg}}
@@ -232,6 +283,9 @@
                     </button>
                 {{/if}}
               </p>
+              {{#if organizationRecord.studiesHidden}}
+                <p class="text-muted"><small>You don't have permission to view this organization's studies.</small></p>
+              {{else}}
               <ul>
                 {{#each organizationRecord.studies}}
                   <li>
@@ -239,6 +293,7 @@
                   </li>
                 {{/each}}
               </ul>
+              {{/if}}
             {{/if}}
           </div>
         </div>

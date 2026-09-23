@@ -572,6 +572,22 @@ async function renderOrganizations(queryParams) {
   const topLevelOrganizationsPaginated =
     await topLevelOrganizationsResponse.json();
   let topLevelOrganizationsSelect = topLevelOrganizationsPaginated.results;
+
+  // The top-level select + tree only reach organizations below a TLO the user has a
+  // direct role in. A member/viewer of a sub-org several levels down may have no role
+  // anywhere in that chain, leaving them no way to reach their own org through that
+  // navigation -- so also offer a flat shortcut straight to every org they belong to.
+  const ownOrganizationsResponse = await apiRequest("GET", "users/organizations");
+  const myOrganizations = (await ownOrganizationsResponse.json()).map(
+    (organization) => {
+      organization.canManage = ifRoleCan(
+        organization.currentUserRole,
+        "organization.manage_for_practitioners"
+      );
+      return organization;
+    }
+  );
+
   let organizationTreeChildren = [];
   let canManagePractitionersInOrg;
   let organizationRecord = null;
@@ -598,29 +614,50 @@ async function renderOrganizations(queryParams) {
         organizationRecord.currentUserRole,
         "organization.manage_for_practitioners"
       );
-    }
 
-    const organizationTreeResaponse = await apiRequest(
-      "GET",
-      `organizations/${queryParams.tloId}/tree`
-    );
-    const organizationTree = await organizationTreeResaponse.json();
-    // Each node's manage permission is based on the user's role in that node
-    // itself, not the top-level organization (a manager of a sub-org may have
-    // no role in the root). Annotate every node so the tree can show the right
-    // action icons per node.
-    const annotateCanManage = (organizations) => {
+      // The tree endpoint requires a direct role in this org -- an org that's only
+      // visible as an ancestor of one the user belongs to (no currentUserRole) has
+      // no accessible tree, so don't ask for one.
+      const organizationTreeResaponse = await apiRequest(
+        "GET",
+        `organizations/${queryParams.tloId}/tree`
+      );
+      const organizationTree = await organizationTreeResaponse.json();
+      // Each node's manage permission is based on the user's role in that node
+      // itself, not the top-level organization (a manager of a sub-org may have
+      // no role in the root). Annotate every node so the tree can show the right
+      // action icons per node.
+      const annotateCanManage = (organizations) => {
+        (organizations || []).forEach((organization) => {
+          organization.canManage = ifRoleCan(
+            organization.currentUserRole,
+            "organization.manage_for_practitioners"
+          );
+          annotateCanManage(organization.children);
+        });
+      };
+      annotateCanManage(organizationTree.children);
+      organizationTreeChildren = organizationTree.children;
+    }
+  }
+
+  // An org already reachable in the currently displayed tree (the selected TLO plus
+  // whatever descendants it revealed) doesn't need to also appear in the "Your
+  // organizations" shortcut -- that's only useful for orgs the tree can't reach.
+  const treeVisibleOrganizationIds = new Set();
+  if (queryParams.tloId && queryParams.tloId != 0) {
+    treeVisibleOrganizationIds.add(parseInt(queryParams.tloId));
+    const collectTreeIds = (organizations) => {
       (organizations || []).forEach((organization) => {
-        organization.canManage = ifRoleCan(
-          organization.currentUserRole,
-          "organization.manage_for_practitioners"
-        );
-        annotateCanManage(organization.children);
+        treeVisibleOrganizationIds.add(organization.id);
+        collectTreeIds(organization.children);
       });
     };
-    annotateCanManage(organizationTree.children);
-    organizationTreeChildren = organizationTree.children;
+    collectTreeIds(organizationTreeChildren);
   }
+  const myOrganizationsNotInTree = myOrganizations.filter(
+    (organization) => !treeVisibleOrganizationIds.has(organization.id)
+  );
 
   let partOfId, partOfName;
 
@@ -687,16 +724,31 @@ async function renderOrganizations(queryParams) {
     }
 
     if (queryParams.read) {
-      const organizationUsersResponse = await apiRequest(
-        "GET",
-        `organizations/${queryParams.id}/users`
-      );
-      organizationRecord.users = await organizationUsersResponse.json();
-      const organizationStudiesResponse = await apiRequest(
-        "GET",
-        `organizations/${queryParams.id}/studies`
-      );
-      organizationRecord.studies = await organizationStudiesResponse.json();
+      // The member roster requires "organization.view_members" (managers/members, not
+      // viewers, and not an org where the user has no direct role at all -- e.g. one
+      // that's only visible as an ancestor of an org they belong to).
+      if (ifRoleCan(organizationRecord.currentUserRole, "organization.view_members")) {
+        const organizationUsersResponse = await apiRequest(
+          "GET",
+          `organizations/${queryParams.id}/users`
+        );
+        organizationRecord.users = await organizationUsersResponse.json();
+      } else {
+        organizationRecord.users = [];
+        organizationRecord.usersHidden = true;
+      }
+
+      // Studies require a direct role in this org, same as the tree.
+      if (organizationRecord.currentUserRole) {
+        const organizationStudiesResponse = await apiRequest(
+          "GET",
+          `organizations/${queryParams.id}/studies`
+        );
+        organizationRecord.studies = await organizationStudiesResponse.json();
+      } else {
+        organizationRecord.studies = [];
+        organizationRecord.studiesHidden = true;
+      }
     }
   }
 
@@ -713,6 +765,7 @@ async function renderOrganizations(queryParams) {
   const renderParams = {
     ...queryParams,
     topLevelOrganizationsSelect: topLevelOrganizationsSelect,
+    myOrganizations: myOrganizationsNotInTree,
     children: organizationTreeChildren,
     organizationRecord: organizationRecord,
     canManagePractitionersInOrg: canManagePractitionersInOrg,
