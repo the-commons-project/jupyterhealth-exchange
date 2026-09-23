@@ -72,6 +72,7 @@
 .pf-rail__step.is-active .pf-rail__label, .pf-rail__step.is-done .pf-rail__label { color: var(--pf-ink); } /* label — ink once active or done */
 
 .pf-callout { margin: 0 0 28px; padding: 16px 18px; background: var(--pf-accent-soft); border-left: 3px solid var(--pf-accent); border-radius: var(--pf-radius); color: var(--pf-accent-ink-soft); font-size: 15px; line-height: 1.5; } /* info callout — soft accent panel with left accent rule */
+.pf-callout__note { margin: 8px 0 0; font-size: 13px; opacity: .75; } /* admin-only aside inside a callout — same ink, quieter weight */
 
 #pf_error_wrap { margin: 0 0 28px; } /* error wrap — hidden/shown as a unit, same spacing footprint as the info callout it replaces */
 .pf-error { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; background: var(--pf-danger-soft); border-left: 3px solid var(--pf-danger); border-radius: var(--pf-radius); } /* error callout — soft red panel with left danger rule; icon, title and message only */

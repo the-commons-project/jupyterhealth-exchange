@@ -1098,6 +1098,7 @@ async function renderPatients(queryParams) {
         ...client,
         patientInvitations: client.patientInvitations.map((inv) => ({
           ...inv,
+          lastUpdatedFull: inv.lastUpdated,
           lastUpdated: inv.lastUpdated.slice(0, 10),
           status: inv.status.charAt(0).toUpperCase() + inv.status.slice(1),
         })),

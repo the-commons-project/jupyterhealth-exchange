@@ -20,6 +20,18 @@ class EhrBrandSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class EhrVendorListSerializer(serializers.ModelSerializer):
+    # The vendor list (thousands of brands/locations nested under some vendors) is expensive to
+    # serialize and unused by the list table, which only shows name/client id/scopes -- brands
+    # are fetched separately, per vendor, by EhrVendorSerializer on the detail view.
+    name = serializers.CharField()
+
+    class Meta:
+        model = EhrVendor
+        fields = ["id", "name", "ehr_client_id", "supported_scopes", "last_updated"]
+        read_only_fields = ["id", "last_updated"]
+
+
 class EhrVendorSerializer(serializers.ModelSerializer):
     # name is nullable on the model but required when creating a vendor via the API
     name = serializers.CharField()

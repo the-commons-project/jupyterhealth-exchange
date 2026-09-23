@@ -345,6 +345,7 @@
               {{#if read}}
                 <div class="mb-3">
                   Consolidated Clients:
+                  <div class="text-muted small">(Mouse over date for full timestamp)</div>
                   <ul>
                   {{#consolidatedClients}}
                     <li>
@@ -353,7 +354,7 @@
                         <ul class="mb-3">
                            {{#each patientInvitations}}
                             <li>
-                              <span class="badge text-bg-light">{{lastUpdated}}</span> &rarr; {{status}}
+                              <span class="badge text-bg-light" title="{{lastUpdatedFull}}">{{lastUpdated}}</span> &rarr; {{status}}
                               {{#if (eq status "Redeemed")}}
                                 <i class="bi bi-check-circle-fill"></i>
                               {{/if}}
