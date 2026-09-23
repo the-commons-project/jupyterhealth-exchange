@@ -15,7 +15,10 @@
     </div>
   </a>
   {{else}}
-  <div class="pf-callout">Your study team hasn't asked for any data yet. Check back once you hear from them.</div>
+  <div class="pf-callout">
+    Your study team hasn't asked for any data yet. Check back once you hear from them.
+    <p class="pf-callout__note">Note for administrators: confirm the study's scope requests include the scopes its attached data sources support.</p>
+  </div>
   {{/each}}
 </script>
 {% endverbatim %}
