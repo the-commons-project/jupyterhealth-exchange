@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       checks: read
+      actions: read
     steps:
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -44,7 +45,18 @@ jobs:
                     break;
                 }
                 const suiteId = thisRun[0].check_suite.id;
-                const others = jobs.filter(j => j.check_suite.id !== suiteId);
+                // Dependabot security-update jobs are Actions runs with event "dynamic" that
+                // attach to whatever commit is main's head when they fire, report "update not
+                // needed" as a failure, and cannot be re-run. They are not CI; skip their suites.
+                const dynamicSuites = new Set();
+                for (const id of new Set(jobs.map(j => j.check_suite.id))) {
+                    if (id === suiteId) continue;
+                    const runs = await github.rest.actions.listWorkflowRunsForRepo(
+                        { ...context.repo, check_suite_id: id, per_page: 1 }
+                    );
+                    if (runs.data.workflow_runs.some(r => r.event === 'dynamic')) dynamicSuites.add(id);
+                }
+                const others = jobs.filter(j => j.check_suite.id !== suiteId && !dynamicSuites.has(j.check_suite.id));
 
                 const completed = others.filter(j => j.status === 'completed');
                 const failed = completed.filter(j => j.conclusion !== 'success' && j.conclusion !== 'skipped');
