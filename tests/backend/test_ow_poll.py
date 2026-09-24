@@ -2,6 +2,7 @@
 Tests for the `ow_poll` management command (normalized + raw modes).
 """
 
+from datetime import timedelta
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
@@ -153,6 +154,59 @@ def test_dedupes_via_observation_identifier(db, ow_user, patient_with_consent, h
 
     assert ObservationIdentifier.objects.filter(system=NORMALIZED_SYSTEM, value="same-uuid").count() == 1
     assert Observation.objects.count() == 1
+
+
+def test_persist_failure_does_not_abort_the_run(db, ow_user, patient_with_consent, hr_concept):
+    """A row that fails to persist is skipped; later rows in the same page still land."""
+    _set_jhe_setting("module.ow", True)
+    _clear_sync_lock()
+
+    with (
+        patch("core.management.commands.ow_poll.requests.get") as mock_get,
+        patch("core.management.commands.ow_poll.convert") as mock_convert,
+    ):
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"data": [{"x": 1}, {"x": 2}]}
+        mock_convert.side_effect = [
+            _fake_omh_record(uuid_value="bad-1"),
+            _fake_omh_record(uuid_value="good-1"),
+        ]
+
+        original_create = Observation.objects.create
+
+        def fail_first(*args, **kwargs):
+            if kwargs.get("omh_data", {}).get("header", {}).get("uuid") == "bad-1":
+                raise ValueError("boom")
+            return original_create(*args, **kwargs)
+
+        with patch.object(Observation.objects, "create", side_effect=fail_first):
+            call_command("ow_poll", stdout=StringIO())
+
+    assert Observation.objects.count() == 1
+    assert ObservationIdentifier.objects.filter(system=NORMALIZED_SYSTEM, value="good-1").exists()
+
+
+def test_second_poll_resumes_from_the_last_observation(db, ow_user, patient_with_consent, hr_concept):
+    """Once a row exists, the next poll asks OW from that row's time minus the overlap."""
+    _set_jhe_setting("module.ow", True)
+    _clear_sync_lock()
+
+    with (
+        patch("core.management.commands.ow_poll.requests.get") as mock_get,
+        patch("core.management.commands.ow_poll.convert") as mock_convert,
+    ):
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"data": [{"x": 1}]}
+        mock_convert.return_value = _fake_omh_record(uuid_value="first-1")
+        call_command("ow_poll", stdout=StringIO())
+
+        obs = Observation.objects.get()
+        mock_get.reset_mock()
+        mock_convert.return_value = _fake_omh_record(uuid_value="second-1")
+        call_command("ow_poll", stdout=StringIO())
+
+    requested = _requested_start(mock_get)
+    assert requested == obs.last_updated - timedelta(minutes=5)
 
 
 def test_skips_user_without_ow_identifier(db, patient_with_consent, hr_concept):

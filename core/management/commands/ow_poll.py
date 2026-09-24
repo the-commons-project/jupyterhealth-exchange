@@ -45,6 +45,7 @@ for a one-off backfill.
 """
 
 import logging
+from collections import namedtuple
 from datetime import datetime, timedelta
 
 import requests
@@ -87,6 +88,14 @@ _SYNC_LOCK_KEY = "ow.sync_in_progress"
 # and is force-reclaimed by the next tick. Sized at ~2x the default cron
 # interval (15 min) so a healthy long-running poll is never preempted.
 LOCK_STALE_AFTER = timedelta(minutes=30)
+
+Fetcher = namedtuple("Fetcher", "system shim_source records")
+"""One source of samples.
+
+``system`` is the ObservationIdentifier system its rows are filed under,
+``shim_source`` the omh-shim source name, and ``records`` a callable taking
+(start_time, end_time) and yielding raw sample dicts.
+"""
 
 
 def _write_sync_lock(value: str) -> None:
@@ -229,13 +238,14 @@ class Command(BaseCommand):
 
             for ow_type, code in polled.items():
                 try:
+                    ow_user_id = user.identifier.removeprefix("ow:")
                     if mode == "normalized":
-                        created = self._poll_user_normalized(
-                            user, patient, ow_type, code, oura_ds, ow_api_url, ow_api_key, poll_window
-                        )
+                        fetcher = self._normalized_fetcher(user, ow_user_id, ow_api_url, ow_api_key, ow_type)
                     else:
-                        created = self._poll_user_raw(user, patient, ow_type, code, oura_ds, poll_window)
-                    total_created += created
+                        fetcher = self._raw_fetcher(user, ow_user_id, ow_type)
+                    if fetcher is None:
+                        continue
+                    total_created += self._poll_user(user, patient, ow_type, code, oura_ds, fetcher, poll_window)
                 except Exception:
                     logger.exception("ow_poll failed for jhe_user_id=%s type=%s", user.id, ow_type)
 
@@ -289,31 +299,57 @@ class Command(BaseCommand):
 
         logger.warning("OW timeseries hit MAX_PAGES for user=%s type=%s", user.id, data_type)
 
-    def _poll_user_normalized(self, user, patient, ow_type, code, data_source, ow_api_url, ow_api_key, poll_window):
-        ow_user_id = user.identifier.removeprefix("ow:")
-        end_time = timezone.now()
-        start_time = end_time - poll_window
-
-        # Resume from the most recent successfully ingested record so we
-        # don't refetch the entire window every tick.
-        last_obs = (
-            Observation.objects.filter(
-                subject_patient=patient,
-                codeable_concept=code,
-                identifiers__system=NORMALIZED_SYSTEM,
-            )
-            .order_by("-last_updated")
-            .first()
+    def _normalized_fetcher(self, user, ow_user_id, ow_api_url, ow_api_key, ow_type):
+        """Samples from OW's timeseries endpoint."""
+        return Fetcher(
+            system=NORMALIZED_SYSTEM,
+            shim_source="ow_normalized",
+            records=lambda start_time, end_time: self._fetch_timeseries(
+                user, ow_api_url, ow_api_key, ow_user_id, ow_type, start_time, end_time
+            ),
         )
-        if last_obs:
-            start_time = max(start_time, last_obs.last_updated - POLL_OVERLAP)
 
-        records = self._fetch_timeseries(user, ow_api_url, ow_api_key, ow_user_id, ow_type, start_time, end_time)
+    def _raw_fetcher(self, user, ow_user_id, ow_type):
+        """Samples from Oura payloads OW archived to its bucket.
+
+        Returns None for a type raw mode cannot serve, so the caller skips it
+        without listing the bucket.
+        """
+        if ow_type not in RAW_SUPPORTED_TYPES:
+            return None
+        return Fetcher(
+            system=RAW_SYSTEM,
+            shim_source="oura_raw",
+            records=lambda start_time, end_time: self._fetch_raw_objects(user, ow_user_id, start_time),
+        )
+
+    def _fetch_raw_objects(self, user, ow_user_id, start_time):
+        """Yield every record inside the heart-rate S3 objects newer than start_time."""
+        try:
+            objects = list_new_objects(ow_user_id, start_time)
+        except Exception as e:
+            logger.error("OW raw S3 list failed for user=%s: %s", user.id, e)
+            return
+
+        for obj in objects:
+            if RAW_TRACE_ID_HEART_RATE not in obj.key:
+                continue
+            try:
+                payload = read_object(obj.key)
+            except Exception:
+                logger.warning("Skipping unreadable raw object %s", obj.key, exc_info=True)
+                continue
+            yield from payload.get("data", [])
+
+    def _poll_user(self, user, patient, ow_type, code, data_source, fetcher, poll_window):
+        """Ingest one data type for one patient from one source."""
+        end_time = timezone.now()
+        start_time = self._resume_start_time(patient, code, fetcher.system, end_time - poll_window)
 
         created = 0
-        for record in records:
+        for record in fetcher.records(start_time, end_time):
             try:
-                omh_record = convert(source="ow_normalized", data_type=ow_type, sample=record)
+                omh_record = convert(source=fetcher.shim_source, data_type=ow_type, sample=record)
             except Exception:
                 logger.warning("Skipping unconvertible record for user=%s", user.id, exc_info=True)
                 continue
@@ -322,127 +358,64 @@ class Command(BaseCommand):
             if not uuid_value:
                 continue
 
-            # Dedup: paired ObservationIdentifier row with (system, value) unique.
-            if ObservationIdentifier.objects.filter(system=NORMALIZED_SYSTEM, value=uuid_value).exists():
-                continue
-
-            try:
-                with transaction.atomic():
-                    obs = Observation.objects.create(
-                        subject_patient=patient,
-                        codeable_concept=code,
-                        data_source=data_source,
-                        omh_data=omh_record,
-                        status="final",
-                    )
-                    ObservationIdentifier.objects.create(
-                        observation=obs,
-                        system=NORMALIZED_SYSTEM,
-                        value=uuid_value,
-                    )
+            if self._save_observation(patient, code, data_source, omh_record, fetcher.system, uuid_value):
                 created += 1
-            except IntegrityError:
-                # Lost a race with a concurrent tick; treat as already-ingested.
-                continue
-            except Exception:
-                logger.warning(
-                    "Failed to persist observation for patient=%s uuid=%s",
-                    patient.id,
-                    uuid_value,
-                    exc_info=True,
-                )
 
         logger.info("Poll completed for jhe_user=%s patient=%s created=%d", user.id, patient.id, created)
         return created
 
-    def _poll_user_raw(self, user, patient, ow_type, code, data_source, poll_window):
-        """Raw S3-backed ingest. Walks the OW MinIO bucket for new objects.
+    def _resume_start_time(self, patient, code, system, window_start):
+        """Return the time this poll should ask OW from.
 
-        Each individual record (not each S3 object) is deduped via
-        ``ObservationIdentifier(system="ow:raw", value=<omh-header.uuid>)``,
-        mirroring the normalized path so that idempotency is guaranteed even
-        if the same payload is re-uploaded under a different S3 key.
+        Resuming from the most recent ingested row avoids refetching the whole
+        window every tick. POLL_OVERLAP is subtracted so a sample written on the
+        boundary of the previous run is not missed.
         """
-        if ow_type not in RAW_SUPPORTED_TYPES:
-            return 0
-
-        ow_user_id = user.identifier.removeprefix("ow:")
-        end_time = timezone.now()
-        start_time = end_time - poll_window
-
         last_obs = (
             Observation.objects.filter(
                 subject_patient=patient,
                 codeable_concept=code,
-                identifiers__system=RAW_SYSTEM,
+                identifiers__system=system,
             )
             .order_by("-last_updated")
             .first()
         )
-        if last_obs:
-            start_time = max(start_time, last_obs.last_updated - POLL_OVERLAP)
+        if not last_obs:
+            return window_start
+        return max(window_start, last_obs.last_updated - POLL_OVERLAP)
+
+    def _save_observation(self, patient, code, data_source, omh_record, system, value):
+        """Create one Observation and its dedupe identifier, or skip if already present.
+
+        Returns True only when a row was created. A concurrent tick can win the
+        race between the exists() check and the insert, so IntegrityError is
+        treated as already-ingested rather than an error.
+        """
+        if ObservationIdentifier.objects.filter(system=system, value=value).exists():
+            return False
 
         try:
-            objects = list_new_objects(ow_user_id, start_time)
-        except Exception as e:
-            logger.error("OW raw S3 list failed for user=%s: %s", user.id, e)
-            return 0
-
-        created = 0
-        for obj in objects:
-            # Only heart-rate keys for now; other endpoints are a follow-up.
-            if RAW_TRACE_ID_HEART_RATE not in obj.key:
-                continue
-
-            try:
-                payload = read_object(obj.key)
-            except Exception:
-                logger.warning("Skipping unreadable raw object %s", obj.key, exc_info=True)
-                continue
-
-            for record in payload.get("data", []):
-                try:
-                    omh_record = convert(source="oura_raw", data_type=ow_type, sample=record)
-                except Exception:
-                    logger.warning("Skipping unconvertible raw record key=%s", obj.key, exc_info=True)
-                    continue
-
-                uuid_value = omh_record.get("header", {}).get("uuid")
-                if not uuid_value:
-                    continue
-
-                if ObservationIdentifier.objects.filter(system=RAW_SYSTEM, value=uuid_value).exists():
-                    continue
-
-                try:
-                    with transaction.atomic():
-                        obs = Observation.objects.create(
-                            subject_patient=patient,
-                            codeable_concept=code,
-                            data_source=data_source,
-                            omh_data=omh_record,
-                            status="final",
-                        )
-                        ObservationIdentifier.objects.create(
-                            observation=obs,
-                            system=RAW_SYSTEM,
-                            value=uuid_value,
-                        )
-                    created += 1
-                except IntegrityError:
-                    continue
-                except Exception:
-                    logger.warning(
-                        "Failed to persist raw observation patient=%s uuid=%s",
-                        patient.id,
-                        uuid_value,
-                        exc_info=True,
-                    )
-
-        logger.info(
-            "Raw poll completed for jhe_user=%s patient=%s created=%d",
-            user.id,
-            patient.id,
-            created,
-        )
-        return created
+            with transaction.atomic():
+                obs = Observation.objects.create(
+                    subject_patient=patient,
+                    codeable_concept=code,
+                    data_source=data_source,
+                    omh_data=omh_record,
+                    status="final",
+                )
+                ObservationIdentifier.objects.create(
+                    observation=obs,
+                    system=system,
+                    value=value,
+                )
+            return True
+        except IntegrityError:
+            return False
+        except Exception:
+            logger.warning(
+                "Failed to persist observation for patient=%s uuid=%s",
+                patient.id,
+                value,
+                exc_info=True,
+            )
+            return False
