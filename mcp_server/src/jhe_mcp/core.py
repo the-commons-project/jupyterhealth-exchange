@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback
 import urllib.parse
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
@@ -71,6 +73,24 @@ Efficient workflows — do NOT dump or page through records just to count or fin
 """
 
 
+class _LoggingFastMCP(FastMCP):
+    """FastMCP that logs a tool's traceback; the SDK only returns the error to the client."""
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        try:
+            return await super().call_tool(name, arguments)
+        except Exception as exc:
+            cause = exc.__cause__ or exc
+            # Type and stack only: messages can echo JHE response bodies (PHI), which audit.py keeps out of logs.
+            logger.error(
+                "Tool %s failed with %s\n%s",
+                name,
+                type(cause).__name__,
+                "".join(traceback.format_tb(cause.__traceback__)),
+            )
+            raise
+
+
 def build_server(
     settings: Settings,
     pre_tool_hook: Callable[[], Awaitable[None]] | None = None,
@@ -85,7 +105,7 @@ def build_server(
         allowed_hosts=allowed_hosts,
         allowed_origins=allowed_origins,
     )
-    mcp = FastMCP(
+    mcp = _LoggingFastMCP(
         name="jhe-mcp",
         instructions=SERVER_INSTRUCTIONS,
         transport_security=transport_security,

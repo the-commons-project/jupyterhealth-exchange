@@ -16,23 +16,27 @@ async def get_study_count(*, base_url: str) -> int:
         return int(data["count"])
 
 
+async def _admin_get_all(client: JheClient, path: str) -> list[dict[str, Any]]:
+    """Every item of a paginated Admin API list, following `next` links."""
+    results: list[dict[str, Any]] = []
+    params: dict[str, Any] = {}
+    while True:
+        data = await client.admin_get(path, params=params or None)
+        results.extend(data.get("results", []))
+        next_url = data.get("next")
+        if not next_url:
+            return results
+        # Forward ALL query params from the next URL so pagination works with any
+        # scheme (?page=, ?cursor=, ?offset=&limit=, etc.). parse_qs returns lists;
+        # take the first value of each key to produce a flat dict for admin_get.
+        next_qs = parse_qs(urlparse(next_url).query)
+        params = {k: v[0] for k, v in next_qs.items()}
+
+
 async def list_studies(*, base_url: str) -> list[StudyMeta]:
     """Studies the caller can see (slim summaries)."""
-    results: list[StudyMeta] = []
     async with JheClient(base_url) as client:
-        params: dict[str, Any] = {}
-        while True:
-            data = await client.admin_get("studies", params=params or None)
-            results.extend(StudyMeta.from_admin(item) for item in data.get("results", []))
-            next_url = data.get("next")
-            if not next_url:
-                break
-            # Forward ALL query params from the next URL so pagination works with any
-            # scheme (?page=, ?cursor=, ?offset=&limit=, etc.). parse_qs returns lists;
-            # take the first value of each key to produce a flat dict for admin_get.
-            next_qs = parse_qs(urlparse(next_url).query)
-            params = {k: v[0] for k, v in next_qs.items()}
-    return results
+        return [StudyMeta.from_admin(item) for item in await _admin_get_all(client, "studies")]
 
 
 async def get_study_metadata(*, study_id: str, base_url: str) -> StudyMeta | None:
@@ -45,8 +49,7 @@ async def get_study_metadata(*, study_id: str, base_url: str) -> StudyMeta | Non
 async def list_study_patients(*, study_id: str, base_url: str) -> list[StudyPatient]:
     """Patients enrolled in a study."""
     async with JheClient(base_url) as client:
-        data = await client.admin_get(f"studies/{study_id}/patients")
-        return [StudyPatient.from_admin(item) for item in data]
+        return [StudyPatient.from_admin(item) for item in await _admin_get_all(client, f"studies/{study_id}/patients")]
 
 
 async def get_patient_demographics(*, patient_id: str, base_url: str) -> Demographics | None:
