@@ -19,6 +19,14 @@ def test_build_params_patient_and_code():
     assert "date" not in params  # no window given -> no date param
 
 
+def test_build_params_ambiguous_code_ors_every_system():
+    params = build_observation_params(patient_id="7", data_type="sleep-episode")
+    assert params["code"].split(",") == [
+        "https://w3id.org/ieee1752|ieee:sleep-episode:1.0",
+        "https://w3id.org/openmhealth|omh:sleep-episode:1.1",
+    ]
+
+
 def test_build_params_emits_server_side_date_window():
     params = build_observation_params(patient_id="7", start="2026-04-01", end="2026-04-30")
     assert params["date"] == ["ge2026-04-01", "le2026-04-30"]

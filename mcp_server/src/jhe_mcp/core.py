@@ -15,7 +15,7 @@ from jhe_mcp.auth.oauth_flow import AuthenticationRequired
 from jhe_mcp.auth.token_verifier import JheTokenVerifier
 from jhe_mcp.config import Settings
 from jhe_mcp.fhir.capabilities import get_capabilities
-from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, short_name
+from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, schema_ids_for, short_name
 from jhe_mcp.tools import observation_counts, observation_views
 from jhe_mcp.tools import patients as patient_tools
 from jhe_mcp.tools import study as study_tools
@@ -157,9 +157,8 @@ def build_server(
         """
         if auth_msg := await _before():
             return auth_msg
-        for sid in all_schema_ids():
-            if short_name(sid) == name:
-                return load_schema(sid)
+        if ids := schema_ids_for(name):
+            return load_schema(ids[0])  # ieee sorts before omh when the short name is ambiguous
         return {"error": f"Unknown schema name {name!r}", "known": all_short_names()}
 
     @mcp.tool()

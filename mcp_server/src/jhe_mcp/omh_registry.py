@@ -35,12 +35,15 @@ def _coding_system(schema_id: str) -> str:
     return _CODING_SYSTEMS.get(prefix, _OMH_SYSTEM)
 
 
+def schema_ids_for(data_type_short_name: str) -> list[str]:
+    # Sorted so an ambiguous short name (e.g. sleep-episode in both IEEE and OMH) resolves the same in every process
+    return sorted(sid for sid in all_schema_ids() if short_name(sid) == data_type_short_name)
+
+
 def lookup_code(data_type_short_name: str) -> str | None:
-    for sid in all_schema_ids():
-        if short_name(sid) == data_type_short_name:
-            return f"{_coding_system(sid)}|{sid}"
-    return None
+    # Comma-joined so JHE's FHIR code search ORs every schema behind the short name
+    return ",".join(f"{_coding_system(sid)}|{sid}" for sid in schema_ids_for(data_type_short_name)) or None
 
 
 def all_short_names() -> list[str]:
-    return sorted(short_name(sid) for sid in all_schema_ids())
+    return sorted({short_name(sid) for sid in all_schema_ids()})
