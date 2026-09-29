@@ -10,7 +10,7 @@ from typing import Any
 from jhe_mcp.fhir.client import JheClient
 from jhe_mcp.fhir.models import Observation
 from jhe_mcp.fhir.paging import MAX_PAGE_SIZE, bundle_total
-from jhe_mcp.omh_registry import all_short_names, lookup_code
+from jhe_mcp.omh_registry import candidate_codes, known_data_types, lookup_code
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,8 @@ def build_observation_params(
     ``start``/``end`` (inclusive, ``YYYY-MM-DD``) become repeated FHIR ``date``
     params (``ge{start}``/``le{end}``): day-precision values are compared at day
     precision by JHE, so both bounds are inclusive, matching the tools' contract.
+    ``data_type`` is a short name or a full schema id; an ambiguous short name
+    maps to its preferred (IEEE-first) code — see ``resolve_observation_params``.
     """
     _require_iso_date(start, "start")
     _require_iso_date(end, "end")
@@ -65,7 +67,7 @@ def build_observation_params(
     if data_type:
         code = lookup_code(data_type)
         if code is None:
-            raise ValueError(f"Unknown data_type {data_type!r}. Known: {all_short_names()}")
+            raise ValueError(f"Unknown data_type {data_type!r}. Known: {known_data_types()}")
         params["code"] = code
     date_filters = []
     if start:
@@ -74,6 +76,35 @@ def build_observation_params(
         date_filters.append(f"le{end}")
     if date_filters:
         params["date"] = date_filters  # list value -> repeated query param (AND)
+    return params
+
+
+async def resolve_observation_params(
+    client: JheClient,
+    *,
+    patient_id: str | None = None,
+    study_id: str | None = None,
+    data_type: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+) -> dict[str, Any]:
+    """``build_observation_params`` plus a count-based fallback for an ambiguous ``data_type``.
+
+    A short name served by more than one system (e.g. ``sleep-episode``) is
+    probed one code at a time, IEEE first, and the first code with a non-zero
+    ``_summary=count`` for these filters wins; when every code is empty the
+    preferred first one is kept. Unambiguous names and full ids cost no request.
+    """
+    params = build_observation_params(
+        patient_id=patient_id, study_id=study_id, data_type=data_type, start=start, end=end
+    )
+    codes = candidate_codes(data_type) if data_type else []
+    if len(codes) < 2:
+        return params
+    for code in codes:
+        probe = {**params, "code": code}
+        if await count_observations(client, probe):
+            return probe
     return params
 
 

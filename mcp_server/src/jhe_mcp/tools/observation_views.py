@@ -9,6 +9,7 @@ from jhe_mcp.fhir.observation_query import (
     build_observation_params,
     collect_observations,
     fetch_observation_page,
+    resolve_observation_params,
 )
 from jhe_mcp.fhir.paging import clamp_paging, page_envelope
 
@@ -122,9 +123,11 @@ async def get_patient_observations(
     if sort is None:
         raise ValueError(f"order must be 'newest' or 'oldest', got {order!r}")
     await preflight_observation_dates(base_url, start, end)
-    params = build_observation_params(patient_id=patient_id, data_type=data_type, start=start, end=end)
     page_size, page = clamp_paging(limit, page)
     async with JheClient(base_url) as client:
+        params = await resolve_observation_params(
+            client, patient_id=patient_id, data_type=data_type, start=start, end=end
+        )
         total, entries, _ = await fetch_observation_page(client, params, page=page, page_size=page_size, sort=sort)
     observations = [Observation.from_fhir_entry(e) for e in entries]
     if verbosity == "slim":

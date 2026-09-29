@@ -261,3 +261,26 @@ async def test_get_patient_observations_order_and_window_combined(auth, fake_cli
     sent = fake_client.fhir_get.await_args.kwargs["params"]
     assert sent["date"] == ["ge2026-04-01", "le2026-04-30"]
     assert sent["_sort"] == "date"
+
+
+@pytest.mark.asyncio
+async def test_get_patient_observations_ambiguous_data_type_falls_back_to_omh(auth, fake_client):
+    fake_client.fhir_get.side_effect = [
+        {"total": 0},  # IEEE probe
+        {"total": 1},  # OMH probe
+        {"total": 1, "entry": [_entry("o1", "omh:sleep-episode:1.1", "Sleep episode", "2026-04-15T08:00:00Z", 1)]},
+    ]
+    result = await get_patient_observations(patient_id="40006", data_type="sleep-episode", base_url="http://jhe")
+    assert result["total"] == 1 and result["observations"][0]["observation_id"] == "o1"
+    page_params = fake_client.fhir_get.await_args.kwargs["params"]
+    assert page_params["code"] == "https://w3id.org/openmhealth|omh:sleep-episode:1.1"
+    assert "_summary" not in page_params and page_params["_count"] == 50
+
+
+@pytest.mark.asyncio
+async def test_get_patient_observations_full_schema_id_costs_no_probe(auth, fake_client):
+    fake_client.fhir_get.return_value = {"total": 0, "entry": []}
+    await get_patient_observations(patient_id="40006", data_type="omh:sleep-episode:1.1", base_url="http://jhe")
+    assert fake_client.fhir_get.await_count == 1
+    sent = fake_client.fhir_get.await_args.kwargs["params"]
+    assert sent["code"] == "https://w3id.org/openmhealth|omh:sleep-episode:1.1"
