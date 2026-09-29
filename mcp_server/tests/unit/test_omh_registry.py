@@ -2,7 +2,14 @@ import re
 from pathlib import Path
 
 import pytest
-from jhe_mcp.omh_registry import all_schema_ids, all_short_names, load_schema, lookup_code, short_name
+from jhe_mcp.omh_registry import (
+    all_schema_ids,
+    all_short_names,
+    load_schema,
+    lookup_code,
+    schema_ids_for,
+    short_name,
+)
 
 # JHE's seed command, relative to this test: tests/unit -> tests -> mcp_server
 # -> <repo root>. Present in any monorepo checkout (incl. CI, which checks out
@@ -73,12 +80,30 @@ def test_lookup_code_unknown():
     assert lookup_code("nonexistent") is None
 
 
+@pytest.mark.parametrize(
+    ("name", "ieee_id", "omh_id"),
+    [
+        ("sleep-episode", "ieee:sleep-episode:1.0", "omh:sleep-episode:1.1"),
+        ("physical-activity", "ieee:physical-activity:1.0", "omh:physical-activity:1.2"),
+    ],
+)
+def test_lookup_code_ambiguous_returns_every_system(name, ieee_id, omh_id):
+    """A short name served by both IEEE and OMH yields both codes, comma-joined (FHIR OR), IEEE first."""
+    assert schema_ids_for(name) == [ieee_id, omh_id]
+    assert lookup_code(name) == f"https://w3id.org/ieee1752|{ieee_id},https://w3id.org/openmhealth|{omh_id}"
+
+
+def test_schema_ids_for_unknown():
+    assert schema_ids_for("nonexistent") == []
+
+
 def test_all_short_names():
     names = all_short_names()
     assert "heart-rate" in names
     assert "blood-pressure" in names
     assert "blood-glucose" in names
     assert sorted(names) == names
+    assert len(names) == len(set(names))  # ambiguous names listed once
 
 
 def test_load_schema_wearable():
