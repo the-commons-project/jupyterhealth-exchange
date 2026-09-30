@@ -148,12 +148,15 @@ def build_server(
 
     @mcp.tool()
     async def get_omh_schema(name: str) -> dict | str:
-        """Return the full OMH JSON schema for a data type short name.
+        """Return the full OMH JSON schema for a data type short name or full schema id.
 
         Known names: blood-glucose, blood-pressure, body-temperature,
         heart-rate, oxygen-saturation,
         physical-activity, respiratory-rate, rr-interval,
         sleep-duration, sleep-episode, step-count.
+        A short name served by both IEEE and OMH (sleep-episode,
+        physical-activity) returns the IEEE schema; pass a full id such as
+        'omh:sleep-episode:1.1' for the other one.
         """
         if auth_msg := await _before():
             return auth_msg
@@ -276,8 +279,10 @@ def build_server(
         value/unit) and omits the raw OMH body; verbosity='full' includes it.
         order='newest' (default) returns most recent first; 'oldest' returns
         oldest first. Filter by OMH data type short name (e.g. 'blood-glucose')
-        and ISO dates. limit is capped at 1000; requesting a page past the end
-        returns an error — follow has_more instead.
+        or full schema id (e.g. 'omh:sleep-episode:1.1') and ISO dates; an
+        ambiguous short name tries the IEEE schema first and falls back to OMH
+        when that count is 0. limit is capped at 1000; requesting a page past
+        the end returns an error — follow has_more instead.
         """
         if auth_msg := await _before():
             return auth_msg
@@ -300,7 +305,12 @@ def build_server(
         start: str | None = None,
         end: str | None = None,
     ) -> int | str:
-        """Exact number of observations for a patient, without returning records."""
+        """Exact number of observations for a patient, without returning records.
+
+        data_type is a short name (e.g. 'heart-rate') or a full schema id
+        (e.g. 'omh:sleep-episode:1.1'); an ambiguous short name tries the IEEE
+        schema first and falls back to OMH when that count is 0.
+        """
         if auth_msg := await _before():
             return auth_msg
         return await observation_counts.count_patient_observations(
@@ -318,6 +328,9 @@ def build_server(
         """Observation count across a whole study in one call.
 
         With by_patient=True, returns {patient_id: count} instead of a total.
+        data_type is a short name (e.g. 'heart-rate') or a full schema id
+        (e.g. 'omh:sleep-episode:1.1'); an ambiguous short name tries the IEEE
+        schema first and falls back to OMH when the study-level count is 0.
         """
         if auth_msg := await _before():
             return auth_msg

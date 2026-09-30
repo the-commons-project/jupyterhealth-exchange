@@ -5,6 +5,8 @@ import pytest
 from jhe_mcp.omh_registry import (
     all_schema_ids,
     all_short_names,
+    candidate_codes,
+    known_data_types,
     load_schema,
     lookup_code,
     schema_ids_for,
@@ -87,10 +89,34 @@ def test_lookup_code_unknown():
         ("physical-activity", "ieee:physical-activity:1.0", "omh:physical-activity:1.2"),
     ],
 )
-def test_lookup_code_ambiguous_returns_every_system(name, ieee_id, omh_id):
-    """A short name served by both IEEE and OMH yields both codes, comma-joined (FHIR OR), IEEE first."""
+def test_ambiguous_short_name_is_ieee_first_and_never_comma_joined(name, ieee_id, omh_id):
+    """A short name served by both IEEE and OMH lists both candidates IEEE-first; lookup_code picks one."""
     assert schema_ids_for(name) == [ieee_id, omh_id]
-    assert lookup_code(name) == f"https://w3id.org/ieee1752|{ieee_id},https://w3id.org/openmhealth|{omh_id}"
+    assert candidate_codes(name) == [
+        f"https://w3id.org/ieee1752|{ieee_id}",
+        f"https://w3id.org/openmhealth|{omh_id}",
+    ]
+    assert lookup_code(name) == f"https://w3id.org/ieee1752|{ieee_id}"  # JHE does not OR comma-joined codes
+
+
+def test_full_schema_id_resolves_to_exactly_that_code():
+    assert schema_ids_for("omh:sleep-episode:1.1") == ["omh:sleep-episode:1.1"]
+    assert candidate_codes("omh:sleep-episode:1.1") == ["https://w3id.org/openmhealth|omh:sleep-episode:1.1"]
+    assert lookup_code("omh:sleep-episode:1.1") == "https://w3id.org/openmhealth|omh:sleep-episode:1.1"
+    assert lookup_code("ieee:sleep-episode:1.0") == "https://w3id.org/ieee1752|ieee:sleep-episode:1.0"
+
+
+def test_unknown_full_schema_id():
+    assert schema_ids_for("omh:sleep-episode:9.9") == []
+    assert candidate_codes("omh:sleep-episode:9.9") == []
+    assert lookup_code("omh:sleep-episode:9.9") is None
+
+
+def test_known_data_types_lists_full_ids_of_ambiguous_names():
+    known = known_data_types()
+    assert known[: len(all_short_names())] == all_short_names()
+    assert "ieee:sleep-episode:1.0" in known and "omh:sleep-episode:1.1" in known
+    assert "omh:heart-rate:2.0" not in known  # unambiguous names are listed by short name only
 
 
 def test_schema_ids_for_unknown():

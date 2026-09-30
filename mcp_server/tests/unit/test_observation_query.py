@@ -9,7 +9,11 @@ from jhe_mcp.fhir.observation_query import (
     count_observations,
     fetch_observation_page,
     iter_all_observations,
+    resolve_observation_params,
 )
+
+_IEEE_SLEEP = "https://w3id.org/ieee1752|ieee:sleep-episode:1.0"
+_OMH_SLEEP = "https://w3id.org/openmhealth|omh:sleep-episode:1.1"
 
 
 def test_build_params_patient_and_code():
@@ -19,12 +23,20 @@ def test_build_params_patient_and_code():
     assert "date" not in params  # no window given -> no date param
 
 
-def test_build_params_ambiguous_code_ors_every_system():
+def test_build_params_ambiguous_code_uses_preferred_first_candidate():
+    # A single code, never comma-joined: JHE partitions `code` on "|" only
     params = build_observation_params(patient_id="7", data_type="sleep-episode")
-    assert params["code"].split(",") == [
-        "https://w3id.org/ieee1752|ieee:sleep-episode:1.0",
-        "https://w3id.org/openmhealth|omh:sleep-episode:1.1",
-    ]
+    assert params["code"] == _IEEE_SLEEP
+
+
+def test_build_params_accepts_full_schema_id():
+    assert build_observation_params(patient_id="7", data_type="omh:sleep-episode:1.1")["code"] == _OMH_SLEEP
+    assert build_observation_params(patient_id="7", data_type="ieee:sleep-episode:1.0")["code"] == _IEEE_SLEEP
+
+
+def test_build_params_unknown_full_schema_id_lists_full_ids():
+    with pytest.raises(ValueError, match="Unknown data_type 'omh:sleep-episode:9.9'.*omh:sleep-episode:1.1"):
+        build_observation_params(patient_id="7", data_type="omh:sleep-episode:9.9")
 
 
 def test_build_params_emits_server_side_date_window():
@@ -58,6 +70,62 @@ def test_build_params_study_scope():
 def test_build_params_unknown_data_type_raises():
     with pytest.raises(ValueError, match="Unknown data_type"):
         build_observation_params(patient_id="7", data_type="not-a-type")
+
+
+@pytest.mark.asyncio
+async def test_resolve_params_falls_back_to_omh_when_ieee_count_is_zero():
+    client = AsyncMock()
+    client.fhir_get.side_effect = [{"total": 0}, {"total": 3}]
+    params = await resolve_observation_params(client, patient_id="7", data_type="sleep-episode", start="2026-04-01")
+    assert params["code"] == _OMH_SLEEP
+    assert params["patient"] == "7" and params["date"] == ["ge2026-04-01"]
+    probes = [c.kwargs["params"] for c in client.fhir_get.await_args_list]
+    assert [p["code"] for p in probes] == [_IEEE_SLEEP, _OMH_SLEEP]
+    assert all(p["_summary"] == "count" and p["date"] == ["ge2026-04-01"] for p in probes)
+
+
+@pytest.mark.asyncio
+async def test_resolve_params_keeps_ieee_when_it_has_data():
+    client = AsyncMock()
+    client.fhir_get.return_value = {"total": 7}
+    params = await resolve_observation_params(client, patient_id="7", data_type="sleep-episode")
+    assert params["code"] == _IEEE_SLEEP
+    assert client.fhir_get.await_count == 1  # no need to probe the OMH code
+
+
+@pytest.mark.asyncio
+async def test_resolve_params_all_zero_keeps_first_candidate():
+    client = AsyncMock()
+    client.fhir_get.return_value = {"total": 0}
+    params = await resolve_observation_params(client, study_id="30008", data_type="sleep-episode")
+    assert params["code"] == _IEEE_SLEEP
+    assert client.fhir_get.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_resolve_params_unambiguous_name_costs_no_request():
+    client = AsyncMock()
+    params = await resolve_observation_params(client, patient_id="7", data_type="heart-rate")
+    assert params["code"] == "https://w3id.org/openmhealth|omh:heart-rate:2.0"
+    client.fhir_get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolve_params_full_id_and_no_data_type_cost_no_request():
+    client = AsyncMock()
+    assert (await resolve_observation_params(client, patient_id="7", data_type="omh:sleep-episode:1.1"))[
+        "code"
+    ] == _OMH_SLEEP
+    assert "code" not in await resolve_observation_params(client, patient_id="7")
+    client.fhir_get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolve_params_unknown_data_type_raises_before_any_request():
+    client = AsyncMock()
+    with pytest.raises(ValueError, match="Unknown data_type"):
+        await resolve_observation_params(client, patient_id="7", data_type="not-a-type")
+    client.fhir_get.assert_not_awaited()
 
 
 @pytest.mark.asyncio
