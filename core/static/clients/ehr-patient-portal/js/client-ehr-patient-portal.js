@@ -59,15 +59,19 @@ async function eppSavePatientIdentifier(jheToken, system, value) {
   return response.ok;
 }
 
-// The create body for a new FhirSource: dataSourceId comes from the page config (resolved server-side from this client's ClientDataSource link, never looked up here); every Connect registers a NEW source since none stores an endpoint to match against, so the endpoint lives only in the label.
+// The create body for a FhirSource: dataSourceId comes from the page config (resolved server-side from this client's ClientDataSource link, never looked up here). The server returns the patient's existing source for this EHR brand rather than creating a second one, so it is told the authorized server URL (ehr_base_url) to find the brand when no facility was picked; that URL is a lookup hint and is not stored. No label is sent: the server names a new source "<vendor> - <brand>" from the brand it resolves, so the label stays patient-facing and follows the brand's name.
 function eppFhirSourceBody(fhirBaseUrl, dataSourceId) {
-  const body = { label: `Epic / EHR Patient Portal — ${fhirBaseUrl}`, data_source: Number(dataSourceId) };
+  const body = {
+    data_source: Number(dataSourceId),
+    ehr_base_url: fhirBaseUrl,
+  };
   // Only set when the patient reached here through the picker; other launch routes have no facility to record, hence the nullable field.
   const locationId = eppGetBrandLocationId();
   if (locationId) body.ehr_brand_location = Number(locationId);
   return body;
 }
 
+// Registers the source, or gets back the existing one for this brand (the server answers 200 instead of 201).
 async function eppCreateFhirSource(jheToken, fhirBaseUrl, dataSourceId) {
   const response = await fetch(`${API_ENDPOINT}fhir_sources`, {
     method: "POST",
@@ -443,7 +447,7 @@ async function finishEhrPatientPortalConnect(out, config) {
 
   const idOk = await eppSavePatientIdentifier(jheToken, iss, epicPatientId);
   if (!idOk) {
-    out.textContent += "\nError: failed to store EHR Patient Portal patient id";
+    out.textContent += "\nError: failed to store EHR Patient Portal patient id. Has this EHR patient ID already been used with another JHE patient?";
     return;
   }
   out.textContent += "\nStored EHR Patient Portal patient id in JHE";

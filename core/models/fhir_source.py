@@ -11,9 +11,14 @@ class FhirSource(models.Model):
     A source is identified by its **pk** for machines and its **label** for humans -- nothing
     else. It carries no upstream endpoint: a source may be an EHR the patient connected, a
     one-off import unique to that patient, or anything else that speaks FHIR, so there is no
-    field that could identify "the same system" in general. Registering the same upstream twice
-    simply makes two sources, which is cheap and harmless -- each is its own identifier
+    field that could identify "the same system" in general. Each source is its own identifier
     namespace (``fhir_source_uri``), and upstream record ids are only ever unique *within* one.
+
+    One thing does identify "the same system" for an EHR connection: the brand behind
+    ``ehr_brand_location``. FhirSourceViewSet.create uses it to hand a patient back their existing
+    source for a brand instead of registering a second, because a second source would store every
+    record again under its own namespace. A source with no brand (a one-off import, or a launch
+    whose brand cannot be resolved) is never matched and always creates.
     """
 
     patient = models.ForeignKey("Patient", on_delete=models.CASCADE, related_name="fhir_sources")

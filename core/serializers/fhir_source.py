@@ -9,6 +9,8 @@ class FhirSourceSerializer(serializers.ModelSerializer):
 
     resource_counts = serializers.SerializerMethodField()
     ehr_brand_location_name = serializers.SerializerMethodField()
+    # A lookup hint for FhirSourceViewSet.create, never stored: the SMART ``iss`` the patient authorized against, used to find the brand when no facility was picked.
+    ehr_base_url = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = FhirSource
@@ -19,6 +21,7 @@ class FhirSourceSerializer(serializers.ModelSerializer):
             "label",
             "ehr_brand_location",
             "ehr_brand_location_name",
+            "ehr_base_url",
             "resource_counts",
             "last_updated",
         ]
@@ -36,3 +39,14 @@ class FhirSourceSerializer(serializers.ModelSerializer):
 
     def get_ehr_brand_location_name(self, obj):
         return obj.ehr_brand_location.name if obj.ehr_brand_location else None
+
+
+class PatientFhirSourceSerializer(serializers.ModelSerializer):
+    """A patient's FhirSource as the admin patient page lists it: which data source, its label and when it last changed."""
+
+    data_source_name = serializers.CharField(source="data_source.name", read_only=True)
+
+    class Meta:
+        model = FhirSource
+        fields = ["id", "data_source", "data_source_name", "label", "last_updated"]
+        read_only_fields = fields

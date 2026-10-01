@@ -151,18 +151,20 @@
             </form>
             {{#if read}}
               <hr />
-              <p class="mb-0">Brands</p>
-              <p class="text-muted small">(Mouse over for URL)</p>
-              <ul>
+              <p class="mb-0">Brands and Locations</p>
+              <p class="text-muted small">(Mouse over a brand for its URL, a location for its address)</p>
+              <ul class="list-unstyled">
                 {{#each ehrVendorRecord.brands}}
-                  <li title="{{fhirBaseUrl}}">{{name}}</li>
-                {{/each}}
-              </ul>
-              <p class="mb-0">Locations</p>
-              <p class="text-muted small">(Mouse over for Address)</p>
-              <ul class="icon-bullet-list">
-                {{#each ehrVendorRecord.allLocations}}
-                  <li title="{{addressText}}">{{name}}{{#if city}}, {{city}}{{/if}}</li>
+                  <li>
+                    <details>
+                      <summary title="{{fhirBaseUrl}}">{{name}} <span class="text-muted">({{locations.length}})</span></summary>
+                      <ul class="icon-bullet-list">
+                        {{#each locations}}
+                          <li title="{{addressText}}">{{name}}{{#if city}}, {{city}}{{/if}}</li>
+                        {{/each}}
+                      </ul>
+                    </details>
+                  </li>
                 {{/each}}
               </ul>
             {{/if}}

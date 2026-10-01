@@ -72,6 +72,22 @@ def test_superuser_can_retrieve_with_brands_and_locations(superuser_client, vend
     assert names == {"Mount Sinai Hospital", "Mount Sinai West"}
 
 
+def test_retrieve_orders_brands_and_their_locations_by_name(superuser_client, vendor):
+    # The detail page lists each brand with its locations beneath it, so both come back sorted.
+    zed = EhrBrand.objects.create(name="Zed Health", vendor=vendor, fhir_base_url="https://zed.example.org/R4")
+    for name in ("Zed South", "Zed East"):
+        EhrBrandLocation.objects.create(brand=zed, name=name)
+    EhrBrand.objects.create(name="Alpha Care", vendor=vendor, fhir_base_url="https://alpha.example.org/R4")
+
+    body = superuser_client.get(f"{URL}/{vendor.id}").json()
+
+    assert [b["name"] for b in body["brands"]] == ["Alpha Care", "Mount Sinai", "Zed Health"]
+    by_name = {b["name"]: b for b in body["brands"]}
+    assert [loc["name"] for loc in by_name["Zed Health"]["locations"]] == ["Zed East", "Zed South"]
+    assert [loc["name"] for loc in by_name["Mount Sinai"]["locations"]] == ["Mount Sinai Hospital", "Mount Sinai West"]
+    assert by_name["Alpha Care"]["locations"] == []
+
+
 def test_superuser_can_create(superuser_client):
     r = superuser_client.post(URL, {"name": "Cerner", "ehrClientId": "cerner-client-id"})
     assert r.status_code == 201, r.text
