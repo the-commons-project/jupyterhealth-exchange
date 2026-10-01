@@ -3,29 +3,11 @@
 # one-off import unique to one patient, or any other FHIR speaker, so `fhir_base_url` could not
 # generally answer "is this the same system?" and nothing needs it to. Each source is its own
 # identifier namespace (https://jupyterhealth.org/fhir/fhir-source/<pk>), which is what upstream
-# record ids are scoped by, so two sources for one hospital cost nothing.
+# record ids are scoped by.
 #
-# The column is dropped here. Its value is folded into `label` first (when the label does not
-# already name it) so deployed rows keep a human-readable trace of where they came from.
+# The column is dropped here. The label is patient-facing, so the URL is not copied into it.
 
 from django.db import migrations
-
-
-def folded_label(label, url):
-    """``label`` with ``url`` appended, or unchanged when it already names it (or there is no url)."""
-    label = label or ""
-    if not url or url in label:
-        return label
-    return f"{label} — {url}" if label else url
-
-
-def fold_base_url_into_label(apps, schema_editor):
-    FhirSource = apps.get_model("core", "FhirSource")
-    for source in FhirSource.objects.exclude(fhir_base_url="").exclude(fhir_base_url__isnull=True).iterator():
-        label = folded_label(source.label, source.fhir_base_url)
-        if label != source.label:
-            # .update() avoids auto_now bumping last_updated for a purely mechanical rewrite.
-            FhirSource.objects.filter(pk=source.pk).update(label=label)
 
 
 class Migration(migrations.Migration):
@@ -34,6 +16,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(fold_base_url_into_label, migrations.RunPython.noop),
         migrations.RemoveField(model_name="fhirsource", name="fhir_base_url"),
     ]

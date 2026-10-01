@@ -434,6 +434,17 @@
                   {{/studiesConsented}}
                   </ul>
                 </div>
+                <div class="mb-3">
+                  FHIR Sources:
+                  <p class="text-muted small mb-0">(Mouse over for last updated time)</p>
+                  <ul>
+                  {{#fhirSources}}
+                    <li>
+                      <span title="{{lastUpdated}}">{{dataSourceName}}</span>: <span title="{{lastUpdated}}">{{labelTruncated}}</span> (<span title="{{lastUpdated}}">{{id}}</span>)
+                    </li>
+                  {{/fhirSources}}
+                  </ul>
+                </div>
               {{/if}}
             </form>
           </div>

@@ -17,11 +17,13 @@ from rest_framework.test import APIClient
 from core.models import (
     JHE_FHIR_SOURCE_BASE,
     JHE_NATIVE_SOURCE,
+    DataSource,
     EhrBrand,
     EhrBrandLocation,
     EhrVendor,
     FhirAuxResource,
     FhirSource,
+    JheUser,
     Observation,
     Organization,
     fhir_source_uri,
@@ -90,10 +92,9 @@ def _patient_client(patient):
     return client
 
 
-def test_fhir_source_registration_always_creates(patient, device):
-    # A source stores no endpoint and is identified by its pk, so there is nothing to match a
-    # previous registration against — and nothing needs to be. Every Connect gets its own source,
-    # which is its own identifier namespace, so upstream ids never collide across runs.
+def test_fhir_source_registration_without_a_brand_always_creates(patient, device):
+    # A source with no EHR brand (a one-off import) has nothing to match a previous registration
+    # against, so every registration gets its own source, which is its own identifier namespace.
     client = _patient_client(patient)
     body = {"label": "Epic / EHR Patient Portal", "data_source": device.id}
     first = client.post("/api/v1/fhir_sources", body)
@@ -1006,23 +1007,6 @@ def test_mapped_observation_sort_pages_are_stable_on_ties(api_client, patient, h
     assert len(set(seen)) == 4
 
 
-def test_migration_0047_folds_the_dropped_base_url_into_the_label():
-    # The endpoint column is dropped, so deployed rows keep a human-readable trace of where they
-    # came from in the label -- the source's only human-facing handle once the URL is gone.
-    import importlib
-
-    folded_label = importlib.import_module("core.migrations.0047_drop_fhir_source_base_url").folded_label
-
-    assert (
-        folded_label("Epic / EHR Patient Portal", "https://e/FHIR/R4")
-        == "Epic / EHR Patient Portal — https://e/FHIR/R4"
-    )
-    assert folded_label("", "https://e/FHIR/R4") == "https://e/FHIR/R4"
-    # Already named (the client writes it into the label itself) -- do not append it twice.
-    assert folded_label("Epic — https://e/FHIR/R4", "https://e/FHIR/R4") == "Epic — https://e/FHIR/R4"
-    assert folded_label("Momentum App", "") == "Momentum App"
-
-
 def test_fhir_source_records_the_picked_ehr_brand_location(patient, device, db):
     # The facility the patient picked is recorded on the source. It is descriptive: every
     # location of a brand shares one fhir_base_url, so the connection cannot tell them apart.
@@ -1044,6 +1028,119 @@ def test_fhir_source_records_the_picked_ehr_brand_location(patient, device, db):
     # Null is the honest value for a source that is not a supported EHR at a supported location.
     plain = client.post("/api/v1/fhir_sources", {"label": "One-off import", "data_source": device.id})
     assert FhirSource.objects.get(pk=plain.json()["id"]).ehr_brand_location_id is None
+
+
+def _brand_with_locations(base_url="https://mercy.example.org/FHIR/R4"):
+    vendor = EhrVendor.objects.create(name="Epic")
+    brand = EhrBrand.objects.create(name="Mercy", vendor=vendor, fhir_base_url=base_url)
+    return (
+        brand,
+        EhrBrandLocation.objects.create(brand=brand, name="Mercy STL"),
+        EhrBrandLocation.objects.create(brand=brand, name="Mercy KC"),
+    )
+
+
+def test_fhir_source_registration_returns_the_existing_source_for_a_brand(patient, device, db):
+    brand, stl, kc = _brand_with_locations()
+    client = _patient_client(patient)
+    first = client.post(
+        "/api/v1/fhir_sources", {"label": "Epic", "data_source": device.id, "ehr_brand_location": stl.id}
+    )
+    # A different facility of the same brand is the same server, so it is the same source.
+    again = client.post(
+        "/api/v1/fhir_sources", {"label": "Epic", "data_source": device.id, "ehr_brand_location": kc.id}
+    )
+    assert first.status_code == 201 and again.status_code == 200
+    assert again.json()["id"] == first.json()["id"]
+    assert FhirSource.objects.filter(patient=patient).count() == 1
+
+
+def test_fhir_source_label_defaults_to_vendor_and_brand_name(patient, device, db):
+    brand, stl, _ = _brand_with_locations()
+    client = _patient_client(patient)
+    picked = client.post("/api/v1/fhir_sources", {"data_source": device.id, "ehr_brand_location": stl.id})
+    assert picked.json()["label"] == "Epic - Mercy"
+    # The same default applies when only the iss identifies the brand.
+    FhirSource.objects.all().delete()
+    by_url = client.post("/api/v1/fhir_sources", {"data_source": device.id, "ehr_base_url": brand.fhir_base_url})
+    assert by_url.json()["label"] == "Epic - Mercy"
+    # A label the caller supplies is kept, and a source with no brand stays as sent.
+    FhirSource.objects.all().delete()
+    named = client.post(
+        "/api/v1/fhir_sources", {"label": "Mine", "data_source": device.id, "ehr_brand_location": stl.id}
+    )
+    assert named.status_code == 201 and named.json()["label"] == "Mine"
+    plain = client.post("/api/v1/fhir_sources", {"data_source": device.id})
+    assert plain.json()["label"] == ""
+
+
+def test_fhir_source_registration_finds_the_brand_from_the_base_url(patient, device, db):
+    brand, stl, _ = _brand_with_locations()
+    client = _patient_client(patient)
+    first = client.post(
+        "/api/v1/fhir_sources", {"label": "Epic", "data_source": device.id, "ehr_brand_location": stl.id}
+    )
+    # No facility recorded (e.g. sessionStorage was lost across the redirect): the iss finds the brand.
+    again = client.post(
+        "/api/v1/fhir_sources", {"label": "Epic", "data_source": device.id, "ehr_base_url": brand.fhir_base_url}
+    )
+    assert again.status_code == 200 and again.json()["id"] == first.json()["id"]
+    # The hint is a lookup, not a field: it is never echoed back.
+    assert "ehr_base_url" not in again.json()
+
+
+@pytest.mark.parametrize(
+    "stored, sent",
+    [
+        ("https://mercy.example.org/FHIR/R4", "https://mercy.example.org/FHIR/R4/"),
+        ("https://mercy.example.org/FHIR/R4/", "https://mercy.example.org/FHIR/R4"),
+    ],
+)
+def test_fhir_source_base_url_match_ignores_a_trailing_slash(patient, device, db, stored, sent):
+    brand, stl, _ = _brand_with_locations(stored)
+    client = _patient_client(patient)
+    first = client.post(
+        "/api/v1/fhir_sources", {"label": "Epic", "data_source": device.id, "ehr_brand_location": stl.id}
+    )
+    again = client.post("/api/v1/fhir_sources", {"label": "Epic", "data_source": device.id, "ehr_base_url": sent})
+    assert again.status_code == 200 and again.json()["id"] == first.json()["id"]
+
+
+def test_fhir_source_registration_is_per_patient_brand_and_data_source(patient, device, db):
+    brand, stl, _ = _brand_with_locations()
+    other_brand = EhrBrand.objects.create(
+        name="Other", vendor=brand.vendor, fhir_base_url="https://other.example.org/R4"
+    )
+    other_loc = EhrBrandLocation.objects.create(brand=other_brand, name="Other")
+    other_ds = DataSource.objects.create(name="Other device", type="personal_device")
+    client = _patient_client(patient)
+    base = {"label": "Epic", "data_source": device.id}
+    client.post("/api/v1/fhir_sources", {**base, "ehr_brand_location": stl.id})
+    # Another brand, another data source, and an unknown iss each get their own source.
+    assert client.post("/api/v1/fhir_sources", {**base, "ehr_brand_location": other_loc.id}).status_code == 201
+    assert (
+        client.post(
+            "/api/v1/fhir_sources", {"label": "Epic", "data_source": other_ds.id, "ehr_brand_location": stl.id}
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post("/api/v1/fhir_sources", {**base, "ehr_base_url": "https://nowhere.example.org"}).status_code == 201
+    )
+    assert FhirSource.objects.filter(patient=patient).count() == 4
+
+
+def test_fhir_source_registration_never_returns_another_patients_source(patient, device, db):
+    brand, stl, _ = _brand_with_locations()
+    FhirSource.objects.create(patient=patient, data_source=device, label="Epic", ehr_brand_location=stl)
+    other = JheUser.objects.create_user(
+        email="other-patient@example.org", password="testpass123", identifier="other-patient", user_type="patient"
+    ).patient
+    created = _patient_client(other).post(
+        "/api/v1/fhir_sources", {"label": "Epic", "data_source": device.id, "ehr_brand_location": stl.id}
+    )
+    assert created.status_code == 201
+    assert created.json()["patient"] == other.id
 
 
 def test_deleting_a_brand_keeps_the_fhir_source(patient, device, db):

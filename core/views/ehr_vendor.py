@@ -1,11 +1,11 @@
 import logging
 
-from django.db.models import ProtectedError
+from django.db.models import Prefetch, ProtectedError
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.models import EhrVendor
+from core.models import EhrBrand, EhrBrandLocation, EhrVendor
 from core.pagination import CustomPageNumberPagination
 from core.permissions import IsSuperUser
 from core.serializers import EhrVendorListSerializer, EhrVendorSerializer
@@ -30,7 +30,11 @@ class EhrVendorViewSet(ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "retrieve":
-            queryset = queryset.prefetch_related("brands__locations")
+            # Ordered by name because the detail page lists each brand with its locations beneath it.
+            queryset = queryset.prefetch_related(
+                Prefetch("brands", queryset=EhrBrand.objects.order_by("name", "id")),
+                Prefetch("brands__locations", queryset=EhrBrandLocation.objects.order_by("name", "id")),
+            )
         return queryset
 
     def destroy(self, request, *args, **kwargs):

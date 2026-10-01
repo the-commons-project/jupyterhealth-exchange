@@ -5,6 +5,7 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from core.models import (
+    FhirSource,
     Organization,
     Patient,
     PatientIdentifier,
@@ -399,3 +400,31 @@ def test_update_replaces_identifiers(api_client, organization):
     assert len(data["identifiers"]) == 2
     systems = {i["system"] for i in data["identifiers"]}
     assert systems == {"http://hospital-b.org", "http://hospital-c.org"}
+
+
+def test_patient_fhir_sources_lists_the_patients_sources_for_a_practitioner(api_client, patient, device):
+    mine = FhirSource.objects.create(patient=patient, data_source=device, label="Epic / Mercy")
+    other_patient = add_patients(1, organization=patient.organizations.first())[0]
+    FhirSource.objects.create(patient=other_patient, data_source=device, label="Someone else's")
+
+    r = api_client.get(f"/api/v1/patients/{patient.id}/fhir_sources")
+
+    assert r.status_code == 200, r.text
+    rows = r.json()
+    assert [row["id"] for row in rows] == [mine.id]
+    assert rows[0]["dataSourceName"] == device.name
+    assert rows[0]["label"] == "Epic / Mercy"
+    assert rows[0]["lastUpdated"]
+
+
+def test_patient_fhir_sources_is_empty_without_sources(api_client, patient):
+    assert api_client.get(f"/api/v1/patients/{patient.id}/fhir_sources").json() == []
+
+
+def test_patient_fhir_sources_is_denied_to_another_patient(patient, device):
+    FhirSource.objects.create(patient=patient, data_source=device, label="Epic")
+    other = add_patients(1, organization=patient.organizations.first())[0]
+    client = APIClient()
+    client.force_authenticate(other.jhe_user)
+
+    assert client.get(f"/api/v1/patients/{patient.id}/fhir_sources").status_code == 403

@@ -1102,7 +1102,8 @@ async function renderPatients(queryParams) {
     patientRecord,
     studiesPendingConsent,
     studiesConsented,
-    consolidatedClients;
+    consolidatedClients,
+    fhirSources;
 
   const pageSize = parseInt(queryParams.pageSize) || 20;
   const page = parseInt(queryParams.page) || 1;
@@ -1156,6 +1157,16 @@ async function renderPatients(queryParams) {
           status: inv.status.charAt(0).toUpperCase() + inv.status.slice(1),
         })),
       }));
+
+      const fhirSourcesResponse = await apiRequest(
+        "GET",
+        `patients/${queryParams.id}/fhir_sources`,
+      );
+      // The label is cut to fit a list line; the full last-updated time goes in the hover title.
+      fhirSources = (await fhirSourcesResponse.json()).map((source) => ({
+        ...source,
+        labelTruncated: source.label.length > 50 ? source.label.slice(0, 50) + "..." : source.label,
+      }));
     }
   } else if (queryParams.create && queryParams.lookedUpEmail) {
     patientRecord = {
@@ -1194,6 +1205,7 @@ async function renderPatients(queryParams) {
     pageSizes: [20, 100, 500, 1000],
     canManagePatientsInOrg: canManagePatientsInOrg,
     consolidatedClients: consolidatedClients,
+    fhirSources: fhirSources,
   };
 
   return content(renderParams);
@@ -2452,17 +2464,6 @@ async function renderEhrVendors(queryParams) {
   }
 
   ehrVendorRecord.scopeOptions = buildEhrVendorScopeOptions(ehrVendorRecord.supportedScopes);
-
-  if (queryParams.read) {
-    // Flattened across every brand under this vendor, each location tagged with its brand's
-    // name so the "Locations" list below reads sensibly with more than one brand.
-    ehrVendorRecord.allLocations = [];
-    (ehrVendorRecord.brands || []).forEach((brand) => {
-      (brand.locations || []).forEach((location) => {
-        ehrVendorRecord.allLocations.push({ ...location, brandName: brand.name });
-      });
-    });
-  }
 
   Handlebars.registerPartial(
     "crudButton",

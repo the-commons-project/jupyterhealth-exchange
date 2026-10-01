@@ -302,7 +302,7 @@ describe("finishEhrPatientPortalConnect", () => {
     await window.finishEhrPatientPortalConnect(out, CONFIG);
 
     const source = global.fetch.mock.calls.find(([url]) => String(url).includes("fhir_sources"));
-    expect(JSON.parse(source[1].body)).toEqual({ label: "Epic / EHR Patient Portal — " + PICKED, data_source: 3, ehr_brand_location: 4242 });
+    expect(JSON.parse(source[1].body)).toEqual({ data_source: 3, ehr_base_url: PICKED, ehr_brand_location: 4242 });
   });
 
   test("omits the location when the patient did not come through the picker", async () => {
@@ -314,7 +314,7 @@ describe("finishEhrPatientPortalConnect", () => {
     expect(JSON.parse(source[1].body)).not.toHaveProperty("ehr_brand_location");
   });
 
-  test("stamps the authorized server URL on the identifier and source label", async () => {
+  test("stamps the authorized server URL on the identifier and sends no source label", async () => {
     const out = { textContent: "" };
 
     await window.finishEhrPatientPortalConnect(out, CONFIG);
@@ -324,9 +324,9 @@ describe("finishEhrPatientPortalConnect", () => {
     const source = calls.find(([url]) => String(url).includes("fhir_sources"));
 
     expect(JSON.parse(identifier[1].body).system).toBe(PICKED);
-    // A FhirSource holds no endpoint; the label is its only human-facing handle, so the
-    // authorized server URL goes there.
-    expect(JSON.parse(source[1].body)).toEqual({ label: "Epic / EHR Patient Portal — " + PICKED, data_source: 3 });
+    // The server names the source from the brand it resolves, so no label is sent;
+    // ehr_base_url is only a lookup hint for the server to find the brand.
+    expect(JSON.parse(source[1].body)).toEqual({ data_source: 3, ehr_base_url: PICKED });
   });
 
   test("registers the data source the patient chose to connect", async () => {

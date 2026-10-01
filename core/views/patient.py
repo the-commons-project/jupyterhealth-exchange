@@ -16,6 +16,7 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.models import (
     CodeableConcept,
+    FhirSource,
     JheUser,
     Observation,
     Organization,
@@ -33,6 +34,7 @@ from core.permissions import IfUserCan
 from core.serializers import (
     ClientSerializer,
     CodeableConceptSerializer,
+    PatientFhirSourceSerializer,
     PatientInvitationSerializer,
     PatientSerializer,
     StudyConsentsSerializer,
@@ -254,6 +256,16 @@ class PatientViewSet(ModelViewSet):
             data.append(client_data)
 
         return Response(data)
+
+    @action(detail=True, methods=["GET"], url_path="fhir_sources")
+    def fhir_sources(self, request, pk):
+        """GET /api/v1/patients/{id}/fhir_sources - the patient's FhirSources, for the admin patient page.
+
+        FhirSourceViewSet only serves the signed-in patient their own sources, so a practitioner needs this to see them. get_object() applies the same access rule as the patient detail it sits beside.
+        """
+        patient = self.get_object()
+        sources = FhirSource.objects.filter(patient=patient).select_related("data_source").order_by("id")
+        return Response(PatientFhirSourceSerializer(sources, many=True).data)
 
     @action(detail=False, methods=["GET"])
     def me(self, request):
