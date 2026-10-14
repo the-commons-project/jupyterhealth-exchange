@@ -409,7 +409,7 @@ function pfRail(activeStep) {
   return {
     steps: PF_RAIL_STEPS.map((label, i) => {
       const num = i + 1;
-      return { num: num, label: label, cls: num === activeStep ? " is-active" : num < activeStep ? " is-done" : "" };
+      return { num: num, label: label, current: num === activeStep, cls: num === activeStep ? " is-active" : num < activeStep ? " is-done" : "" };
     }),
   };
 }
