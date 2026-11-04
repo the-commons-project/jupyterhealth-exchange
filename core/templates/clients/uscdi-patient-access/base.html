@@ -1,0 +1,6 @@
+{% extends "common/patient_facing/base.html" %}
+{% load static %}
+
+{% block pf_head %}
+  <script src="{% static 'clients/uscdi-patient-access/js/client-uscdi-patient-access.js' %}?v={{ JHE_VERSION }}"></script>
+{% endblock %}

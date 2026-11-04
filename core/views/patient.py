@@ -7,6 +7,7 @@ from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.crypto import get_random_string
+from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from oauth2_provider.models import get_application_model
 from rest_framework import status
 from rest_framework.decorators import action
@@ -31,6 +32,7 @@ from core.models import (
     StudyPatientScopeConsent,
 )
 from core.pagination import CustomPageNumberPagination
+from core.patient_access.authentication import PatientSessionAuthentication
 from core.permissions import IfUserCan
 from core.serializers import (
     ClientSerializer,
@@ -317,7 +319,13 @@ class PatientViewSet(ModelViewSet):
         )
         return Response({"connections": connections, "connected": len(connections) > 0})
 
-    @action(detail=True, methods=["GET", "POST", "PATCH", "DELETE"])
+    # The USCDI Patient Access client calls this from a patient session (its shell has no bearer
+    # token); PatientSessionAuthentication accepts only a patient's session, with CSRF on writes.
+    @action(
+        detail=True,
+        methods=["GET", "POST", "PATCH", "DELETE"],
+        authentication_classes=[OAuth2Authentication, PatientSessionAuthentication],
+    )
     def consents(self, request, pk):
         # if this is a patient, check they are accessing their own consents
         if (not request.user.is_practitioner()) and (int(pk) != request.user.get_patient().id):

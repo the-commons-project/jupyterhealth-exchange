@@ -1,6 +1,25 @@
 from django.db import models
 
 
+class FhirSourceManager(models.Manager):
+    def get_or_create_for_pull(self, patient, data_source, location):
+        """The FhirSource a server-side pull (USCDI Patient Access) is recorded under: the patient's
+        existing source for the picked facility's brand and this data source, else a new one --
+        the one-per-brand rule FhirSourceViewSet.create applies, so a reconnect reuses its source
+        and repeat pulls are told apart by their own timestamps. Returns ``(source, created)``."""
+        brand = location.brand if location is not None else None
+        if brand is not None:
+            existing = (
+                self.filter(patient=patient, data_source=data_source, ehr_brand_location__brand=brand)
+                .order_by("id")
+                .first()
+            )
+            if existing is not None:
+                return existing, False
+        label = " - ".join(filter(None, [brand.vendor.name, brand.name])) if brand is not None else "EHR records"
+        return self.create(patient=patient, data_source=data_source, label=label, ehr_brand_location=location), True
+
+
 class FhirSource(models.Model):
     """A patient-registered upstream FHIR source.
 
@@ -41,6 +60,8 @@ class FhirSource(models.Model):
         related_name="fhir_sources",
     )
     last_updated = models.DateTimeField(auto_now=True)
+
+    objects = FhirSourceManager()
 
     def __str__(self):
         return self.label or f"FhirSource {self.pk}"

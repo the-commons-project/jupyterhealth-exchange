@@ -8,5 +8,7 @@ class CoreConfig(AppConfig):
     def ready(self):
         import core.signals  # noqa
         from core.jhe_settings_specs import register_core_settings
+        from core.patient_access.settings import register_settings as register_patient_access_settings
 
         register_core_settings()
+        register_patient_access_settings()

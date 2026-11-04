@@ -90,9 +90,10 @@ class PatientInvitation(models.Model):
 
         return invitation, link
 
-    # https://github.com/jazzband/django-oauth-toolkit/blob/102c85141ec44549e17080c676292e79e5eb46cc/oauth2_provider/oauth2_validators.py#L675
     @staticmethod
-    def redeem(token):
+    def _admit(token):
+        """The invitation a token names, if it may be used now, and whether it was already redeemed
+        within the re-use window. Raises the Invitation* exceptions (and DoesNotExist)."""
         invitation = PatientInvitation.objects.get(
             token_hash=PatientInvitation._hash_token(token),
         )
@@ -121,6 +122,19 @@ class PatientInvitation(models.Model):
 
         if not invitation.patient.jhe_user_id:
             raise ValueError("Patient has no associated user account.")
+
+        return invitation, recently_redeemed
+
+    @staticmethod
+    def _spend(invitation, recently_redeemed):
+        if not recently_redeemed:
+            invitation.status = PatientInvitation.Status.REDEEMED
+        invitation.save()
+
+    # https://github.com/jazzband/django-oauth-toolkit/blob/102c85141ec44549e17080c676292e79e5eb46cc/oauth2_provider/oauth2_validators.py#L675
+    @staticmethod
+    def redeem(token):
+        invitation, recently_redeemed = PatientInvitation._admit(token)
 
         jhe_user = invitation.patient.jhe_user
         code_verifier = base64.urlsafe_b64encode(token.encode()).rstrip(b"=").decode()
@@ -151,8 +165,21 @@ class PatientInvitation(models.Model):
             claims=json.dumps({}),
         )
 
-        if not recently_redeemed:
-            invitation.status = PatientInvitation.Status.REDEEMED
-        invitation.save()
+        PatientInvitation._spend(invitation, recently_redeemed)
 
         return invitation, grant
+
+    @staticmethod
+    def redeem_for_user(token, client):
+        """Redeem an invitation for the patient's user, without minting an OAuth grant: for a client
+        that logs the patient in with a Django session (USCDI Patient Access). Same rules as
+        ``redeem`` (expiry, the re-use window, reissue and cancel), and the invitation must have been
+        issued for ``client``."""
+        invitation, recently_redeemed = PatientInvitation._admit(token)
+        if invitation.client_id != client.id:
+            raise InvitationConflict()
+        jhe_user = invitation.patient.jhe_user
+        jhe_user.last_login = timezone.now()
+        jhe_user.save()
+        PatientInvitation._spend(invitation, recently_redeemed)
+        return jhe_user

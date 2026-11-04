@@ -1,0 +1,24 @@
+{% verbatim %}
+<script id="t-connect" type="text/template">
+  <a class="pf-back" href="#" onclick="pfNav('hub'); return false;"><i class="bi bi-arrow-left"></i> Back</a>
+  {{> rail rail}}
+  <p class="pf-eyebrow">Clinical records</p>
+  <h1 class="pf-h1">Share your medical records</h1>
+  <p class="pf-lede">Connect your healthcare organization to securely share your clinical records with your study: labs, conditions, medications and more. You choose your organization and sign in with them directly.</p>
+  <div class="pf-callout">We only send the records you approve, over an encrypted connection, and only to the study you were invited to. Your records are sent once, when you connect.</div>
+  <div id="hospital-picker" hidden>
+    <label for="hospital-search" class="pf-eyebrow pf-eyebrow--tight">Find your healthcare organization</label>
+    <div class="pf-search">
+      <input id="hospital-search" type="search" class="pf-input" placeholder="Search by hospital name, city, or state" autocomplete="off" />
+      <div id="hospital-results"></div>
+    </div>
+  </div>
+  <div id="scope-picker" hidden>
+    <label class="pf-eyebrow pf-eyebrow--tight">Choose what to share</label>
+    <div id="scope-picker-list" class="pf-card-stack"></div>
+    <div class="pf-actions">
+      <button id="scope-picker-continue" type="button" class="pf-btn pf-btn--wide">Continue</button>
+    </div>
+  </div>
+</script>
+{% endverbatim %}
