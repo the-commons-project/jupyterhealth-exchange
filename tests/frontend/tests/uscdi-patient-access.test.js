@@ -115,6 +115,31 @@ describe("the picker and the launch", () => {
     expect(JSON.parse(opts.body)).toEqual({ locationId: 9, scopes: ["patient/Observation.read"], dataSourceId: 5 });
   });
 
+  test("a vendor whose own screen asks per type skips the checklist and requests every type", async () => {
+    global.PATIENT_FACING_CONFIG.typeChoiceByVendor = { "Epic Sandbox": "ehr", "SMART Sandbox": "host" };
+    expect(window.upaTypeChoice({ vendorName: "Epic Sandbox" })).toBe("ehr");
+    expect(window.upaTypeChoice({ vendorName: "SMART Sandbox" })).toBe("host");
+    expect(window.upaTypeChoice({ vendorName: "Unknown" })).toBe("host");
+    window.pfRender("t-connect", { rail: window.pfRail(1) });
+    global.fetch = jest.fn(() => jsonResponse({ error: "stop before navigating" }, false));
+    const row = { id: 9, vendorName: "Epic Sandbox", supportedScopes: "patient/Patient.read patient/Observation.read" };
+    await window.upaAfterHospital(row, "5");
+    expect(document.querySelectorAll("#scope-picker-list input[type=checkbox]").length).toBe(0);
+    const [url, opts] = global.fetch.mock.calls[0];
+    expect(url).toContain("/api/v1/uscdi-patient-access/launch");
+    expect(JSON.parse(opts.body).scopes).toEqual(["patient/Patient.read", "patient/Observation.read"]);
+  });
+
+  test("a vendor without its own per-type screen gets the checklist", async () => {
+    global.PATIENT_FACING_CONFIG.typeChoiceByVendor = { "SMART Sandbox": "host" };
+    window.pfRender("t-connect", { rail: window.pfRail(1) });
+    global.fetch = jest.fn();
+    await window.upaAfterHospital({ id: 9, vendorName: "SMART Sandbox", supportedScopes: "patient/Observation.read" }, "5");
+    expect(document.getElementById("scope-picker").hidden).toBe(false);
+    expect(document.querySelectorAll("#scope-picker-list input[type=checkbox]").length).toBe(1);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   test("the checklist offers the vendor's scopes, all checked", () => {
     const list = document.createElement("div");
     const button = document.createElement("button");

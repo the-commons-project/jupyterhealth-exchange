@@ -97,6 +97,42 @@ function upaRenderBrandResults(container, results, onSelect) {
   return results.length;
 }
 
+// Where this hospital's patients pick record types: "host" (our checklist) or "ehr" (the
+// vendor's own authorization screen asks per type, so we do not ask twice). The server tells us
+// per vendor row (PATIENT_FACING_CONFIG.typeChoiceByVendor) and enforces the same on launch.
+function upaTypeChoice(row) {
+  const byVendor = (window.PATIENT_FACING_CONFIG || {}).typeChoiceByVendor || {};
+  return byVendor[row.vendorName] === "ehr" ? "ehr" : "host";
+}
+
+// After the patient picks a hospital: the checklist, or straight to the sign-in with every
+// type when the vendor's own screen asks.
+async function upaAfterHospital(row, sourceId) {
+  const launch = async (acceptedScopes) => {
+    pfShowLoading();
+    try {
+      await upaLaunch(row, acceptedScopes, sourceId);
+    } catch (e) {
+      pfHideLoading();
+      showFlowError("We couldn't start the connection", e && e.message ? e.message : String(e), {
+        retryLabel: "Choose a different organization",
+      });
+    }
+  };
+  document.getElementById("hospital-picker").hidden = true;
+  if (upaTypeChoice(row) === "ehr") {
+    await launch((row.supportedScopes || "").split(/\s+/).filter(Boolean));
+    return;
+  }
+  document.getElementById("scope-picker").hidden = false;
+  upaRenderScopePicker(
+    document.getElementById("scope-picker-list"),
+    document.getElementById("scope-picker-continue"),
+    row,
+    launch
+  );
+}
+
 // Connect step: the hospital picker, then the scope checklist; Continue launches the sign-in.
 pfClient.connect = async (source) => {
   pfRender("t-connect", { rail: pfRail(1) });
@@ -105,26 +141,7 @@ pfClient.connect = async (source) => {
     input: document.getElementById("hospital-search"),
     results: document.getElementById("hospital-results"),
   };
-  const onSelect = (row) => {
-    picker.container.hidden = true;
-    document.getElementById("scope-picker").hidden = false;
-    upaRenderScopePicker(
-      document.getElementById("scope-picker-list"),
-      document.getElementById("scope-picker-continue"),
-      row,
-      async (acceptedScopes) => {
-        pfShowLoading();
-        try {
-          await upaLaunch(row, acceptedScopes, source.id);
-        } catch (e) {
-          pfHideLoading();
-          showFlowError("We couldn't start the connection", e && e.message ? e.message : String(e), {
-            retryLabel: "Choose a different organization",
-          });
-        }
-      }
-    );
-  };
+  const onSelect = (row) => upaAfterHospital(row, source.id);
   const runSearch = async () => {
     upaRenderBrandResults(picker.results, await upaSearchBrands(picker.input.value), onSelect);
   };
@@ -281,6 +298,8 @@ if (typeof window !== "undefined") {
   window.upaLaunch = upaLaunch;
   window.upaRenderBrandResults = upaRenderBrandResults;
   window.upaRenderScopePicker = upaRenderScopePicker;
+  window.upaTypeChoice = upaTypeChoice;
+  window.upaAfterHospital = upaAfterHospital;
   window.upaTypeLine = upaTypeLine;
   window.upaProgressCopy = upaProgressCopy;
   window.upaJobText = upaJobText;

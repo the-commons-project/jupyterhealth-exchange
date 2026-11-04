@@ -17,7 +17,7 @@ from types import MappingProxyType
 from core.models import EhrBrandLocation, EhrVendor
 from patient_access.core.models import Brand, Endpoint, Facility, Selection
 from patient_access.core.source_settings import SourceSettings
-from patient_access.core.vendors import VENDORS, VendorKey
+from patient_access.core.vendors import VENDORS, TypeChoice, VendorKey
 
 VENDOR_KEYS: Mapping[str, VendorKey] = MappingProxyType(
     {
@@ -62,6 +62,18 @@ class JheOrmDirectory:
         if key is None or row is None or not row.ehr_client_id:
             raise KeyError(endpoint.vendor)
         return VENDORS[key].settings(vendor_name=endpoint.vendor, client_id=row.ehr_client_id)
+
+    @staticmethod
+    def type_choice(vendor_name: str) -> TypeChoice:
+        """Where the patient picks record types for this vendor (the host's checklist unless the
+        registry says the vendor's own screen asks)."""
+        key = VENDOR_KEYS.get(vendor_name)
+        return VENDORS[key].type_choice if key is not None else TypeChoice.HOST
+
+    @staticmethod
+    def type_choices() -> dict[str, str]:
+        """Every vendor row name the registry knows, to where its patients pick types."""
+        return {name: VENDORS[key].type_choice.value for name, key in VENDOR_KEYS.items()}
 
     @staticmethod
     def offered_scopes(selection: Selection) -> tuple[str, ...]:
