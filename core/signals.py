@@ -9,10 +9,21 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from core.context_processors import SAML2_SINGLE_SOCIAL_APP_CACHE_KEY
-from core.models import Practitioner
+from core.models import JheSetting, Practitioner
+from core.services.jhe_settings import setting_cache_key
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+@receiver(post_save, sender=JheSetting)
+@receiver(post_delete, sender=JheSetting)
+def clear_jhe_setting_cache(sender, instance, **kwargs):
+    # get_setting() caches each key for DEFAULT_CACHE_TTL. Dropping the entry on save makes an
+    # operator's change visible at once in the process that saved it; with the default
+    # per-process LocMemCache, other workers still wait out the TTL. A row whose key was renamed
+    # leaves the old key's entry to expire on its own.
+    cache.delete(setting_cache_key(instance.key))
 
 
 @receiver(post_save, sender=SocialApp)

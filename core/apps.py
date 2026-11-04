@@ -7,3 +7,6 @@ class CoreConfig(AppConfig):
 
     def ready(self):
         import core.signals  # noqa
+        from core.jhe_settings_specs import register_core_settings
+
+        register_core_settings()
