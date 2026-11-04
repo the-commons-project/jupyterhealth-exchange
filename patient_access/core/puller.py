@@ -18,7 +18,7 @@ from .client import FhirClient, TokenExpired, Unauthorized
 from .interfaces import SpoolHandle
 from .log import JobLog, sanitised
 from .models import A, Job, JsonObject, OutcomeStatus, TypeOutcome
-from .source_settings import QuerySpec, SourceSettings, to_v2
+from .source_settings import QuerySpec, SourceSettings
 
 SAVE_EVERY_PAGES = 5
 
@@ -30,18 +30,20 @@ class FetchAborted(Exception):
 def plan_outcomes(settings: SourceSettings, requested: tuple[str, ...], granted: tuple[str, ...]) -> list[TypeOutcome]:
     """One outcome per row of the query table, decided at the callback: `not_requested` when the
     patient left the type unchecked, `not_granted` when the EHR withheld a requested scope,
-    `pending` for what the puller will fetch."""
-    requested_set = frozenset(requested) | frozenset(to_v2(s) for s in requested)
+    `pending` for what the puller will fetch: requested *and* granted.
+
+    The patient's choice wins over the EHR's grant. Epic grants every type in the app
+    registration whatever was asked for, so a granted scope alone never means the patient chose
+    to share that type."""
+    asked = {q.label for q in settings.queries_for(requested)}
     fetchable = {q.label for q in settings.queries_for(granted)}
 
     def outcome(q: QuerySpec) -> TypeOutcome:
         o = TypeOutcome(label=q.label, resource_type=q.resource_type, query=q.query)
-        if q.label in fetchable:
-            return o
-        if q.scope in requested_set or to_v2(q.scope) in requested_set:
-            o.status, o.error = OutcomeStatus.NOT_GRANTED, "the organization did not grant access to this type"
-        else:
+        if q.label not in asked:
             o.status, o.error = OutcomeStatus.NOT_REQUESTED, "not selected by the patient"
+        elif q.label not in fetchable:
+            o.status, o.error = OutcomeStatus.NOT_GRANTED, "the organization did not grant access to this type"
         return o
 
     return [outcome(q) for q in settings.fetch.queries]

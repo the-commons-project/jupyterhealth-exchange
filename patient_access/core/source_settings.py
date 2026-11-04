@@ -16,6 +16,7 @@ from enum import StrEnum
 
 from .credentials import PUBLIC, AuthMethod
 from .models import DocumentSource, Value
+from .scopes import Access, Context, Permission, ScopeSet, constraints_of
 
 
 class ScopeVersion(StrEnum):
@@ -27,9 +28,6 @@ def to_v2(scope: str) -> str:
     return scope.removesuffix(".read") + ".rs" if scope.endswith(".read") else scope
 
 
-WILDCARD_SCOPES: frozenset[str] = frozenset({"patient/*.read", "patient/*.rs", "patient/*.*"})
-
-
 class QuerySpec(Value):
     """One row of the query table: what to GET and which scope gates it."""
 
@@ -38,6 +36,17 @@ class QuerySpec(Value):
     query: str  # "Observation?category=laboratory"; "Patient" with single=True is an instance read
     scope: str  # the patient/<Type>.read scope that gates it
     single: bool = False  # an instance read of the patient's own id (Patient)
+
+    @property
+    def access(self) -> Access:
+        """What running this row needs: a search under its parameters, or a read for `single`."""
+        _, _, query = self.query.partition("?")
+        return Access(
+            context=Context.PATIENT,
+            resource_type=self.resource_type,
+            permission=Permission.READ if self.single else Permission.SEARCH,
+            parameters=constraints_of(query),
+        )
 
 
 class DocumentProfile(Value):
@@ -93,10 +102,7 @@ class SourceSettings(Value):
         wanted = resource_scopes if resource_scopes is not None else [q.scope for q in self.fetch.queries]
         return self.registration.scopes(wanted)
 
-    def queries_for(self, granted: tuple[str, ...]) -> tuple[QuerySpec, ...]:
-        """Rows whose scope was granted, in either scope form (servers echo scopes back converted).
-        A granted wildcard covers every row."""
-        granted_set = frozenset(granted)
-        if WILDCARD_SCOPES & granted_set:
-            return self.fetch.queries
-        return tuple(q for q in self.fetch.queries if q.scope in granted_set or to_v2(q.scope) in granted_set)
+    def queries_for(self, scopes: tuple[str, ...]) -> tuple[QuerySpec, ...]:
+        """Rows whose access these scopes cover, in any SMART spelling (see `scopes.py`)."""
+        covered = ScopeSet.parse(scopes)
+        return tuple(q for q in self.fetch.queries if covered.covers(q.access))

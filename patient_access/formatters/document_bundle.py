@@ -34,6 +34,7 @@ from patient_access.core.models import (
     SpoolIndex,
     TypeOutcome,
 )
+from patient_access.core.scopes import ScopeSet
 from patient_access.core.settings import BundleSettings
 
 from .stream import Entry, InlineBlob
@@ -117,7 +118,7 @@ def attrs_extensions(attrs: Mapping[str, Any]) -> list[JsonObject | None]:
 
 def pull_extension(job: Job[A], base: str) -> JsonObject:
     src = job.source
-    not_granted = sorted({s for s in src.scopes_requested if s.startswith("patient/")} - set(src.scopes_granted))
+    not_granted = ScopeSet.parse(src.scopes_granted).withheld(src.scopes_requested)
     return nested(
         base + PULL_EXTENSION,
         [
