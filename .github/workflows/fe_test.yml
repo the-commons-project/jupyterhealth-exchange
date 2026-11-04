@@ -3,8 +3,7 @@ name: Frontend Tests
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  pull_request: # every base branch, so stacked PRs against a feature branch run the suite too
 
 permissions:
   contents: read
