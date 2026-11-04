@@ -46,6 +46,8 @@ def boto3_client(settings: S3Settings) -> S3Client:
 
 
 def sse_arguments(settings: S3Settings) -> Mapping[str, str]:
+    if settings.encryption is SseMode.BUCKET_DEFAULT:
+        return {}
     args = {"ServerSideEncryption": settings.encryption.value}
     if settings.encryption is SseMode.KMS and settings.kms_key_id:
         args["SSEKMSKeyId"] = settings.kms_key_id

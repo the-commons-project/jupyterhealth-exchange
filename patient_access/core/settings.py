@@ -29,6 +29,10 @@ class SseMode(StrEnum):
 
     S3 = "AES256"
     KMS = "aws:kms"
+    # No header: the bucket's own default encryption applies (on AWS every bucket encrypts with
+    # at least SSE-S3). For S3-compatible stores that refuse an explicit header without a KMS, like
+    # the local dev store.
+    BUCKET_DEFAULT = "bucket-default"
 
 
 class S3Settings(Value):

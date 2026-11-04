@@ -165,6 +165,11 @@ class OrmJobStore(Generic[A]):
     def release(self, job_id: JobId, worker: str) -> None:
         JobRecord.objects.filter(id=job_id, lease_owner=worker).update(lease_owner=None, lease_expires_at=None)
 
+    def for_participant(self, ref: str, limit: int = 20) -> list[Job[A]]:
+        """A participant's jobs, newest first (for the host's "your pulls" screens)."""
+        rows = JobRecord.objects.filter(participant_ref=ref).order_by("-created_at")[:limit]
+        return [self._job(row) for row in rows]
+
     def live_spool_refs(self) -> frozenset[str]:
         refs = (
             JobRecord.objects.exclude(status__in=_TERMINAL)

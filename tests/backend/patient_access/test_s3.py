@@ -107,3 +107,10 @@ def test_kms_encryption_is_requested_when_configured(s3):
 def test_the_part_size_has_a_floor():
     with pytest.raises(ValueError):
         MultipartUploader(object(), bucket="b", key="k", content_type="c", sse={}, part_size=1024)
+
+
+def test_bucket_default_encryption_sends_no_header():
+    from patient_access.destinations.s3 import sse_arguments
+
+    assert sse_arguments(s3_settings(encryption="bucket-default")) == {}
+    assert sse_arguments(s3_settings()) == {"ServerSideEncryption": "AES256"}
