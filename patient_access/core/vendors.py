@@ -22,12 +22,27 @@ class VendorKey(StrEnum):
     SMART_REFERENCE = "smart-reference"  # the SMART Health IT sandbox: dev and end-to-end runs
 
 
+class TypeChoice(StrEnum):
+    """Where the patient chooses which record types to share.
+
+    HOST: the host shows its own checklist and narrows the requested scopes to the ticked types.
+    EHR: the vendor's authorization screen asks per type itself, from the app registration, and
+    ignores the narrowing (Epic, observed 2026-11-04: every registered category is listed, ticked,
+    whatever the request asked for). The host should not ask twice: it requests every type and
+    the patient's choice shows up as scopes the EHR did not grant.
+    """
+
+    HOST = "host"
+    EHR = "ehr"
+
+
 class Vendor(Value):
     key: VendorKey
     fetch: FetchProfile
     scope_version: ScopeVersion = ScopeVersion.V1
     base_scopes: tuple[str, ...]
     methods: tuple[AuthMethod, ...] = (PUBLIC,)  # what this build registers: public clients
+    type_choice: TypeChoice = TypeChoice.HOST
 
     def settings(self, *, vendor_name: str, client_id: str) -> SourceSettings:
         """This vendor's settings for one registration (the host's vendor name and client id)."""
@@ -50,6 +65,7 @@ VENDORS: Mapping[VendorKey, Vendor] = MappingProxyType(
             fetch=EPIC_PROFILE,
             # What JHE's EhrVendor.BASE_SCOPES requests from Epic today.
             base_scopes=("openid", "profile", "launch/patient"),
+            type_choice=TypeChoice.EHR,
         ),
         VendorKey.SMART_REFERENCE: Vendor(
             key=VendorKey.SMART_REFERENCE,
