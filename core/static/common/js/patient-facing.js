@@ -129,14 +129,29 @@ async function pfErrorText(response) {
   }
 }
 
-// Bearer-authenticated JSON request against /api/v1/; resolves to the parsed body (null for 204), throws on error.
+// Session mode: a client whose page sets PATIENT_FACING_CONFIG.auth = "session" (USCDI Patient
+// Access) has a Django session from its invitation link instead of a stored bearer token. Its
+// requests are same-origin with the session cookie, and carry the CSRF token on writes.
+function pfSessionMode() {
+  return typeof PATIENT_FACING_CONFIG !== "undefined" && PATIENT_FACING_CONFIG.auth === "session";
+}
+
+const PF_SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];
+
+// Authenticated JSON request against /api/v1/ (bearer token, or the session in session mode); resolves to the parsed body (null for 204), throws on error.
 async function pfApi(method, path, body) {
-  const headers = { Authorization: `Bearer ${getStoredToken()}`, "Cache-Control": "no-cache" };
+  const headers = { "Cache-Control": "no-cache" };
+  if (pfSessionMode()) {
+    if (PF_SAFE_METHODS.indexOf(method) === -1) headers["X-CSRFToken"] = PATIENT_FACING_CONFIG.csrfToken;
+  } else {
+    headers.Authorization = `Bearer ${getStoredToken()}`;
+  }
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(API_ENDPOINT + path, {
     method: method,
     headers: headers,
     body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: "same-origin",
   });
   if (!response.ok) throw new Error(await pfErrorText(response));
   if (response.status === 204) return null;
@@ -198,7 +213,8 @@ async function renderError(params) {
 async function patientApp() {
   pfRegisterPartials();
   const current = pfRouteAndParams();
-  if (current.params.code) {
+  // In session mode the server redeemed the invitation code before serving the page.
+  if (current.params.code && !pfSessionMode()) {
     pfShowLoading();
     try {
       await pfRedeemInvitation(current.params.code);
@@ -211,7 +227,7 @@ async function patientApp() {
     delete current.params.code;
     window.history.replaceState({}, "", pfUrl(current.route, current.params));
   }
-  if (!getStoredToken()) {
+  if (!pfSessionMode() && !getStoredToken()) {
     showFlowError("Your session has ended", "Open the link from your invitation email to continue.");
     return;
   }
@@ -562,6 +578,8 @@ if (typeof window !== "undefined") {
   window.renderError = renderError;
   window.patientApp = patientApp;
   window.PF_ROUTES = PF_ROUTES;
+  window.PF_ROUTE_TITLES = PF_ROUTE_TITLES;
+  window.pfSessionMode = pfSessionMode;
   window.pfPatientLabel = pfPatientLabel;
   window.pfUniqueSorted = pfUniqueSorted;
   window.pfSources = pfSources;

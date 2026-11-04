@@ -1,6 +1,7 @@
 #!/bin/sh
 # Dev-only entrypoint for the `jhe` and `cron` services in docker-compose.yml: provide the
-# OIDC signing key, migrate, seed if the database is empty, then run the command. The
+# OIDC signing key and the patient access key, migrate, seed if the database is empty, then
+# run the command. The
 # production image (Dockerfile / fly.toml) does not use this.
 #
 # `cron` runs it too (it waits for `jhe` to be healthy first, so its migrate is a no-op and
@@ -32,6 +33,14 @@ fi
 OIDC_RSA_PRIVATE_KEY="$(cat "$key_file")"
 export OIDC_RSA_PRIVATE_KEY
 
+# USCDI Patient Access: the Fernet key its tables are encrypted with, generated the same way.
+# docker-compose.yml points PATIENT_ACCESS_ENCRYPTION_KEYS_FILE at it, which turns the module on.
+pa_key_file=/code/local/patient-access.key
+if [ ! -s "$pa_key_file" ]; then
+    echo "jhe-entrypoint: generating a dev patient access key at local/patient-access.key"
+    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > "$pa_key_file"
+fi
+
 python manage.py migrate --noinput
 
 # `seed` only works on an empty database, so run it once. "Has any user" is the marker:
@@ -41,6 +50,8 @@ if python manage.py shell -v 0 -c "import sys; from core.models import JheUser; 
 else
     echo "jhe-entrypoint: empty database, running seed"
     python manage.py seed
+    # Dev only: the SMART sandbox hospitals and the local S3 settings for USCDI Patient Access.
+    python manage.py seed_patient_access_sandbox || echo "jhe-entrypoint: seed_patient_access_sandbox failed; rerun it with scripts/dev/manage.sh"
 fi
 
 exec "$@"

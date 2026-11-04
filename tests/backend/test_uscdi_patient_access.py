@@ -1,0 +1,579 @@
+"""USCDI Patient Access in JHE: the invitation's patient session, the launch, the callback's
+order of checks, the job endpoint, the shell's endpoints in session mode, the settings keys, and
+one pull end to end into a (moto) bucket."""
+
+import json
+import logging
+from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
+
+import boto3
+import pytest
+import responses
+from django.test import Client, override_settings
+from django.utils import timezone
+from moto import mock_aws
+from oauth2_provider.models import get_application_model
+from rest_framework.test import APIClient
+
+from core.models import (
+    ClientDataSource,
+    CodeableConcept,
+    DataSource,
+    DataSourceSupportedScope,
+    EhrBrand,
+    EhrBrandLocation,
+    EhrVendor,
+    FhirSource,
+    JheClient,
+    JheSetting,
+    JheUser,
+    PatientIdentifier,
+    PatientInvitation,
+    StudyDataSource,
+    StudyPatientScopeConsent,
+    StudyScopeRequest,
+)
+from core.patient_access.consent import require_consent
+from core.patient_access.directory import JheOrmDirectory
+from core.patient_access.settings import read_patient_access_settings
+from core.views.uscdi_patient_access import FLOW_ERROR_KEY
+from patient_access.core.models import JobStatus
+from patient_access.core.pipeline import DeliveryRefused
+from patient_access.core.smart import clear_discovery_cache
+from patient_access.django_app.models import AuthAttemptRecord, JobRecord
+from patient_access.django_app.wiring import get_module
+
+from .utils import add_patient_to_study, create_study
+
+ISS = "https://ehr.example.org/fhir"
+AUTHORIZE = "https://ehr.example.org/authorize"
+TOKEN = "https://ehr.example.org/token"
+CONNECT = "/clients/uscdi-patient-access/"
+CALLBACK = "/clients/uscdi-patient-access/callback"
+TEST_KEY = "x9Q5mX1y8m0bkYb3l7wVvO9Oe2r3wQ4b8h9vB9fP0nU="
+BUCKET = "pulls"
+
+
+@pytest.fixture(autouse=True)
+def fresh_settings_cache():
+    """get_setting caches per process; a rolled-back row from another test must not linger."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.fixture
+def module_on(tmp_path):
+    config = {
+        "ENCRYPTION_KEYS": [TEST_KEY],
+        "SPOOL_DIR": str(tmp_path / "spool"),
+        "DISPATCHER": "none",  # tests run the job themselves, in-process
+        "LAUNCH_ATTRS": "core.patient_access.identity.LaunchAttrs",
+        "JOB_ATTRS": "core.patient_access.identity.JheAttrs",
+        "DIRECTORY": "core.patient_access.directory.JheOrmDirectory",
+        "SETTINGS_PROVIDER": "core.patient_access.settings.read_patient_access_settings",
+        "DELIVERY_GUARD": "core.patient_access.consent.require_consent",
+    }
+    with override_settings(PATIENT_ACCESS=config):
+        yield get_module()
+
+
+@pytest.fixture
+def world(db, organization, patient):
+    """The client, its data source with the wildcard scope, a study the patient consented to, and
+    one EHR facility on a vendor the registry knows."""
+    star, _ = CodeableConcept.objects.get_or_create(
+        coding_system="http://hl7.org/fhir/resource-types", coding_code="*", defaults={"text": "All FHIR Resources"}
+    )
+    ds = DataSource.objects.create(name="USCDI Patient Access", type="patient_app")
+    DataSourceSupportedScope.objects.create(data_source=ds, scope_code=star)
+    app = get_application_model().objects.create(
+        name="USCDI Patient Access",
+        client_type="public",
+        authorization_grant_type="authorization-code",
+        redirect_uris="http://testserver/auth/callback",
+    )
+    JheClient.objects.create(
+        application=app, invitation_url="http://testserver/clients/uscdi-patient-access/?code=CODE"
+    )
+    ClientDataSource.objects.create(client=app, data_source=ds)
+    study = create_study(organization=organization)
+    StudyScopeRequest.objects.create(study=study, scope_code=star)
+    StudyDataSource.objects.create(study=study, data_source=ds)
+    add_patient_to_study(patient, study)
+    vendor = EhrVendor.objects.create(
+        name="SMART Sandbox", ehr_client_id="client-1", supported_scopes="patient/Patient.read patient/Observation.read"
+    )
+    brand = EhrBrand.objects.create(name="Example Health", vendor=vendor, fhir_base_url=ISS)
+    location = EhrBrandLocation.objects.create(brand=brand, name="Example Clinic", address_text="1 Main St")
+    return {"app": app, "ds": ds, "study": study, "location": location, "patient": patient}
+
+
+@pytest.fixture
+def ehr():
+    clear_discovery_cache()
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+        rsps.add(
+            responses.GET,
+            f"{ISS}/.well-known/smart-configuration",
+            json={"authorization_endpoint": AUTHORIZE, "token_endpoint": TOKEN},
+        )
+        yield rsps
+    clear_discovery_cache()
+
+
+def invitation_code(world):
+    invitation = PatientInvitation.issue(world["patient"], world["app"])
+    return f"testserver_{invitation.token}"
+
+
+def patient_browser(world) -> Client:
+    browser = Client(enforce_csrf_checks=True)
+    r = browser.get(CONNECT, {"code": invitation_code(world)})
+    assert r.status_code == 302 and "code=" not in r["Location"]
+    return browser
+
+
+def csrf(browser: Client) -> str:
+    browser.get(CONNECT)
+    return browser.cookies["csrftoken"].value
+
+
+def launch(browser: Client, world, scopes=("patient/Observation.read",)):
+    return browser.post(
+        "/api/v1/uscdi-patient-access/launch",
+        data=json.dumps({"locationId": world["location"].id, "scopes": list(scopes), "dataSourceId": world["ds"].id}),
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=csrf(browser),
+    )
+
+
+def flow_error(browser: Client):
+    return browser.session.get(FLOW_ERROR_KEY)
+
+
+# --- the invitation's session ----------------------------------------------------------------
+
+
+def test_the_invitation_logs_the_patient_in_and_strips_the_code(world):
+    browser = patient_browser(world)
+    assert int(browser.session["_auth_user_id"]) == world["patient"].jhe_user_id
+    assert browser.session.get_expiry_age() <= 12 * 3600
+    assert browser.get(CONNECT).context["config"]["auth"] == "session"
+
+
+@pytest.mark.parametrize("code", ["testserver_nope", "garbage"])
+def test_a_bad_invitation_gets_the_error_route(world, code):
+    browser = Client()
+    r = browser.get(CONNECT, {"code": code})
+    assert r["Location"].endswith("?route=error")
+    assert flow_error(browser)["title"] == "This invitation link isn't valid"
+    assert "_auth_user_id" not in browser.session
+
+
+def test_an_invitation_for_another_client_does_not_log_in(world):
+    other = get_application_model().objects.create(
+        name="Other", client_type="public", authorization_grant_type="authorization-code"
+    )
+    invitation = PatientInvitation.issue(world["patient"], other)
+    browser = Client()
+    browser.get(CONNECT, {"code": f"testserver_{invitation.token}"})
+    assert "_auth_user_id" not in browser.session
+
+
+def test_a_reused_invitation_works_within_the_window_and_not_after(world):
+    code = invitation_code(world)
+    assert Client().get(CONNECT, {"code": code})["Location"].startswith(CONNECT)
+    second = Client()
+    second.get(CONNECT, {"code": code})
+    assert "_auth_user_id" in second.session
+    PatientInvitation.objects.update(last_updated=timezone.now() - timedelta(hours=13))
+    third = Client()
+    third.get(CONNECT, {"code": code})
+    assert "_auth_user_id" not in third.session
+
+
+def test_without_a_session_the_page_says_so(world, module_on):
+    config = Client().get(CONNECT).context["config"]
+    assert config["flowError"]["title"] == "Your session has ended"
+
+
+# --- launch ----------------------------------------------------------------------------------
+
+
+def test_launch_returns_the_authorize_url_and_records_the_attempt(world, module_on, ehr):
+    r = launch(patient_browser(world), world)
+    assert r.status_code == 200, r.content
+    url = r.json()["authorizeUrl"]
+    q = parse_qs(urlparse(url).query)
+    assert url.startswith(AUTHORIZE) and q["client_id"] == ["client-1"]
+    assert q["redirect_uri"] == ["http://testserver/clients/uscdi-patient-access/callback"]
+    attempt = AuthAttemptRecord.objects.get()
+    assert attempt.participant_ref == str(world["patient"].id)
+    assert attempt.body["scopes_declined"] == ["patient/Patient.read"]
+
+
+def test_launch_needs_the_session_and_the_csrf_token(world, module_on, ehr):
+    anonymous = Client(enforce_csrf_checks=True)
+    assert launch(anonymous, world).status_code == 403
+    browser = patient_browser(world)
+    r = browser.post(
+        "/api/v1/uscdi-patient-access/launch",
+        data=json.dumps({"locationId": world["location"].id, "dataSourceId": world["ds"].id}),
+        content_type="application/json",
+    )
+    assert r.status_code == 403  # no CSRF token
+
+
+def test_launch_refuses_without_consent(world, module_on, ehr):
+    StudyPatientScopeConsent.objects.update(consented=False)
+    assert launch(patient_browser(world), world).status_code == 403
+
+
+def test_launch_refuses_a_data_source_this_client_does_not_have(world, module_on, ehr):
+    other = DataSource.objects.create(name="Other", type="patient_app")
+    browser = patient_browser(world)
+    r = browser.post(
+        "/api/v1/uscdi-patient-access/launch",
+        data=json.dumps({"locationId": world["location"].id, "scopes": [], "dataSourceId": other.id}),
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=csrf(browser),
+    )
+    assert r.status_code == 400
+
+
+def test_the_module_off_is_a_503_and_the_page_says_so(world, ehr):
+    browser = patient_browser(world)
+    assert launch(browser, world).status_code == 503
+    assert browser.get(CONNECT).context["config"]["flowError"]["title"] == "Not available"
+
+
+# --- callback --------------------------------------------------------------------------------
+
+
+def launched(world):
+    browser = patient_browser(world)
+    state = parse_qs(urlparse(launch(browser, world).json()["authorizeUrl"]).query)["state"][0]
+    return browser, state
+
+
+def token_response(ehr, patient="ehr-p1"):
+    ehr.add(
+        responses.POST,
+        TOKEN,
+        json={"access_token": "ehr-token", "patient": patient, "scope": "openid patient/Observation.read"},
+    )
+
+
+def test_the_callback_creates_the_pull_and_its_records(world, module_on, ehr):
+    browser, state = launched(world)
+    token_response(ehr)
+    r = browser.get(CALLBACK, {"state": state, "code": "c1"})
+    assert r.status_code == 302 and "route=status" in r["Location"]
+    job = JobRecord.objects.get()
+    source = FhirSource.objects.get()
+    assert source.ehr_brand_location == world["location"] and source.label == "SMART Sandbox - Example Health"
+    assert job.body["participant"]["attrs"]["fhir_source_id"] == source.id
+    assert job.body["participant"]["attrs"]["study_ids"] == [world["study"].id]
+    assert PatientIdentifier.objects.filter(system=ISS, value="ehr-p1", patient=world["patient"]).exists()
+    assert "ehr-token" not in job.credentials_enc
+
+
+def test_a_second_pull_reuses_the_fhir_source(world, module_on, ehr):
+    token_response(ehr)
+    for _ in range(2):
+        browser, state = launched(world)
+        browser.get(CALLBACK, {"state": state, "code": "c"})
+    assert FhirSource.objects.count() == 1 and JobRecord.objects.count() == 2
+
+
+def test_another_patients_session_is_refused_and_the_code_never_spent(world, module_on, ehr, organization):
+    _, state = launched(world)
+    other = JheUser.objects.create_user(email="other@example.org", password="x", user_type="patient")
+    other.patient.organizations.add(organization)
+    intruder = Client()
+    intruder.force_login(other)
+    r = intruder.get(CALLBACK, {"state": state, "code": "stolen"})
+    assert r["Location"].endswith("?route=error")
+    assert not any(c.request.method == "POST" for c in ehr.calls)
+    assert JobRecord.objects.count() == 0
+    assert AuthAttemptRecord.objects.get().used_at is not None  # spent: the real patient starts again
+
+
+def test_no_session_at_the_callback_is_refused(world, module_on, ehr):
+    _, state = launched(world)
+    r = Client().get(CALLBACK, {"state": state, "code": "c"})
+    assert r["Location"].endswith("?route=error") and JobRecord.objects.count() == 0
+
+
+@pytest.mark.parametrize("params", [{"error": "access_denied"}, {}])
+def test_a_declined_or_codeless_callback_creates_nothing(world, module_on, ehr, params):
+    browser, state = launched(world)
+    r = browser.get(CALLBACK, {"state": state, **params})
+    assert r["Location"].endswith("?route=error")
+    assert JobRecord.objects.count() == 0 and FhirSource.objects.count() == 0
+
+
+def test_a_replayed_callback_is_refused(world, module_on, ehr):
+    browser, state = launched(world)
+    token_response(ehr)
+    browser.get(CALLBACK, {"state": state, "code": "c"})
+    r = browser.get(CALLBACK, {"state": state, "code": "c"})
+    assert r["Location"].endswith("?route=error") and JobRecord.objects.count() == 1
+
+
+def test_an_ehr_patient_linked_to_someone_else_stops_the_pull(world, module_on, ehr, organization):
+    other = JheUser.objects.create_user(email="other@example.org", password="x", user_type="patient")
+    PatientIdentifier.objects.create(patient=other.patient, system=ISS, value="ehr-p1")
+    browser, state = launched(world)
+    token_response(ehr)
+    r = browser.get(CALLBACK, {"state": state, "code": "c"})
+    assert r["Location"].endswith("?route=error") and "already linked" in flow_error(browser)["message"]
+    assert JobRecord.objects.count() == 0 and FhirSource.objects.count() == 0
+
+
+def test_consent_withdrawn_before_the_callback_creates_nothing(world, module_on, ehr):
+    browser, state = launched(world)
+    StudyPatientScopeConsent.objects.update(consented=False)
+    token_response(ehr)
+    r = browser.get(CALLBACK, {"state": state, "code": "c"})
+    assert r["Location"].endswith("?route=error") and JobRecord.objects.count() == 0
+
+
+# --- the job endpoint ------------------------------------------------------------------------
+
+
+def test_the_job_endpoint_shows_only_the_patients_own_job(world, module_on, ehr, organization):
+    browser, state = launched(world)
+    token_response(ehr)
+    browser.get(CALLBACK, {"state": state, "code": "c"})
+    job_id = JobRecord.objects.get().id
+    r = browser.get(f"/api/v1/uscdi-patient-access/jobs/{job_id}")
+    assert r.status_code == 200 and r.json()["status"] == "queued" and r.json()["source"]["brand"] == "Example Health"
+    other = JheUser.objects.create_user(email="other@example.org", password="x", user_type="patient")
+    stranger = Client()
+    stranger.force_login(other)
+    assert stranger.get(f"/api/v1/uscdi-patient-access/jobs/{job_id}").status_code == 404
+    assert Client().get(f"/api/v1/uscdi-patient-access/jobs/{job_id}").status_code == 403
+
+
+# --- the shell's endpoints under a patient session -------------------------------------------
+
+
+def test_the_shells_endpoints_accept_a_patient_session(world):
+    browser = patient_browser(world)
+    patient = world["patient"]
+    assert browser.get("/api/v1/users/profile").status_code == 200
+    assert browser.get(f"/api/v1/patients/{patient.id}/consents").status_code == 200
+    assert browser.get("/api/v1/fhir_sources").status_code == 200
+    assert browser.get("/api/v1/ehr-patient-portal/brands", {"q": "Example"}).json()["results"]
+    body = {"study_scope_consents": []}
+    no_csrf = browser.patch(f"/api/v1/patients/{patient.id}/consents", data=body, content_type="application/json")
+    assert no_csrf.status_code == 403
+    with_csrf = browser.patch(
+        f"/api/v1/patients/{patient.id}/consents",
+        data=body,
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=csrf(browser),
+    )
+    assert with_csrf.status_code != 403
+
+
+def test_a_patient_session_cannot_write_fhir_sources(world):
+    browser = patient_browser(world)
+    r = browser.post(
+        "/api/v1/fhir_sources",
+        data={"dataSource": world["ds"].id},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=csrf(browser),
+    )
+    assert r.status_code in (401, 403)
+
+
+def test_a_practitioners_session_gets_nothing_from_the_new_authentication(world, user):
+    browser = Client()
+    browser.force_login(user)
+    assert browser.get("/api/v1/users/profile").status_code in (401, 403)
+    assert browser.get("/api/v1/ehr-patient-portal/brands").status_code in (401, 403)
+
+
+def test_tokens_still_work_on_the_shells_endpoints(world, api_client):
+    assert api_client.get("/api/v1/users/profile").status_code == 200
+    assert api_client.get("/api/v1/ehr-patient-portal/brands").status_code == 200
+
+
+def test_a_patient_session_gets_nothing_from_the_practitioner_api(world):
+    browser = patient_browser(world)
+    assert browser.get("/api/v1/organizations").status_code in (401, 403)
+    assert browser.get("/admin/").status_code == 302  # to the admin login
+
+
+def test_the_session_cookie_rides_a_top_level_redirect():
+    """The USCDI callback is a top-level GET redirect from the EHR's site; SameSite=Strict would
+    drop the session cookie and every callback would fail. Lax is required: do not tighten it."""
+    from django.conf import settings
+
+    assert settings.SESSION_COOKIE_SAMESITE == "Lax"
+    assert settings.CSRF_COOKIE_SAMESITE == "Lax"
+
+
+# --- settings, directory, guard --------------------------------------------------------------
+
+
+def set_setting(key, value_type, value):
+    s, _ = JheSetting.objects.get_or_create(key=key, defaults={"value_type": value_type})
+    s.set_value(value_type, value)
+    s.save()
+
+
+@pytest.mark.parametrize(
+    ("key", "value_type", "value", "message"),
+    [
+        ("patient_access.s3.layout", "string", "{attrs.patient_id}/bundle.json", "per-pull"),
+        ("patient_access.s3.layout", "string", "{attrs.ssn}/{job.id}", "needs"),
+        ("patient_access.s3.bucket", "string", "Not A Bucket", "bucket name"),
+        ("patient_access.s3.encryption", "string", "rot13", "one of"),
+        ("patient_access.fhir.extension_base_url", "string", "http://x.org/sd", "https URL ending in /"),
+        ("patient_access.documents.max_count", "int", -1, "0 or more"),
+    ],
+)
+def test_settings_are_validated_when_saved(superuser, key, value_type, value, message):
+    api = APIClient()
+    api.default_format = "json"
+    api.force_authenticate(superuser)
+    r = api.post("/api/v1/jhe_settings", {"key": key, "valueType": value_type, "value": value})
+    assert r.status_code == 400, r.content
+    assert message in json.dumps(r.json())
+
+
+def test_the_settings_provider_reads_rows_with_defaults(db):
+    with pytest.raises(ValueError, match="bucket"):
+        read_patient_access_settings()
+    set_setting("patient_access.s3.bucket", "string", "pulls")
+    set_setting("patient_access.s3.endpoint_url", "string", "")
+    s = read_patient_access_settings()
+    assert s.s3.bucket == "pulls" and s.s3.endpoint_url is None and "{created_at" in s.s3.layout
+    assert s.bundle.extension_base_url == "https://jupyterhealth.org/fhir/StructureDefinition/"
+
+
+def test_the_directory_maps_vendor_rows_to_the_registry(world):
+    directory = JheOrmDirectory()
+    selection = directory.selection(str(world["location"].id))
+    settings = directory.settings_for(selection.endpoint)
+    assert settings.registration.client_id == "client-1" and settings.fetch.name == "smart-reference"
+    EhrVendor.objects.update(ehr_client_id="")
+    with pytest.raises(KeyError):
+        directory.settings_for(selection.endpoint)
+    with pytest.raises(KeyError):
+        directory.selection("99999")
+
+
+def test_the_delivery_guard_refuses_after_consent_is_withdrawn(world, module_on, ehr):
+    browser, state = launched(world)
+    token_response(ehr)
+    browser.get(CALLBACK, {"state": state, "code": "c"})
+    job = module_on.jobs.get(JobRecord.objects.get().id)
+    require_consent(job)
+    StudyPatientScopeConsent.objects.update(consented=False)
+    with pytest.raises(DeliveryRefused):
+        require_consent(job)
+
+
+# --- one pull, end to end --------------------------------------------------------------------
+
+
+@pytest.fixture
+def aws(monkeypatch):
+    """Moto, started before the fake EHR: started after it, moto replaces the requests mock."""
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    with mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)
+        yield
+
+
+def test_a_pull_lands_in_the_bucket_and_the_log_names_no_one(world, module_on, aws, ehr, caplog):
+    set_setting("patient_access.s3.bucket", "string", BUCKET)
+    set_setting("patient_access.s3.access_key_id", "string", "k")
+    set_setting("patient_access.s3.secret_access_key", "string", "s")
+    set_setting("patient_access.s3.region", "string", "us-east-1")
+    browser, state = launched(world)
+    token_response(ehr)
+    ehr.add(
+        responses.GET,
+        f"{ISS}/Patient/ehr-p1",
+        json={"resourceType": "Patient", "id": "ehr-p1", "name": [{"family": "Zwicky-Private"}]},
+    )
+    ehr.add(
+        responses.GET,
+        f"{ISS}/Observation",
+        json={"resourceType": "Bundle", "entry": [{"resource": {"resourceType": "Observation", "id": "o1"}}]},
+    )
+    browser.get(CALLBACK, {"state": state, "code": "c"})
+    job_id = JobRecord.objects.get().id
+    with caplog.at_level(logging.DEBUG):
+        assert module_on.runner.run(job_id)
+    job = module_on.jobs.get(job_id)
+    assert job.status is JobStatus.DONE, job.failure
+    key = job.delivery.receipt.key
+    source = FhirSource.objects.get()
+    assert key.startswith(f"{world['patient'].id}/{source.id}/")
+    body = boto3.client("s3", region_name="us-east-1").get_object(Bucket=BUCKET, Key=key)["Body"].read()
+    composition = json.loads(body)["entry"][0]["resource"]
+    assert composition["meta"]["source"].endswith(f"/fhir-source/{source.id}")
+    assert browser.get(f"/api/v1/uscdi-patient-access/jobs/{job_id}").json()["delivered"] is True
+    assert "Zwicky-Private" not in caplog.text and "ehr-token" not in caplog.text and "ehr-p1" not in caplog.text
+
+
+# --- operator commands -----------------------------------------------------------------------
+
+
+def test_the_check_command_probes_the_bucket(db, module_on, aws):
+    import io
+
+    from django.core.management import CommandError, call_command
+
+    with pytest.raises(CommandError, match="bucket"):
+        call_command("patient_access_check", stdout=io.StringIO())
+    set_setting("patient_access.s3.bucket", "string", BUCKET)
+    set_setting("patient_access.s3.access_key_id", "string", "k")
+    set_setting("patient_access.s3.secret_access_key", "string", "s")
+    out = io.StringIO()
+    call_command("patient_access_check", stdout=out)
+    assert "writable" in out.getvalue()
+    assert boto3.client("s3", region_name="us-east-1").list_objects_v2(Bucket=BUCKET).get("KeyCount") == 0
+    set_setting("patient_access.s3.bucket", "string", "missing-bucket")
+    with pytest.raises(CommandError, match="missing-bucket"):
+        call_command("patient_access_check", stdout=io.StringIO())
+
+
+def test_the_sandbox_seed_builds_vendor_brands_and_locations(db, monkeypatch):
+    import io
+
+    from django.core.management import call_command
+
+    monkeypatch.delenv("PATIENT_ACCESS_DEV_S3_BUCKET", raising=False)
+    call_command("seed_patient_access_sandbox", stdout=io.StringIO())
+    call_command("seed_patient_access_sandbox", stdout=io.StringIO())  # idempotent
+    vendor = EhrVendor.objects.get(name="SMART Sandbox")
+    assert vendor.ehr_client_id and EhrBrand.objects.filter(vendor=vendor).count() == 2
+    assert all(b.fhir_base_url.startswith("https://launch.smarthealthit.org/v/r4/sim/") for b in vendor.brands.all())
+    assert EhrBrandLocation.objects.filter(brand__vendor=vendor).count() == 2
+    assert not JheSetting.objects.filter(key__startswith="patient_access.").exists()
+
+
+def test_the_jobs_listing_is_the_patients_own_newest_first(world, module_on, ehr, organization):
+    token_response(ehr)
+    for _ in range(2):
+        browser, state = launched(world)
+        browser.get(CALLBACK, {"state": state, "code": "c"})
+    listing = browser.get("/api/v1/uscdi-patient-access/jobs", {"source": world["ds"].id}).json()["results"]
+    ids = list(JobRecord.objects.order_by("-created_at").values_list("id", flat=True))
+    assert [j["id"] for j in listing] == ids
+    assert browser.get("/api/v1/uscdi-patient-access/jobs", {"source": 999999}).json()["results"] == []
+    other = JheUser.objects.create_user(email="other@example.org", password="x", user_type="patient")
+    stranger = Client()
+    stranger.force_login(other)
+    assert stranger.get("/api/v1/uscdi-patient-access/jobs").json()["results"] == []
