@@ -94,6 +94,9 @@ INSTALLED_APPS = [
     "oauth2_provider",
     "rest_framework",
     "drf_spectacular",
+    # USCDI Patient Access: the module's jobs and sign-in attempts. Off (no effect beyond its two
+    # empty tables) until PATIENT_ACCESS is configured.
+    "patient_access.django_app.apps.PatientAccessConfig",
 ]
 
 # Required for allauth
