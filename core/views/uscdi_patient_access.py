@@ -57,6 +57,7 @@ from patient_access.core.flow import (
     start_upstream_auth,
 )
 from patient_access.core.models import Job
+from patient_access.core.vendors import TypeChoice
 from patient_access.django_app.wiring import Module, NotConfigured, get_module
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,8 @@ def _config(request: HttpRequest) -> dict:
     # no bearer token, no stored-token gate (core/static/common/js/patient-facing.js).
     config["auth"] = "session"
     config["csrfToken"] = get_token(request)
+    # Vendors whose own screen asks per type: the client skips its checklist for them.
+    config["typeChoiceByVendor"] = JheOrmDirectory.type_choices()
     config["flowError"] = request.session.pop(FLOW_ERROR_KEY, None)
     if config["flowError"] is None and _patient(request) is None:
         config["flowError"] = dict(zip(("title", "message"), SESSION_ENDED, strict=True))
@@ -178,7 +181,10 @@ def launch(request: Request) -> Response:
     except KeyError:
         return _error("That organization is not in the directory.", 400)
     offered = JheOrmDirectory.offered_scopes(selection)
-    chosen = [s for s in request.data.get("scopes") or [] if isinstance(s, str) and s in offered]
+    if JheOrmDirectory.type_choice(selection.endpoint.vendor) is TypeChoice.EHR:
+        chosen = list(offered)  # the vendor's screen asks; our checklist was skipped
+    else:
+        chosen = [s for s in request.data.get("scopes") or [] if isinstance(s, str) and s in offered]
     try:
         url = start_upstream_auth(
             participant=launch_participant(patient, data_source.id),

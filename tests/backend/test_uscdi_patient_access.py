@@ -216,6 +216,26 @@ def test_launch_returns_the_authorize_url_and_records_the_attempt(world, module_
     assert attempt.body["scopes_declined"] == ["patient/Patient.read"]
 
 
+def test_the_page_tells_the_client_which_vendors_ask_per_type_themselves(world, module_on):
+    config = patient_browser(world).get(CONNECT).context["config"]
+    assert config["typeChoiceByVendor"]["Epic Sandbox"] == "ehr"
+    assert config["typeChoiceByVendor"]["SMART Sandbox"] == "host"
+
+
+def test_launch_requests_every_type_when_the_vendors_own_screen_asks(world, module_on, ehr):
+    """Epic lists every registered category on its screen whatever we request, so the checklist
+    is skipped for it and a subset sent anyway is ignored: nothing is declined on our side."""
+    epic = EhrVendor.objects.create(
+        name="Epic Sandbox", ehr_client_id="epic-1", supported_scopes="patient/Patient.read patient/Observation.read"
+    )
+    EhrBrand.objects.filter(id=world["location"].brand_id).update(vendor=epic)
+    r = launch(patient_browser(world), world, scopes=("patient/Observation.read",))
+    assert r.status_code == 200, r.content
+    attempt = AuthAttemptRecord.objects.get()
+    assert set(attempt.body["scopes"]) >= {"patient/Patient.read", "patient/Observation.read"}
+    assert attempt.body["scopes_declined"] == []
+
+
 def test_launch_needs_the_session_and_the_csrf_token(world, module_on, ehr):
     anonymous = Client(enforce_csrf_checks=True)
     assert launch(anonymous, world).status_code == 403
