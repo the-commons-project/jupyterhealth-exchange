@@ -4,8 +4,7 @@ run-name: Triggered by ${{ github.event_name }} to ${{ github.ref }}
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [main]
+  pull_request: # every base branch, so stacked PRs against a feature branch run the suite too
 
 jobs:
   run-full-test-suite:
