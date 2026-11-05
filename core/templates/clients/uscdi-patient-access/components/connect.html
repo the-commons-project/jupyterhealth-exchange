@@ -13,12 +13,19 @@
       <div id="hospital-results"></div>
     </div>
   </div>
-  <div id="scope-picker" hidden>
-    <label class="pf-eyebrow pf-eyebrow--tight">Choose what to share</label>
-    <div id="scope-picker-list" class="pf-card-stack"></div>
-    <div class="pf-actions">
-      <button id="scope-picker-continue" type="button" class="pf-btn pf-btn--wide">Continue</button>
+  <!-- The launch: a real form post. The server records the attempt and redirects to the EHR's
+       sign-in; the search box stays outside it so Enter there never submits. -->
+  <form id="launch-form" method="post" action="{{launchUrl}}">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{csrfToken}}" />
+    <input type="hidden" name="data_source_id" value="{{dataSourceId}}" />
+    <input type="hidden" name="location_id" id="launch-location" value="" />
+    <div id="scope-picker" hidden>
+      <label class="pf-eyebrow pf-eyebrow--tight">Choose what to share</label>
+      <div id="scope-picker-list" class="pf-card-stack"></div>
+      <div class="pf-actions">
+        <button id="scope-picker-continue" type="submit" class="pf-btn pf-btn--wide">Continue</button>
+      </div>
     </div>
-  </div>
+  </form>
 </script>
 {% endverbatim %}

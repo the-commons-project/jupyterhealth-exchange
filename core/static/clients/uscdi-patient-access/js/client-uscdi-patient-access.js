@@ -3,7 +3,8 @@
 // on the server and delivered to the study's storage. Registers, for the shared patient-facing
 // app (core/static/common/js/patient-facing.js):
 //   - the connect step: hospital picker, then "choose what to share" (copied from the EHR Patient
-//     Portal client, not shared with it), then a server-side launch;
+//     Portal client, not shared with it), then a real form post to the server's launch, which
+//     redirects to the EHR's sign-in;
 //   - the status route the server's callback redirects to, polling the job;
 //   - its own done and error screens (the done screen reads the job, not JHE's FHIR store, which
 //     this client never writes to).
@@ -23,23 +24,13 @@ async function upaSearchBrands(query) {
   }
 }
 
-// Ask the server to start the EHR sign-in (it runs discovery and PKCE and records the attempt),
-// then go to the authorize URL. The EHR returns to /clients/uscdi-patient-access/callback.
-async function upaLaunch(row, acceptedScopes, sourceId) {
-  const out = await pfApi("POST", "uscdi-patient-access/launch", {
-    locationId: row.id,
-    scopes: acceptedScopes,
-    dataSourceId: Number(sourceId),
-  });
-  window.location.assign(out.authorizeUrl);
-}
-
 // One pre-checked row per scope the vendor supports (row.supportedScopes), labelled from
-// CONSTANTS.EHR_SUPPORTED_SCOPES; calls onContinue(acceptedTokens) on Continue.
-function upaRenderScopePicker(container, continueButton, row, onContinue) {
+// CONSTANTS.EHR_SUPPORTED_SCOPES. Each checkbox is a form field (name "scopes"), so the ticked
+// ones are what the launch form posts. Returns how many rows were rendered.
+function upaRenderScopePicker(container, row) {
   container.innerHTML = "";
   const supported = (row.supportedScopes || "").split(/\s+/).filter(Boolean);
-  const checkboxes = [];
+  let rendered = 0;
   supported.forEach((token) => {
     const label = CONSTANTS.EHR_SUPPORTED_SCOPES[token];
     if (!label) return;
@@ -47,6 +38,8 @@ function upaRenderScopePicker(container, continueButton, row, onContinue) {
     card.className = "pf-card";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
+    checkbox.name = "scopes";
+    checkbox.value = token;
     checkbox.checked = true;
     const body = document.createElement("div");
     body.className = "pf-card__body";
@@ -57,11 +50,20 @@ function upaRenderScopePicker(container, continueButton, row, onContinue) {
     card.appendChild(checkbox);
     card.appendChild(body);
     container.appendChild(card);
-    checkboxes.push({ token: token, checkbox: checkbox });
+    rendered += 1;
   });
-  continueButton.onclick = () => {
-    onContinue(checkboxes.filter((c) => c.checkbox.checked).map((c) => c.token));
-  };
+  return rendered;
+}
+
+// Submit the launch form the way a click on its button would (firing "submit", so the loading
+// overlay shows); browsers without requestSubmit get a plain submit.
+function upaSubmitLaunch(form) {
+  if (typeof form.requestSubmit === "function") {
+    form.requestSubmit();
+  } else {
+    pfShowLoading();
+    form.submit();
+  }
 }
 
 // Search results as clickable rows (name + address); returns how many were rendered.
@@ -105,43 +107,35 @@ function upaTypeChoice(row) {
   return byVendor[row.vendorName] === "ehr" ? "ehr" : "host";
 }
 
-// After the patient picks a hospital: the checklist, or straight to the sign-in with every
-// type when the vendor's own screen asks.
-async function upaAfterHospital(row, sourceId) {
-  const launch = async (acceptedScopes) => {
-    pfShowLoading();
-    try {
-      await upaLaunch(row, acceptedScopes, sourceId);
-    } catch (e) {
-      pfHideLoading();
-      showFlowError("We couldn't start the connection", e && e.message ? e.message : String(e), {
-        retryLabel: "Choose a different organization",
-      });
-    }
-  };
+// After the patient picks a hospital: record it in the launch form, then the checklist, or
+// straight to the sign-in when the vendor's own screen asks per type (the server then requests
+// every type whatever the form carries).
+function upaAfterHospital(row) {
+  document.getElementById("launch-location").value = String(row.id);
   document.getElementById("hospital-picker").hidden = true;
   if (upaTypeChoice(row) === "ehr") {
-    await launch((row.supportedScopes || "").split(/\s+/).filter(Boolean));
+    upaSubmitLaunch(document.getElementById("launch-form"));
     return;
   }
   document.getElementById("scope-picker").hidden = false;
-  upaRenderScopePicker(
-    document.getElementById("scope-picker-list"),
-    document.getElementById("scope-picker-continue"),
-    row,
-    launch
-  );
+  upaRenderScopePicker(document.getElementById("scope-picker-list"), row);
 }
 
-// Connect step: the hospital picker, then the scope checklist; Continue launches the sign-in.
+// Connect step: the hospital picker, then the scope checklist; Continue submits the launch form.
 pfClient.connect = async (source) => {
-  pfRender("t-connect", { rail: pfRail(1) });
+  pfRender("t-connect", {
+    rail: pfRail(1),
+    launchUrl: PATIENT_FACING_CONFIG.launchUrl,
+    csrfToken: PATIENT_FACING_CONFIG.csrfToken,
+    dataSourceId: String(source.id),
+  });
+  document.getElementById("launch-form").addEventListener("submit", () => pfShowLoading());
   const picker = {
     container: document.getElementById("hospital-picker"),
     input: document.getElementById("hospital-search"),
     results: document.getElementById("hospital-results"),
   };
-  const onSelect = (row) => upaAfterHospital(row, source.id);
+  const onSelect = (row) => upaAfterHospital(row);
   const runSearch = async () => {
     upaRenderBrandResults(picker.results, await upaSearchBrands(picker.input.value), onSelect);
   };
@@ -285,6 +279,12 @@ function upaStart() {
   return patientApp();
 }
 
+// Back from the EHR's sign-in can restore this page from the browser's back-forward cache with
+// the launch's loading overlay still up; take it down.
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) pfHideLoading();
+});
+
 window.PF_ROUTES.status = upaStatus;
 window.PF_ROUTES.done = upaDone;
 window.PF_ROUTES.error = upaError;
@@ -295,7 +295,7 @@ window.PF_ROUTE_TITLES.status = "Sending records";
 // Exposed for unit tests; browser runs load this as a plain <script> and ignore it.
 if (typeof window !== "undefined") {
   window.upaSearchBrands = upaSearchBrands;
-  window.upaLaunch = upaLaunch;
+  window.upaSubmitLaunch = upaSubmitLaunch;
   window.upaRenderBrandResults = upaRenderBrandResults;
   window.upaRenderScopePicker = upaRenderScopePicker;
   window.upaTypeChoice = upaTypeChoice;

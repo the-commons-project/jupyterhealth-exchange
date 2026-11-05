@@ -52,6 +52,7 @@ beforeEach(() => {
   global.PATIENT_FACING_CONFIG = {
     auth: "session",
     csrfToken: "csrf-1",
+    launchUrl: "/clients/uscdi-patient-access/launch",
     dataSourceIds: [5],
     sourceLabels: { 5: "USCDI Patient Access" },
     pageUrl: "/clients/uscdi-patient-access/",
@@ -63,11 +64,25 @@ beforeEach(() => {
   renderShell();
 });
 
+// The connect step as the shell renders it, with the launch form's submissions captured instead of
+// followed (jsdom cannot navigate): `posted` collects each submission's fields.
+async function connectStep() {
+  global.fetch = jest.fn(() => jsonResponse({ results: [] }));
+  await window.pfClient.connect({ id: 5 });
+  const form = document.getElementById("launch-form");
+  const posted = [];
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    posted.push(new FormData(form));
+  });
+  return { form, posted };
+}
+
 describe("the shell in session mode", () => {
   test("sends no bearer token and the CSRF token on writes only", async () => {
     global.fetch = jest.fn(() => jsonResponse({}));
     await window.pfApi("GET", "users/profile");
-    await window.pfApi("POST", "uscdi-patient-access/launch", { a: 1 });
+    await window.pfApi("POST", "patients/1/consents", { a: 1 });
     const [, getOpts] = global.fetch.mock.calls[0];
     const [, postOpts] = global.fetch.mock.calls[1];
     expect(getOpts.headers.Authorization).toBeUndefined();
@@ -107,47 +122,49 @@ describe("the picker and the launch", () => {
     expect(await window.upaSearchBrands("x")).toEqual([]);
   });
 
-  test("the launch posts the selection, the scopes and the data source", async () => {
-    global.fetch = jest.fn(() => jsonResponse({ error: "stop before navigating" }, false));
-    await expect(window.upaLaunch({ id: 9 }, ["patient/Observation.read"], "5")).rejects.toThrow();
-    const [url, opts] = global.fetch.mock.calls[0];
-    expect(url).toContain("/api/v1/uscdi-patient-access/launch");
-    expect(JSON.parse(opts.body)).toEqual({ locationId: 9, scopes: ["patient/Observation.read"], dataSourceId: 5 });
+  test("the connect step is a real form posting to the launch, with the search box outside it", async () => {
+    const { form } = await connectStep();
+    expect(form.getAttribute("method")).toBe("post");
+    expect(form.getAttribute("action")).toBe("/clients/uscdi-patient-access/launch");
+    const fields = new FormData(form);
+    expect(fields.get("csrfmiddlewaretoken")).toBe("csrf-1");
+    expect(fields.get("data_source_id")).toBe("5");
+    expect(form.contains(document.getElementById("hospital-search"))).toBe(false);
   });
 
-  test("a vendor whose own screen asks per type skips the checklist and requests every type", async () => {
+  test("a vendor whose own screen asks per type submits straight away, without the checklist", async () => {
     global.PATIENT_FACING_CONFIG.typeChoiceByVendor = { "Epic Sandbox": "ehr", "SMART Sandbox": "host" };
     expect(window.upaTypeChoice({ vendorName: "Epic Sandbox" })).toBe("ehr");
     expect(window.upaTypeChoice({ vendorName: "SMART Sandbox" })).toBe("host");
     expect(window.upaTypeChoice({ vendorName: "Unknown" })).toBe("host");
-    window.pfRender("t-connect", { rail: window.pfRail(1) });
-    global.fetch = jest.fn(() => jsonResponse({ error: "stop before navigating" }, false));
-    const row = { id: 9, vendorName: "Epic Sandbox", supportedScopes: "patient/Patient.read patient/Observation.read" };
-    await window.upaAfterHospital(row, "5");
-    expect(document.querySelectorAll("#scope-picker-list input[type=checkbox]").length).toBe(0);
-    const [url, opts] = global.fetch.mock.calls[0];
-    expect(url).toContain("/api/v1/uscdi-patient-access/launch");
-    expect(JSON.parse(opts.body).scopes).toEqual(["patient/Patient.read", "patient/Observation.read"]);
+    const { posted } = await connectStep();
+    window.upaAfterHospital({ id: 9, vendorName: "Epic Sandbox", supportedScopes: "patient/Patient.read patient/Observation.read" });
+    expect(posted.length).toBe(1);
+    expect(posted[0].get("location_id")).toBe("9");
+    expect(posted[0].getAll("scopes")).toEqual([]); // the server requests every type for this vendor
+    expect(document.getElementById("scope-picker").hidden).toBe(true);
   });
 
-  test("a vendor without its own per-type screen gets the checklist", async () => {
+  test("a vendor without its own per-type screen gets the checklist; Continue posts the ticked types", async () => {
     global.PATIENT_FACING_CONFIG.typeChoiceByVendor = { "SMART Sandbox": "host" };
-    window.pfRender("t-connect", { rail: window.pfRail(1) });
-    global.fetch = jest.fn();
-    await window.upaAfterHospital({ id: 9, vendorName: "SMART Sandbox", supportedScopes: "patient/Observation.read" }, "5");
+    global.CONSTANTS.EHR_SUPPORTED_SCOPES["patient/Patient.read"] = "Demographics";
+    const { posted } = await connectStep();
+    window.upaAfterHospital({ id: 9, vendorName: "SMART Sandbox", supportedScopes: "patient/Patient.read patient/Observation.read" });
+    expect(posted.length).toBe(0);
     expect(document.getElementById("scope-picker").hidden).toBe(false);
-    expect(document.querySelectorAll("#scope-picker-list input[type=checkbox]").length).toBe(1);
-    expect(global.fetch).not.toHaveBeenCalled();
+    document.querySelector('#scope-picker-list input[value="patient/Patient.read"]').checked = false;
+    document.getElementById("scope-picker-continue").click();
+    expect(posted.length).toBe(1);
+    expect(posted[0].get("location_id")).toBe("9");
+    expect(posted[0].getAll("scopes")).toEqual(["patient/Observation.read"]);
   });
 
-  test("the checklist offers the vendor's scopes, all checked", () => {
+  test("the checklist offers the vendor's known scopes as ticked form fields", () => {
     const list = document.createElement("div");
-    const button = document.createElement("button");
-    const chosen = jest.fn();
-    window.upaRenderScopePicker(list, button, { supportedScopes: "patient/Observation.read patient/Unknown.read" }, chosen);
-    expect(list.querySelectorAll("input[type=checkbox]").length).toBe(1);
-    button.onclick();
-    expect(chosen).toHaveBeenCalledWith(["patient/Observation.read"]);
+    const rendered = window.upaRenderScopePicker(list, { supportedScopes: "patient/Observation.read patient/Unknown.read" });
+    expect(rendered).toBe(1);
+    const box = list.querySelector("input[type=checkbox]");
+    expect([box.name, box.value, box.checked]).toEqual(["scopes", "patient/Observation.read", true]);
   });
 });
 

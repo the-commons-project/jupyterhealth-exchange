@@ -3,7 +3,7 @@ hospital's patient portal server-side and delivers them to the deployment's S3 b
 the patient_access library.
 
     GET  /clients/uscdi-patient-access/?code=...     invitation -> patient session -> the shell
-    POST /api/v1/uscdi-patient-access/launch         {locationId, scopes, dataSourceId} -> {authorizeUrl}
+    POST /clients/uscdi-patient-access/launch        the connect form -> 302 to the EHR's authorize URL
     GET  /clients/uscdi-patient-access/callback      the EHR's return: the job is created and started
     GET  /api/v1/uscdi-patient-access/jobs           the patient's own pulls, for the hub and manage screens
     GET  /api/v1/uscdi-patient-access/jobs/<id>      the patient's own job, for the status screen
@@ -21,13 +21,14 @@ from urllib.parse import urlencode
 
 from django.contrib.auth import login
 from django.db import transaction
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, QueryDict
 from django.middleware.csrf import get_token
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 from oauth2_provider.models import get_application_model
+from pydantic import BaseModel, ConfigDict, ValidationError
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -79,6 +80,7 @@ INVALID_INVITATION = (
 SESSION_ENDED = ("Your session has ended", "Open the link from your invitation email to continue.")
 NOT_AVAILABLE = ("Not available", "Sharing records from your healthcare organization is not available here yet.")
 CONNECT_FAILED = "We couldn't connect to your healthcare organization"
+LAUNCH_FAILED = "We couldn't start the connection"
 
 
 def _client():
@@ -108,6 +110,7 @@ def _config(request: HttpRequest) -> dict:
     # no bearer token, no stored-token gate (core/static/common/js/patient-facing.js).
     config["auth"] = "session"
     config["csrfToken"] = get_token(request)
+    config["launchUrl"] = reverse("uscdi-patient-access-launch")
     # Vendors whose own screen asks per type: the client skips its checklist for them.
     config["typeChoiceByVendor"] = JheOrmDirectory.type_choices()
     config["flowError"] = request.session.pop(FLOW_ERROR_KEY, None)
@@ -156,40 +159,63 @@ def _error(message: str, status: int) -> Response:
     return Response({"error": message}, status=status)
 
 
-@api_view(["POST"])
-@authentication_classes([PatientSessionAuthentication])
-@permission_classes([IsAuthenticated])
-def launch(request: Request) -> Response:
-    """Discovery and PKCE on the server; the browser is only sent to the authorize URL."""
+class LaunchForm(BaseModel):
+    """The connect form, as posted: the facility picked, the study connection, and the ticked
+    record types (absent for a vendor whose own screen asks per type)."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    location_id: str
+    data_source_id: int
+    scopes: tuple[str, ...] = ()
+
+    @classmethod
+    def from_post(cls, post: QueryDict) -> LaunchForm:
+        return cls.model_validate(
+            {
+                "location_id": post.get("location_id", ""),
+                "data_source_id": post.get("data_source_id"),
+                "scopes": post.getlist("scopes"),
+            }
+        )
+
+
+@require_POST
+def launch(request: HttpRequest) -> HttpResponse:
+    """The connect form's submit. Discovery and PKCE run here, the attempt is recorded, and the
+    browser is redirected to the EHR's authorize URL; the URL never passes through page script.
+    CSRF is Django's middleware (the form carries the token). Errors go to the shell's error
+    route with the message in the session, as the callback's do."""
     patient = _patient(request)
     if patient is None:
-        return _error("Only a patient can connect a health record.", 403)
+        return _fail(request, *SESSION_ENDED)
     try:
         module = get_module()
     except NotConfigured:
-        return _error(NOT_AVAILABLE[1], 503)
-    data_source_id = request.data.get("data_source_id")
-    data_source = DataSource.objects.filter(id=data_source_id).first() if str(data_source_id).isdigit() else None
-    client = _client()
-    if data_source is None or not ClientDataSource.objects.filter(client=client, data_source=data_source).exists():
-        return _error("Unknown data source.", 400)
-    if not consenting_study_ids(patient, data_source):
-        return _error("Please agree to share your records with your study first.", 403)
-    location_id = str(request.data.get("location_id", ""))
+        return _fail(request, *NOT_AVAILABLE)
     try:
-        selection = module.directory.selection(location_id)
+        form = LaunchForm.from_post(request.POST)
+    except ValidationError:
+        return _fail(request, LAUNCH_FAILED, "Please choose your healthcare organization again.")
+    data_source = DataSource.objects.filter(id=form.data_source_id).first()
+    if data_source is None or not ClientDataSource.objects.filter(client=_client(), data_source=data_source).exists():
+        return _fail(request, LAUNCH_FAILED, "This study connection is not available.")
+    if not consenting_study_ids(patient, data_source):
+        return _fail(request, LAUNCH_FAILED, "Please agree to share your records with your study first.")
+    try:
+        selection = module.directory.selection(form.location_id)
     except KeyError:
-        return _error("That organization is not in the directory.", 400)
+        return _fail(request, LAUNCH_FAILED, "That organization is not in the directory.")
     offered = JheOrmDirectory.offered_scopes(selection)
     if JheOrmDirectory.type_choice(selection.endpoint.vendor) is TypeChoice.EHR:
-        chosen = list(offered)  # the vendor's screen asks; our checklist was skipped
+        chosen = offered  # the vendor's screen asks; our checklist was skipped
     else:
-        chosen = [s for s in request.data.get("scopes") or [] if isinstance(s, str) and s in offered]
+        chosen = tuple(s for s in offered if s in form.scopes)
     try:
         url = start_upstream_auth(
             participant=launch_participant(patient, data_source.id),
-            selection_id=location_id,
-            scopes=tuple(chosen),
+            selection_id=form.location_id,
+            scopes=chosen,
             scopes_declined=tuple(s for s in offered if s not in chosen),
             redirect_uri=request.build_absolute_uri(reverse("uscdi-patient-access-callback")),
             directory=module.directory,
@@ -199,8 +225,8 @@ def launch(request: Request) -> Response:
             clock=module.clock,
         )
     except FlowError as e:
-        return _error(str(e), 400)
-    return Response({"authorize_url": url})
+        return _fail(request, LAUNCH_FAILED, str(e))
+    return redirect(url)
 
 
 def _finish(request: HttpRequest, module: Module, patient, attempt, token) -> Job:

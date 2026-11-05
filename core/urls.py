@@ -121,7 +121,7 @@ urlpatterns = [
         uscdi_patient_access.callback,
         name="uscdi-patient-access-callback",
     ),
-    path("api/v1/uscdi-patient-access/launch", uscdi_patient_access.launch, name="uscdi-patient-access-launch"),
+    path("clients/uscdi-patient-access/launch", uscdi_patient_access.launch, name="uscdi-patient-access-launch"),
     path("api/v1/uscdi-patient-access/jobs", uscdi_patient_access.jobs, name="uscdi-patient-access-jobs"),
     path(
         "api/v1/uscdi-patient-access/jobs/<str:job_id>",
