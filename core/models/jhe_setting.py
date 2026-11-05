@@ -1,5 +1,7 @@
+from django.core.exceptions import ValidationError
 from django.db import models
-from jsonschema import ValidationError
+
+from core.services.jhe_settings import validate_setting
 
 
 class JheSetting(models.Model):
@@ -32,6 +34,12 @@ class JheSetting(models.Model):
             "json": self.value_json,
         }[self.value_type]
 
+    def clean(self) -> None:
+        # Runs on both edit paths: the REST serializer calls full_clean(), the Django admin's
+        # ModelForm does so itself. Registered keys (core.services.jhe_settings) must match their
+        # declared type and pass their validator; unregistered keys are not checked.
+        validate_setting(self.key, self.value_type, self.get_value())
+
     def set_value(self, value_type: str, value):
         self.value_type = value_type
 
@@ -49,7 +57,7 @@ class JheSetting(models.Model):
             try:
                 self.value_int = int(value)
             except (TypeError, ValueError):
-                raise ValidationError({"value": "Invalid int"})
+                raise ValidationError({"value_int": "Invalid int"})
 
         elif value_type == "bool":
             # Accept booleans or common strings
@@ -62,17 +70,17 @@ class JheSetting(models.Model):
                 elif v in ("false", "0", "no", "n", "off"):
                     self.value_bool = False
                 else:
-                    raise ValidationError({"value": "Invalid bool"})
+                    raise ValidationError({"value_bool": "Invalid bool"})
             elif isinstance(value, (int, float)) and value in (0, 1):
                 self.value_bool = bool(value)
             else:
-                raise ValidationError({"value": "Invalid bool"})
+                raise ValidationError({"value_bool": "Invalid bool"})
 
         elif value_type == "float":
             try:
                 self.value_float = float(value)
             except (TypeError, ValueError):
-                raise ValidationError({"value": "Invalid float"})
+                raise ValidationError({"value_float": "Invalid float"})
 
         elif value_type == "json":
             # DRF will usually give you dict/list already

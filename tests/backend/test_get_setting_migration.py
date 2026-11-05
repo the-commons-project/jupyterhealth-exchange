@@ -75,11 +75,21 @@ class GetSettingServiceTests(TestCase):
 
         # First call hits DB
         get_setting("cached.key")
-        # Change DB value directly
-        setting.set_value("string", "new_val")
-        setting.save()
+        # Change the row without firing post_save (a save() would drop the cache entry, see
+        # core.signals.clear_jhe_setting_cache); a queryset update bypasses signals.
+        JheSetting.objects.filter(key="cached.key").update(value_string="new_val")
         # Second call should still return cached value
         self.assertEqual(get_setting("cached.key"), "cached_val")
+
+    def test_save_invalidates_cached_value(self):
+        setting = JheSetting.objects.create(key="saved.key", value_type="string")
+        setting.set_value("string", "old")
+        setting.save()
+        self.assertEqual(get_setting("saved.key"), "old")
+
+        setting.set_value("string", "new")
+        setting.save()
+        self.assertEqual(get_setting("saved.key"), "new")
 
     def test_cache_clear_returns_fresh_value(self):
         setting = JheSetting.objects.create(key="refresh.key", value_type="string")

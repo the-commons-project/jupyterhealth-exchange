@@ -50,7 +50,10 @@
             {{/if}}
           </td>
           <td>{{id}}</td>
-          <td>{{key}}</td>
+          <td>
+            {{key}}
+            {{#if help}}<br/><small class="text-muted">{{help}}</small>{{/if}}
+          </td>
           <td>{{valueType}}</td>
           <td>{{resolvedValue}}</td>
         </tr>
@@ -84,6 +87,7 @@
           ></button>
         </div>
         <div class="modal-body">
+          <div class="alert alert-warning validationError" style="display: none" role="alert"></div>
           <div class="container-fluid">
             {{#if delete}}
               <div class="alert alert-danger" role="alert">
@@ -142,6 +146,11 @@
                     id="jheSettingValue"
                     value="{{jheSettingRecord.resolvedValue}}"
                   />
+                  {{#if jheSettingRecord.help}}
+                    <div class="form-text" id="jheSettingHelp">
+                      {{jheSettingRecord.help}} Example: <code>{{jheSettingRecord.example}}</code>
+                    </div>
+                  {{/if}}
                 </div>
               </fieldset>
             </form>
