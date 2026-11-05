@@ -142,13 +142,26 @@ def csrf(browser: Client) -> str:
     return browser.cookies["csrftoken"].value
 
 
-def launch(browser: Client, world, scopes=("patient/Observation.read",)):
-    return browser.post(
-        "/api/v1/uscdi-patient-access/launch",
-        data=json.dumps({"locationId": world["location"].id, "scopes": list(scopes), "dataSourceId": world["ds"].id}),
-        content_type="application/json",
-        HTTP_X_CSRFTOKEN=csrf(browser),
-    )
+LAUNCH = "/clients/uscdi-patient-access/launch"
+ERROR_ROUTE = f"{CONNECT}?route=error"
+
+
+def launch(browser: Client, world, scopes=("patient/Observation.read",), **fields):
+    """Submit the connect form as the browser does: form-encoded, the CSRF token as a field."""
+    data = {
+        "csrfmiddlewaretoken": csrf(browser),
+        "location_id": world["location"].id,
+        "data_source_id": world["ds"].id,
+        "scopes": list(scopes),
+        **fields,
+    }
+    return browser.post(LAUNCH, data)
+
+
+def authorize_url(r) -> str:
+    assert r.status_code == 302, r.content
+    assert r["Location"].startswith(AUTHORIZE), r["Location"]
+    return r["Location"]
 
 
 def flow_error(browser: Client):
@@ -204,12 +217,10 @@ def test_without_a_session_the_page_says_so(world, module_on):
 # --- launch ----------------------------------------------------------------------------------
 
 
-def test_launch_returns_the_authorize_url_and_records_the_attempt(world, module_on, ehr):
-    r = launch(patient_browser(world), world)
-    assert r.status_code == 200, r.content
-    url = r.json()["authorizeUrl"]
+def test_launch_redirects_to_the_authorize_url_and_records_the_attempt(world, module_on, ehr):
+    url = authorize_url(launch(patient_browser(world), world))
     q = parse_qs(urlparse(url).query)
-    assert url.startswith(AUTHORIZE) and q["client_id"] == ["client-1"]
+    assert q["client_id"] == ["client-1"]
     assert q["redirect_uri"] == ["http://testserver/clients/uscdi-patient-access/callback"]
     attempt = AuthAttemptRecord.objects.get()
     assert attempt.participant_ref == str(world["patient"].id)
@@ -218,6 +229,7 @@ def test_launch_returns_the_authorize_url_and_records_the_attempt(world, module_
 
 def test_the_page_tells_the_client_which_vendors_ask_per_type_themselves(world, module_on):
     config = patient_browser(world).get(CONNECT).context["config"]
+    assert config["launchUrl"] == LAUNCH
     assert config["typeChoiceByVendor"]["Epic Sandbox"] == "ehr"
     assert config["typeChoiceByVendor"]["SMART Sandbox"] == "host"
 
@@ -229,45 +241,58 @@ def test_launch_requests_every_type_when_the_vendors_own_screen_asks(world, modu
         name="Epic Sandbox", ehr_client_id="epic-1", supported_scopes="patient/Patient.read patient/Observation.read"
     )
     EhrBrand.objects.filter(id=world["location"].brand_id).update(vendor=epic)
-    r = launch(patient_browser(world), world, scopes=("patient/Observation.read",))
-    assert r.status_code == 200, r.content
+    authorize_url(launch(patient_browser(world), world, scopes=("patient/Observation.read",)))
     attempt = AuthAttemptRecord.objects.get()
     assert set(attempt.body["scopes"]) >= {"patient/Patient.read", "patient/Observation.read"}
     assert attempt.body["scopes_declined"] == []
 
 
-def test_launch_needs_the_session_and_the_csrf_token(world, module_on, ehr):
+def test_launch_without_a_patient_session_goes_to_the_error_route(world, module_on, ehr):
     anonymous = Client(enforce_csrf_checks=True)
-    assert launch(anonymous, world).status_code == 403
+    r = launch(anonymous, world)
+    assert r.status_code == 302 and r["Location"] == ERROR_ROUTE
+    assert flow_error(anonymous)["title"] == "Your session has ended"
+    assert not AuthAttemptRecord.objects.exists()
+
+
+def test_launch_needs_the_csrf_token(world, module_on, ehr):
     browser = patient_browser(world)
-    r = browser.post(
-        "/api/v1/uscdi-patient-access/launch",
-        data=json.dumps({"locationId": world["location"].id, "dataSourceId": world["ds"].id}),
-        content_type="application/json",
-    )
-    assert r.status_code == 403  # no CSRF token
+    r = browser.post(LAUNCH, {"location_id": world["location"].id, "data_source_id": world["ds"].id})
+    assert r.status_code == 403
+    assert not AuthAttemptRecord.objects.exists()
 
 
-def test_launch_refuses_without_consent(world, module_on, ehr):
-    StudyPatientScopeConsent.objects.update(consented=False)
-    assert launch(patient_browser(world), world).status_code == 403
+def test_launch_is_a_post(world, module_on, ehr):
+    assert patient_browser(world).get(LAUNCH).status_code == 405
 
 
-def test_launch_refuses_a_data_source_this_client_does_not_have(world, module_on, ehr):
-    other = DataSource.objects.create(name="Other", type="patient_app")
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda world: StudyPatientScopeConsent.objects.update(consented=False), "Please agree"),
+        (
+            lambda world: {"data_source_id": DataSource.objects.create(name="Other", type="patient_app").id},
+            "not available",
+        ),
+        (lambda world: {"data_source_id": "not-a-number"}, "choose your healthcare organization again"),
+        (lambda world: {"location_id": "999999"}, "not in the directory"),
+    ],
+    ids=["no consent", "another client's data source", "malformed form", "unknown facility"],
+)
+def test_a_refused_launch_goes_to_the_error_route_and_records_nothing(world, module_on, ehr, change, message):
+    fields = change(world)
     browser = patient_browser(world)
-    r = browser.post(
-        "/api/v1/uscdi-patient-access/launch",
-        data=json.dumps({"locationId": world["location"].id, "scopes": [], "dataSourceId": other.id}),
-        content_type="application/json",
-        HTTP_X_CSRFTOKEN=csrf(browser),
-    )
-    assert r.status_code == 400
+    r = launch(browser, world, **(fields if isinstance(fields, dict) else {}))
+    assert r.status_code == 302 and r["Location"] == ERROR_ROUTE
+    assert flow_error(browser)["title"] == "We couldn't start the connection"
+    assert message in flow_error(browser)["message"]
+    assert not AuthAttemptRecord.objects.exists()
 
 
-def test_the_module_off_is_a_503_and_the_page_says_so(world, ehr):
+def test_the_module_off_sends_the_launch_to_the_error_route_and_the_page_says_so(world, ehr):
     browser = patient_browser(world)
-    assert launch(browser, world).status_code == 503
+    r = launch(browser, world)
+    assert r.status_code == 302 and r["Location"] == ERROR_ROUTE
     assert browser.get(CONNECT).context["config"]["flowError"]["title"] == "Not available"
 
 
@@ -276,7 +301,7 @@ def test_the_module_off_is_a_503_and_the_page_says_so(world, ehr):
 
 def launched(world):
     browser = patient_browser(world)
-    state = parse_qs(urlparse(launch(browser, world).json()["authorizeUrl"]).query)["state"][0]
+    state = parse_qs(urlparse(authorize_url(launch(browser, world))).query)["state"][0]
     return browser, state
 
 
