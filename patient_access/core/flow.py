@@ -26,6 +26,7 @@ from pydantic import BaseModel, SecretStr
 
 from .credentials import Keyring
 from .interfaces import AuthAttemptStore, Directory, JobDispatcher, JobStore
+from .log import log
 from .models import AuthAttempt, Credentials, Job, Participant, Source, TokenResponse
 from .puller import plan_outcomes
 from .smart import ATTEMPT_TTL, SmartError, authorize_url, choose_method, discover, exchange, pkce_pair
@@ -86,7 +87,7 @@ def start_upstream_auth(
         participant=participant,
         selection=selection,
         scopes=settings.scopes(scopes),
-        scopes_declined=scopes_declined,
+        scopes_declined=tuple(map(settings.registration.spelled, scopes_declined)),
         redirect_uri=redirect_uri,
         token_endpoint=config.token_endpoint,
         created_at=now,
@@ -97,6 +98,17 @@ def start_upstream_auth(
         pkce_advertised=config.pkce_s256,
     )
     attempts.create(attempt)
+    # The URL itself is never logged (its query carries the state and the PKCE challenge); what
+    # it asks for is: the endpoint, the method and the exact scope string sent.
+    log.info(
+        "launch %s via %s (%s, scopes %s): scope=%r declined=%r",
+        selection.endpoint.vendor,
+        config.authorization_endpoint,
+        method.method,
+        settings.registration.scope_version,
+        " ".join(attempt.scopes),
+        " ".join(attempt.scopes_declined),
+    )
     return authorize_url(config, settings.registration, attempt, challenge)
 
 

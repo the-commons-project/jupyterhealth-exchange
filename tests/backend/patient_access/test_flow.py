@@ -1,5 +1,6 @@
 """Phase 3: the launch and the three-step callback, against a fake authorization server."""
 
+import sys
 from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
@@ -18,6 +19,7 @@ from patient_access.core.flow import (
 )
 from patient_access.core.models import OutcomeStatus
 from patient_access.core.smart import clear_discovery_cache
+from patient_access.core.source_settings import ScopeVersion
 from patient_access.dispatch.inline import InlineDispatcher
 from patient_access.testing.memory import MemoryAttemptStore, MemoryDirectory, MemoryJobStore
 
@@ -74,6 +76,21 @@ def test_launch_returns_an_authorize_url_and_records_the_attempt():
     assert q["state"] == [attempt.state]
     assert attempt.scopes_declined == ("patient/Condition.read",)
     assert attempt.expires_at == clock() + timedelta(minutes=10)
+
+
+def test_a_v2_registration_spells_requested_and_declined_scopes_alike(monkeypatch):
+    """Epic, 2026-11-05: `requested` came out as `.rs` and `declined` as `.read` because only the
+    requested list went through the registration's spelling."""
+    base = source_settings()
+    v2 = base.model_copy(
+        update={"registration": base.registration.model_copy(update={"scope_version": ScopeVersion.V2})}
+    )
+    monkeypatch.setattr(sys.modules[__name__], "source_settings", lambda: v2)
+    clock, attempts = Clock(), MemoryAttemptStore(Clock())
+    url = launch(attempts, clock)
+    assert parse_qs(urlparse(url).query)["scope"][0].split()[-1] == "patient/Observation.rs"
+    (attempt,) = attempts.attempts.values()
+    assert attempt.scopes_declined == ("patient/Condition.rs",)
 
 
 def test_an_unknown_selection_or_vendor_is_a_flow_error():

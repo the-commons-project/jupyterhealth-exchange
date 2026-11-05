@@ -83,11 +83,14 @@ class ClientRegistration(Value):
     base_scopes: tuple[str, ...] = ("openid", "fhirUser", "launch/patient")
     scope_version: ScopeVersion = ScopeVersion.V1
 
+    def spelled(self, scope: str) -> str:
+        """`scope` in this registration's scope form (`.read` becomes `.rs` under v2)."""
+        return to_v2(scope) if self.scope_version is ScopeVersion.V2 else scope
+
     def scopes(self, resource_scopes: list[str] | tuple[str, ...]) -> tuple[str, ...]:
         """Base scopes plus the given resource scopes, in this registration's scope form."""
         out: list[str] = list(self.base_scopes)
-        for s in resource_scopes:
-            s = to_v2(s) if self.scope_version is ScopeVersion.V2 else s
+        for s in map(self.spelled, resource_scopes):
             if s not in out:
                 out.append(s)
         return tuple(out)
