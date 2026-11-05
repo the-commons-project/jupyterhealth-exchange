@@ -40,10 +40,75 @@ Users manage the system via the Web UI, and data producers receive invitation cr
 </p>
 
 
-## Getting Started
+## Quick Start with Docker (local development)
 
-> [!NOTE]
-> Getting started with Docker is in the works!
+Requires Docker with Compose v2.
+
+```
+docker compose build
+docker compose up
+```
+
+The first start migrates and seeds the database (about 30 seconds). Then browse to http://localhost:8000 and log in as `manager_mary@example.com` / `Jhe1234!`, or as `admin@example.com` / `Jhe1234!` for Django admin at http://localhost:8000/admin. See [Seed Data](docs/seed-data.md) for the other accounts.
+
+What's running:
+
+| service | what | host address |
+| --- | --- | --- |
+| `jhe` | Django dev server; reloads on code and template edits | http://localhost:8000 |
+| `db` | Postgres 16; data in `./local/db` (survives `docker compose down`) | `localhost:5432` |
+| `cron` | runs `ow_poll` every 15 minutes, like production | none |
+| `mcp` (profile `mcp`) | the [MCP server](mcp_server/), wired to the local JHE | http://localhost:8401 |
+| `s3` (profile `s3`) | an S3-compatible object store ([PGSTY Silo](https://github.com/pgsty/silo)) for features that deliver to S3; data in `./local/s3` | API `localhost:9000`, console http://localhost:9001 (`jhe-dev-s3` / `jhe-dev-s3-secret`) |
+
+The two profiled services are off by default. Turn them on per run with `COMPOSE_PROFILES=mcp,s3 docker compose up`, or keep them on by setting `COMPOSE_PROFILES` in a root `.env` (see `.env.example`). Compose only acts on the profiles that are active, so `docker compose down` leaves a profiled service running unless the profile is active for that command too; `docker compose --profile '*' down` stops everything.
+
+The first boot also generates a dev-only OIDC signing key into `./local/oidc.key`; delete the file to rotate it. Emails (patient invitations, signup verification, login codes) print to `docker compose logs jhe`.
+
+Ports already in use? Set `JHE_PORT`, `JHE_DB_PORT`, `MCP_PORT`, `S3_PORT` and `S3_CONSOLE_PORT` in a root `.env` (see `.env.example`), or per run: `JHE_PORT=8010 JHE_DB_PORT=5442 MCP_PORT=8411 docker compose up`. The seeded OAuth redirect URIs and site URL follow `JHE_PORT`, but they are written when the database is seeded, so run `scripts/dev/reset.sh` after changing it. Two seeded client invitation URLs (Open Wearables, EHR Patient Portal) are fixed at `localhost:8001` / `localhost:8000`; edit them under Clients if you need them.
+
+Configuration lives in [compose/environment/](compose/environment/README.md). The committed values are public, local-only development values; never use them in a deployment.
+
+Helper scripts:
+
+| script | does |
+| --- | --- |
+| `scripts/dev/manage.sh <command>` | run a `manage.py` command in the `jhe` container |
+| `scripts/dev/shell.sh` | Django shell in the `jhe` container |
+| `scripts/dev/reset.sh` | wipe `./local/db` and start over with freshly seeded data |
+| `scripts/dev/test.sh [--fresh] [pytest args]` | backend tests in a container, against a disposable in-memory Postgres |
+| `scripts/dev/check.sh [--quick]` | lint, format, missing-migration check, backend and frontend tests, all in containers; what CI and pre-commit.ci will check |
+| `scripts/dev/bruno-token.sh` | API token for the [Bruno](https://www.usebruno.com/) collection in `opencollection/JHE/`, or for curl |
+
+The test and check scripts use their own compose project (`docker-compose.test.yml`), so they never touch your dev data, and need nothing installed but Docker.
+
+### Trying out the local stack
+
+The examples use the default ports; substitute yours.
+
+**Web UI.** Log in at http://localhost:8000 as `manager_mary@example.com` / `Jhe1234!` and browse Organizations → Studies → Patients → Observations. Generating an invitation with "send email" prints the email to `docker compose logs jhe`.
+
+**REST and FHIR APIs.** Get a token for the admin user, then query:
+
+```
+TOKEN=$(scripts/dev/bruno-token.sh | awk '/Token:/{print $2}')
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/studies
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/FHIR/R5/Observation?patient=40001"
+```
+
+`bruno-token.sh` makes the user a manager of every organization, so mint tokens for `admin@example.com` (the default) rather than for an account whose permissions you want to test. Observation uploads go to `POST /FHIR/R5/Observation` with `Content-Type: application/json`, a `subject` of `Patient/<id>`, a `device` of `Device/<id>` (a personal-device data source on the patient's study) and the Open mHealth JSON base64-encoded in `valueAttachment.data`. Records imported from an EHR are returned only with `_source:below=https://jupyterhealth.org/fhir/fhir-source/`.
+
+**MCP server.** Add it to an MCP client, for example Claude Code:
+
+```
+claude mcp add --transport http jhe-local http://localhost:8401/mcp
+```
+
+Authenticate (in Claude Code, `/mcp` → `jhe-local`), log in to JHE in the browser, then ask about your studies and patients. Every tool call runs as the logged-in user, so logging in as a different seeded user shows different studies. `docker compose logs mcp` shows an audit line per call. The MCP server keeps sessions in memory, so reconnect after restarting the `mcp` container.
+
+**EHR Patient Portal against the Epic sandbox.** The shared Epic sandbox app only redirects back to `http://localhost:8000`, so run JHE on port 8000 (and `scripts/dev/reset.sh` if you changed it). Generate an invitation for patient 40001 with the "EHR Patient Portal" client, open it in a private window, choose "Epic Health System (Sandbox)" and sign in as one of the sandbox test patients listed on [fhir.epic.com](https://fhir.epic.com).
+
+## Getting Started (without Docker)
 
 1. Set up your Python environment and install dependencies with [uv](https://docs.astral.sh/uv/): `uv sync` - this project uses Django **version 5.2**
     - `uv sync` installs the exact versions from `uv.lock` into `.venv` (dev dependencies included by default; use `uv sync --no-dev` for a production-only install)

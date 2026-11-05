@@ -1,0 +1,73 @@
+# Test stack: a disposable Postgres plus containers that run the checks against it.
+# Driven by scripts/dev/test.sh and scripts/dev/check.sh; separate from the dev stack in
+# docker-compose.yml. Nothing here needs Python or Node on your machine.
+#
+# Own compose project and network, database in RAM with durability off: fast, and it can
+# never touch your dev data. `test-db` is left running between runs so pytest's
+# --reuse-db can skip migrations. Stop everything with:
+#   docker compose -f docker-compose.test.yml down
+
+name: jhe-test
+
+services:
+  test-db:
+    image: postgres:16 # matches CI (.github/workflows/be_test.yml)
+    environment:
+      # Same credentials as ci/test_env.sh.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: test_jhe_dev
+    tmpfs:
+      - /var/lib/postgresql/data
+    command: ["postgres", "-c", "fsync=off", "-c", "full_page_writes=off", "-c", "synchronous_commit=off"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d test_jhe_dev"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  # Backend tests, the migrations check and ruff. Image = the app image (jhe-dev:local)
+  # plus the dev dependency group; scripts/dev/test.sh builds both when needed.
+  test-runner:
+    build:
+      # The Dockerfile copies nothing from its context, so keep the context tiny instead
+      # of sending the whole repo.
+      context: compose
+      dockerfile: test.Dockerfile
+    image: jhe-test-runner:local
+    pull_policy: never # local-only image: build it, never look for it in a registry
+    env_file:
+      # The local mirror of CI's test environment, so test runs match CI.
+      - path: ci/test_env.sh
+    environment:
+      DB_HOST: test-db
+      DB_PORT: "5432"
+      # Don't let a root .env (meant for running on the host) leak into test runs; see
+      # jhe/settings.py.
+      JHE_IGNORE_DOTENV: "1"
+      # git refuses to read a repo owned by another user (the bind mount, as root in the
+      # container sees it) without this. check.sh uses `git ls-files`.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /code
+    volumes:
+      - .:/code
+      - uv-cache:/root/.cache/uv # keeps uvx's ruff download between runs
+    depends_on:
+      test-db:
+        condition: service_healthy
+
+  # Frontend (Jest) tests, on the same Node major version as CI (fe_test.yml).
+  test-frontend:
+    image: node:18-slim
+    working_dir: /code/tests/frontend
+    volumes:
+      - .:/code
+      # The container's own node_modules, so it never uses or overwrites one on the host.
+      - frontend-node-modules:/code/tests/frontend/node_modules
+      - npm-cache:/root/.npm
+
+volumes:
+  uv-cache:
+  frontend-node-modules:
+  npm-cache:
