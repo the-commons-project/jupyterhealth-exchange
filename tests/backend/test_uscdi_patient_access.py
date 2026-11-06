@@ -526,6 +526,21 @@ def test_the_authorize_page_refuses_the_invitation_session(world, user):
     assert allauth.get("/o/authorize/", query).status_code != 403
 
 
+def test_the_job_endpoint_answers_404_for_a_row_that_no_longer_reads_as_a_job(world, module_on):
+    from patient_access.django_app.models import JobRecord as Row
+
+    browser = patient_browser(world)
+    row = Row.objects.create(
+        participant_ref=str(world["patient"].id),
+        status="failed_terminal",
+        body={"not": "a job"},
+        credentials_enc="",
+        created_at=timezone.now(),
+    )
+    assert browser.get(f"/api/v1/uscdi-patient-access/jobs/{row.id}").status_code == 404
+    assert browser.get("/api/v1/uscdi-patient-access/jobs").status_code == 200
+
+
 def test_a_malformed_source_filter_is_a_400_not_a_500(world):
     browser = patient_browser(world)
     assert browser.get("/api/v1/uscdi-patient-access/jobs", {"source": "\u00b2"}).status_code == 400

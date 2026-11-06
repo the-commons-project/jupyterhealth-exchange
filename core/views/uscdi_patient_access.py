@@ -15,8 +15,8 @@ the patient_access library.
 
 The patient is authenticated by a Django session the invitation link starts and marks as this
 client's (`core.patient_access.authentication`), never by the shell's bearer token. Only a
-patient-only user whose session carries the mark for their own patient counts as "the patient"
-anywhere here. The callback acts only when that patient is the one who launched, so an
+user whose session carries the mark for their own patient counts as "the patient" anywhere
+here. The callback acts only when that patient is the one who launched, so an
 authorization code delivered to another browser is never exchanged. Nothing here touches the EHR
 Patient Portal client; the picker and checklist are copies.
 """
@@ -466,7 +466,11 @@ def job(request: Request, job_id: str) -> Response:
     patient = _patient(request)
     try:
         found = get_module().jobs.get(job_id) if patient is not None else None
-    except (NotConfigured, KeyError):
+    except (
+        NotConfigured,
+        KeyError,
+        ValidationError,
+    ):  # ValidationError: a row the crash cap ended with nothing to read
         found = None
     if found is None or patient is None or found.participant.ref != str(patient.id):
         return _error("Not found", 404)
