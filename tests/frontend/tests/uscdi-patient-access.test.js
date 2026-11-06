@@ -15,7 +15,8 @@ function renderShell() {
     ["rail", "error", "done", "receipt", "importing"]
       .map((c) => componentHtml(path.join(TEMPLATES, `common/patient_facing/components/${c}.html`)))
       .join("") +
-    componentHtml(path.join(TEMPLATES, "clients/uscdi-patient-access/components/connect.html"));
+    componentHtml(path.join(TEMPLATES, "clients/uscdi-patient-access/components/connect.html")) +
+    componentHtml(path.join(TEMPLATES, "clients/uscdi-patient-access/components/manage.html"));
   window.pfRegisterPartials();
 }
 
@@ -28,6 +29,8 @@ const JOB = {
   status: "done",
   terminal: true,
   dataSourceId: 5,
+  fhirSourceId: 90001,
+  finishedAt: "2026-11-06T12:00:00Z",
   source: { brand: "Example Health", location: "Example Clinic" },
   types: [
     { label: "Labs", resourceType: "Observation", status: "ok", count: 3 },
@@ -182,6 +185,14 @@ describe("status and done", () => {
     expect(receipt.total).toBe(5);
   });
 
+  test("a type that was fetched and came back empty is synced with 0, not 'not synced'", () => {
+    const job = { ...JOB, types: [...JOB.types, { label: "Immunizations", resourceType: "Immunization", status: "ok", count: 0 }] };
+    global.PATIENT_FACING_CONFIG.expectedResourceTypes = ["Condition", "Observation", "Immunization"];
+    const receipt = window.upaReceipt(job);
+    expect(receipt.synced.map((r) => r.n)).toEqual([5, 0]);
+    expect(receipt.notSynced.map((r) => r.n)).toEqual([0]); // Conditions: not requested
+  });
+
   test("the status route goes to done when the job is done", async () => {
     global.fetch = jest.fn(() => jsonResponse(JOB));
     const nav = jest.spyOn(window, "pfNav").mockImplementation(() => Promise.resolve());
@@ -218,26 +229,56 @@ describe("status and done", () => {
   });
 });
 
+const CLINIC = { id: 90001, dataSource: 5, ehrBrandLocationName: "Example Clinic", label: "Example Health" };
+const HOSPITAL = { id: 90002, dataSource: 5, ehrBrandLocationName: "Other Hospital", label: "Other" };
+
 describe("hub and manage", () => {
-  test("the hub card drops the record count JHE's store cannot know", () => {
-    const source = { labels: ["Clinical records"] };
-    expect(window.upaCardDesc(source, { ehrBrandLocationName: "Example Clinic", resourceCounts: {} })).toBe(
-      "Example Clinic · Clinical records"
-    );
-    expect(window.upaCardDesc(source, null)).toBe("Clinical records");
+  test("the hub card names one hospital and counts several, never the record count JHE's store cannot know", () => {
+    const source = { id: 5, labels: ["Clinical records"] };
+    expect(window.upaCardDesc(source, [CLINIC, { ...HOSPITAL, dataSource: 6 }])).toBe("Example Clinic · Clinical records");
+    expect(window.upaCardDesc(source, [CLINIC, HOSPITAL])).toBe("2 healthcare organizations · Clinical records");
+    expect(window.upaCardDesc(source, [])).toBe("Clinical records");
   });
 
-  test("manage shows what the latest delivered pull sent", async () => {
-    document.body.innerHTML += componentHtml(path.join(TEMPLATES, "common/patient_facing/components/manage.html"));
-    window.pfRegisterPartials();
+  test("hospitals are grouped from the patient's sources with each one's latest delivered pull", () => {
+    const older = { ...JOB, id: "j0", finishedAt: "2026-10-01T00:00:00Z", types: [{ label: "Labs", resourceType: "Observation", status: "ok", count: 1 }] };
+    const jobs = [{ ...JOB, status: "failed_terminal", fhirSourceId: 90002 }, JOB, older];
+    const rows = window.upaHospitals([HOSPITAL, CLINIC, { ...CLINIC, id: 7, dataSource: 6 }], jobs, 5);
+    expect(rows.map((r) => r.name)).toEqual(["Example Clinic", "Other Hospital"]);
+    expect(rows[0].detail).toMatch(/^5 records sent on /); // the newest done job, not the older one
+    expect(rows[0].receipt.total).toBe(5);
+    expect(rows[1].detail).toBe("Not yet synced");
+    expect(rows[1].receipt).toBeNull();
+  });
+
+  test("manage lists every connected hospital and offers to connect another", async () => {
     const source = { id: 5, name: "USCDI Patient Access", icon: "bi-x", consented: [{}], consentedLabels: ["Clinical records"] };
     const spy = jest.spyOn(window, "pfSource").mockImplementation(() => Promise.resolve(source));
-    global.fetch = jest.fn(() => jsonResponse({ results: [{ ...JOB, status: "failed_terminal" }, JOB] }));
+    global.fetch = jest.fn((url) =>
+      String(url).includes("jobs") ? jsonResponse({ results: [JOB] }) : jsonResponse({ results: [CLINIC, HOSPITAL] })
+    );
     await window.upaManage({ source: "5" });
     const text = document.getElementById("pf_main").textContent;
+    expect(text).toContain("Example Clinic");
     expect(text).toContain("5 records sent");
-    expect(global.fetch.mock.calls[0][0]).toContain("uscdi-patient-access/jobs?source=5");
+    expect(text).toContain("Other Hospital");
+    expect(text).toContain("Not yet synced");
+    expect(text).toContain("Connect another organization");
+    expect(text).toContain("Stop sharing");
+    expect(global.fetch.mock.calls.some((c) => String(c[0]).includes("uscdi-patient-access/jobs?source=5"))).toBe(true);
     spy.mockRestore();
+  });
+
+  test("the hub counts a data source's hospitals on its card", async () => {
+    document.body.innerHTML += componentHtml(path.join(TEMPLATES, "common/patient_facing/components/hub.html"));
+    window.pfRegisterPartials();
+    const source = { id: 5, name: "USCDI Patient Access", icon: "bi-x", isConsented: true, labels: ["Clinical records"], studies: ["S"] };
+    const sources = jest.spyOn(window, "pfSourcesNow").mockImplementation(() => Promise.resolve([source]));
+    const fhir = jest.spyOn(window, "pfFhirSources").mockImplementation(() => Promise.resolve([CLINIC, HOSPITAL]));
+    await window.upaHub();
+    expect(document.getElementById("pf_main").textContent).toContain("2 healthcare organizations · Clinical records");
+    sources.mockRestore();
+    fhir.mockRestore();
   });
 });
 

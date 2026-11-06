@@ -238,12 +238,14 @@ async function upaStatus(params) {
 // the shell's FhirSource counts would read zero). Without a job, the shell's own done screen.
 const upaShellDone = PF_ROUTES.done;
 
+// A type that was fetched shows its count, zero included; "Not synced" is only for types that
+// were not requested, not granted or failed.
 function upaReceipt(job) {
   const counts = {};
   job.types
-    .filter((t) => t.status === "ok" && t.count)
+    .filter((t) => t.status === "ok")
     .forEach((t) => {
-      counts[t.resourceType] = (counts[t.resourceType] || 0) + t.count;
+      counts[t.resourceType] = (counts[t.resourceType] || 0) + (t.count || 0);
     });
   return pfReceipt(counts, PATIENT_FACING_CONFIG.expectedResourceTypes);
 }
@@ -259,28 +261,73 @@ async function upaDone(params) {
   });
 }
 
-// Manage route: what the latest pull delivered, from this client's own jobs.
+// The patient's connected hospitals for a data source: each FhirSource with its latest delivered
+// pull. A patient may connect any number; each pull is its own bundle under its own hospital.
+function upaHospitals(fhirSources, jobs, dataSourceId) {
+  const latestBy = {};
+  jobs
+    .filter((j) => j.status === "done")
+    .forEach((j) => {
+      if (!latestBy[j.fhirSourceId]) latestBy[j.fhirSourceId] = j; // newest first
+    });
+  return fhirSources
+    .filter((fs) => String(fs.dataSource) === String(dataSourceId))
+    .sort((a, b) => a.id - b.id)
+    .map((fs) => {
+      const latest = latestBy[fs.id] || null;
+      const when = latest && latest.finishedAt ? new Date(latest.finishedAt).toLocaleDateString() : null;
+      return {
+        name: fs.ehrBrandLocationName || fs.label,
+        detail: latest ? `${upaRecords(latest)} records sent${when ? ` on ${when}` : ""}` : "Not yet synced",
+        receipt: latest ? upaReceipt(latest) : null,
+      };
+    });
+}
+
+// Manage route: every connected hospital with what its latest pull delivered, from this client's
+// own jobs, and the way to connect another.
 async function upaManage(params) {
   const source = await pfSource(params.source);
   if (!source || !source.consented.length) return pfNav("hub", {}, true);
+  const fhirSources = await pfFhirSources();
   const jobs = (await pfApi("GET", `uscdi-patient-access/jobs?source=${encodeURIComponent(source.id)}`)).results || [];
-  const latest = jobs.filter((j) => j.status === "done")[0] || null;
-  pfRender("t-manage", {
+  pfRender("t-upa-manage", {
     sourceId: source.id,
     sourceName: source.name,
     icon: source.icon,
-    detail: latest ? `${latest.source.location || latest.source.brand} · ${upaRecords(latest)} records sent` : null,
-    rows: source.consentedLabels,
-    receipt: latest ? upaReceipt(latest) : null,
+    hospitals: upaHospitals(fhirSources, jobs, source.id),
   });
 }
 
 // The hub card: this client keeps no records in JHE, so the shell's "N records" (counted from
-// JHE's FHIR store) would always read 0; the facility and labels alone.
-const upaShellCardDesc = pfCardDesc;
-function upaCardDesc(source, fhirSource) {
-  if (!fhirSource || !fhirSource.ehrBrandLocationName) return upaShellCardDesc(source, fhirSource);
-  return `${fhirSource.ehrBrandLocationName} · ${source.labels.join(", ")}`;
+// JHE's FHIR store) would always read 0. One hospital is named; several are counted, so the card
+// never names one of them for all.
+function upaCardDesc(source, fhirSources) {
+  const mine = (fhirSources || []).filter((fs) => String(fs.dataSource) === String(source.id));
+  const labels = source.labels.join(", ");
+  if (!mine.length) return labels;
+  if (mine.length === 1) return `${mine[0].ehrBrandLocationName || mine[0].label} · ${labels}`;
+  return `${mine.length} healthcare organizations · ${labels}`;
+}
+
+// The hub, as the shell renders it, with this client's card description over every FhirSource
+// of a data source rather than the newest one.
+async function upaHub() {
+  const sources = await pfSourcesNow();
+  const fhirSources = sources.some((s) => s.isConsented) ? await pfFhirSources() : [];
+  const studies = pfUniqueSorted([].concat.apply([], sources.map((s) => s.studies)));
+  pfRender("t-hub", {
+    eyebrow: studies.length === 1 ? studies[0] : "Your studies",
+    cards: sources.map((source) => ({
+      id: source.id,
+      title: source.name,
+      desc: upaCardDesc(source, source.isConsented ? fhirSources : []),
+      icon: source.icon,
+      on: source.isConsented,
+      badge: source.isConsented ? "Consented" : "Not consented",
+      route: source.isConsented ? "manage" : "consent",
+    })),
+  });
 }
 
 // Error route: errors the server carried in the session (never in the URL) come in the page
@@ -350,8 +397,7 @@ window.PF_ROUTES.status = upaStatus;
 window.PF_ROUTES.done = upaWithSignOut(upaDone);
 window.PF_ROUTES.error = upaError;
 window.PF_ROUTES.manage = upaWithSignOut(upaManage);
-window.PF_ROUTES.hub = upaWithSignOut(window.PF_ROUTES.hub);
-window.pfCardDesc = upaCardDesc;
+window.PF_ROUTES.hub = upaWithSignOut(upaHub);
 window.PF_ROUTE_TITLES.status = "Sending records";
 
 // Exposed for unit tests; browser runs load this as a plain <script> and ignore it.
@@ -371,6 +417,8 @@ if (typeof window !== "undefined") {
   window.upaError = upaError;
   window.upaManage = upaManage;
   window.upaCardDesc = upaCardDesc;
+  window.upaHospitals = upaHospitals;
+  window.upaHub = upaHub;
   window.upaStart = upaStart;
   window.upaFailureCopy = upaFailureCopy;
   window.upaAppendSignOut = upaAppendSignOut;

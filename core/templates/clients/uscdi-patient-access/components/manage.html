@@ -1,0 +1,26 @@
+{% verbatim %}
+<script id="t-upa-manage" type="text/template">
+  <a class="pf-back" href="#" onclick="pfNav('hub'); return false;"><i class="bi bi-arrow-left"></i> Back</a>
+  <p class="pf-eyebrow">{{sourceName}}</p>
+  <h1 class="pf-h1">You're sharing</h1>
+  <p class="pf-lede">Your records from each healthcare organization below were sent to your study. Connect another organization to share its records too, or stop sharing to revoke your consent.</p>
+  <div class="pf-card-stack">
+  {{#each hospitals}}
+  <div class="pf-card">
+    <div class="pf-card__icon"><i class="bi {{../icon}}"></i></div>
+    <div class="pf-card__body">
+      <div class="pf-card__title">{{name}}</div>
+      <div class="pf-card__desc">{{detail}}</div>
+    </div>
+  </div>
+  {{#if receipt}}{{> receipt receipt}}{{/if}}
+  {{else}}
+  <div class="pf-callout">No healthcare organization is connected yet.</div>
+  {{/each}}
+  </div>
+  <div class="pf-actions">
+    <a class="pf-btn" href="#" onclick="pfNav('connect', { source: '{{sourceId}}' }); return false;">Connect another organization</a>
+    <button class="pf-btn pf-btn--danger" type="button" onclick="pfStopSharing('{{sourceId}}')">Stop sharing</button>
+  </div>
+</script>
+{% endverbatim %}
