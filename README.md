@@ -77,7 +77,7 @@ Helper scripts:
 | `scripts/dev/shell.sh` | Django shell in the `jhe` container |
 | `scripts/dev/reset.sh` | wipe `./local/db` and start over with freshly seeded data |
 | `scripts/dev/test.sh [--fresh] [pytest args]` | backend tests in a container, against a disposable in-memory Postgres |
-| `scripts/dev/check.sh [--quick]` | lint, format, missing-migration check, backend and frontend tests, all in containers; what CI and pre-commit.ci will check |
+| `scripts/dev/check.sh [--quick]` | lint, format, missing-migration check, type and layering checks for `patient_access/`, backend and frontend tests, all in containers |
 | `scripts/dev/bruno-token.sh` | API token for the [Bruno](https://www.usebruno.com/) collection in `opencollection/JHE/`, or for curl |
 
 The test and check scripts use their own compose project (`docker-compose.test.yml`), so they never touch your dev data, and need nothing installed but Docker.
