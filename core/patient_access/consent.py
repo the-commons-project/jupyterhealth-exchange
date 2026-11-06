@@ -4,9 +4,8 @@ delivery (the delivery guard), so a withdrawal between callback and delivery wri
 
 from __future__ import annotations
 
-from typing import Any
-
 from core.models import DataSource, DataSourceSupportedScope, Patient, StudyPatientScopeConsent
+from core.patient_access.identity import JheAttrs
 from patient_access.core.models import Job
 from patient_access.core.pipeline import DeliveryRefused
 
@@ -27,10 +26,13 @@ def consenting_study_ids(patient: Patient, data_source: DataSource) -> tuple[int
     return tuple(sorted(ids))
 
 
-def require_consent(job: Job[Any]) -> None:
-    """The library's delivery guard."""
+def require_consent(job: Job[JheAttrs]) -> JheAttrs:
+    """The library's delivery guard. Returns the attributes with the studies the patient consents
+    to now, so the bundle names those rather than the list fixed when the pull started."""
     attrs = job.participant.attrs
-    patient = Patient.objects.filter(id=getattr(attrs, "patient_id", None)).first()
-    data_source = DataSource.objects.filter(id=getattr(attrs, "data_source_id", None)).first()
-    if patient is None or data_source is None or not consenting_study_ids(patient, data_source):
+    patient = Patient.objects.filter(id=attrs.patient_id).first()
+    data_source = DataSource.objects.filter(id=attrs.data_source_id).first()
+    study_ids = consenting_study_ids(patient, data_source) if patient and data_source else ()
+    if not study_ids:
         raise DeliveryRefused("You are no longer sharing your records with this study, so nothing was delivered.")
+    return attrs.model_copy(update={"study_ids": study_ids})

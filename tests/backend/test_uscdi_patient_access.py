@@ -309,7 +309,12 @@ def token_response(ehr, patient="ehr-p1"):
     ehr.add(
         responses.POST,
         TOKEN,
-        json={"access_token": "ehr-token", "patient": patient, "scope": "openid patient/Observation.read"},
+        json={
+            "access_token": "ehr-token",
+            "token_type": "Bearer",
+            "patient": patient,
+            "scope": "openid patient/Observation.read",
+        },
     )
 
 
