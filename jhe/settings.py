@@ -123,6 +123,10 @@ PATIENT_ACCESS = {
     "DIRECTORY": "core.patient_access.directory.JheOrmDirectory",
     "SETTINGS_PROVIDER": "core.patient_access.settings.read_patient_access_settings",
     "DELIVERY_GUARD": "core.patient_access.consent.require_consent",
+    # The HTTP library logs each request line (query string included, so the EHR patient id) at
+    # DEBUG; off, its loggers are pinned to WARNING. Turn on for local debugging only.
+    "HTTP_DEBUG_LOGGING": _env_flag("PATIENT_ACCESS_HTTP_DEBUG_LOGGING", False),
+    "ALLOW_HTTP": DEBUG,  # http EHR endpoints in development only
 }
 
 INSTALLED_APPS = [

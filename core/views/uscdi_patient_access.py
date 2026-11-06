@@ -223,6 +223,7 @@ def launch(request: HttpRequest) -> HttpResponse:
             attempts=module.attempts,
             http=module.http,
             clock=module.clock,
+            allow_http=module.config.allow_http,
         )
     except FlowError as e:
         return _fail(request, LAUNCH_FAILED, str(e))
@@ -322,10 +323,9 @@ def jobs(request: Request) -> Response:
         module = get_module()
     except NotConfigured:
         return Response({"results": []})
-    found = module.jobs.for_participant(str(patient.id)) if patient is not None else []
     source = request.query_params.get("source")
-    if source and source.isdigit():
-        found = [j for j in found if j.participant.attrs.data_source_id == int(source)]
+    narrowed = {"data_source_id": int(source)} if source and source.isdigit() else None
+    found = module.jobs.for_participant(str(patient.id), narrowed) if patient is not None else []
     return Response({"results": [job_json(j) for j in found]})
 
 
