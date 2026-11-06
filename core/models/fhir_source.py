@@ -1,8 +1,19 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from django.db import models
 
+if TYPE_CHECKING:
+    from .data_source import DataSource
+    from .ehr_brand import EhrBrandLocation
+    from .patient import Patient
 
-class FhirSourceManager(models.Manager):
-    def get_or_create_for_pull(self, patient, data_source, location):
+
+class FhirSourceManager(models.Manager["FhirSource"]):
+    def get_or_create_for_pull(
+        self, patient: Patient, data_source: DataSource, location: EhrBrandLocation | None
+    ) -> tuple[FhirSource, bool]:
         """The FhirSource a server-side pull (USCDI Patient Access) is recorded under: the patient's
         existing source for the picked facility's brand and this data source, else a new one --
         the one-per-brand rule FhirSourceViewSet.create applies, so a reconnect reuses its source

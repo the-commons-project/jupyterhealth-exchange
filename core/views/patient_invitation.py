@@ -13,7 +13,12 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.context_processors import DEFAULT_LOGO
 from core.models import Patient, PatientInvitation, Study
-from core.models.patient_invitation import InvitationCancelled, InvitationConflict, InvitationExpired
+from core.models.patient_invitation import (
+    InvitationCancelled,
+    InvitationConflict,
+    InvitationExpired,
+    InvitationForAnotherClient,
+)
 from core.serializers import PatientInvitationSerializer
 from core.services.jhe_settings import get_setting
 
@@ -88,6 +93,8 @@ class PatientInvitationViewSet(ModelViewSet):
             return Response({"detail": "Invitation has been cancelled."}, status=403)
         except InvitationConflict:
             return Response({"detail": "Invitation has already been used."}, status=409)
+        except InvitationForAnotherClient:
+            return Response({"detail": "This invitation is opened from its link, not redeemed here."}, status=403)
         except ValueError as e:
             raise ValidationError(str(e))
 

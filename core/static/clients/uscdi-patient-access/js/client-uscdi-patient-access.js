@@ -17,7 +17,7 @@ const UPA_POLL_MS = 2000;
 // Search hospital facilities for the picker. Returns an array of rows (or [] on any failure).
 async function upaSearchBrands(query) {
   try {
-    const out = await pfApi("GET", `ehr-patient-portal/brands?q=${encodeURIComponent(query || "")}`);
+    const out = await pfApi("GET", `uscdi-patient-access/brands?q=${encodeURIComponent(query || "")}`);
     return (out && out.results) || [];
   } catch (e) {
     return [];
@@ -114,11 +114,20 @@ function upaAfterHospital(row) {
   document.getElementById("launch-location").value = String(row.id);
   document.getElementById("hospital-picker").hidden = true;
   if (upaTypeChoice(row) === "ehr") {
+    const going = document.getElementById("launch-status");
+    if (going) going.textContent = `Taking you to ${row.brandName || "your healthcare organization"} to sign in…`;
     upaSubmitLaunch(document.getElementById("launch-form"));
     return;
   }
   document.getElementById("scope-picker").hidden = false;
-  upaRenderScopePicker(document.getElementById("scope-picker-list"), row);
+  const list = document.getElementById("scope-picker-list");
+  const button = document.getElementById("scope-picker-continue");
+  upaRenderScopePicker(list, row);
+  const update = () => {
+    button.disabled = !list.querySelector("input[name=scopes]:checked");
+  };
+  list.addEventListener("change", update);
+  update();
 }
 
 // Connect step: the hospital picker, then the scope checklist; Continue submits the launch form.
@@ -179,6 +188,22 @@ function upaJobText(job) {
   return lines.join("\n");
 }
 
+// What a failed pull asks of the patient, by the job's failure kind (the server's own text is for
+// the operator, never shown).
+const UPA_FAILURE_COPY = {
+  retry_later: ["Sending is taking longer", "Your records will be sent automatically. You can close this page."],
+  reconnect: [
+    "Please connect again",
+    "Your healthcare organization's sign-in ended before all your records were downloaded, so nothing was sent.",
+  ],
+  contact_study: ["We couldn't send your records", "Please contact your study team."],
+  consent_withdrawn: ["Nothing was sent", "You are no longer sharing your records with this study."],
+};
+
+function upaFailureCopy(job) {
+  return UPA_FAILURE_COPY[job.failureKind] || ["We couldn't send your records", "The transfer did not finish."];
+}
+
 // Status route (?route=status&job=...&source=...): the importing screen, fed by polling the job,
 // then the done screen or the error callout. The pull runs on the server, so the patient may
 // close the page; it keeps going.
@@ -198,8 +223,9 @@ async function upaStatus(params) {
       return pfNav("done", { source: String(params.source || job.dataSourceId), job: job.id }, true);
     }
     if (job.terminal) {
-      return showFlowError("We couldn't send your records", job.failure || "The transfer did not finish.", {
-        retryLabel: "Choose a different organization",
+      const [title, message] = upaFailureCopy(job);
+      return showFlowError(title, message, {
+        retryLabel: job.failureKind === "reconnect" ? "Connect again" : "Choose a different organization",
         retryHref: retryHref,
       });
     }
@@ -264,6 +290,7 @@ function upaError(params) {
   if (flow) {
     return showFlowError(flow.title, flow.message, {
       retryHref: pfUrl("connect", { source: String(PATIENT_FACING_CONFIG.dataSourceIds[0]) }),
+      noRetry: flow.retry === false,
     });
   }
   return renderError(params);
@@ -279,16 +306,51 @@ function upaStart() {
   return patientApp();
 }
 
-// Back from the EHR's sign-in can restore this page from the browser's back-forward cache with
-// the launch's loading overlay still up; take it down.
+// Back from the EHR's sign-in can restore this page from the browser's back-forward cache as it
+// was left: the loading overlay up and, for a vendor whose own screen asks per type, the picker
+// already hidden. Take the overlay down and start the connect step afresh.
 window.addEventListener("pageshow", (e) => {
-  if (e.persisted) pfHideLoading();
+  if (!e.persisted) return;
+  pfHideLoading();
+  if (pfRouteAndParams().route === "connect") pfRetry();
 });
 
+// Sign out: a small form under the hub, done and manage screens. Ends the session on the server;
+// the 12-hour expiry remains the backstop for a patient who just closes the page.
+function upaAppendSignOut() {
+  const main = document.getElementById("pf_main");
+  const url = PATIENT_FACING_CONFIG.signOutUrl;
+  if (!main || !url || main.querySelector("form.upa-sign-out")) return;
+  const form = document.createElement("form");
+  form.className = "upa-sign-out pf-actions";
+  form.method = "post";
+  form.action = url;
+  const csrf = document.createElement("input");
+  csrf.type = "hidden";
+  csrf.name = "csrfmiddlewaretoken";
+  csrf.value = PATIENT_FACING_CONFIG.csrfToken || "";
+  const button = document.createElement("button");
+  button.type = "submit";
+  button.className = "pf-btn pf-btn--ghost";
+  button.textContent = "Sign out";
+  form.appendChild(csrf);
+  form.appendChild(button);
+  main.appendChild(form);
+}
+
+function upaWithSignOut(route) {
+  return async (params) => {
+    const out = await route(params);
+    upaAppendSignOut();
+    return out;
+  };
+}
+
 window.PF_ROUTES.status = upaStatus;
-window.PF_ROUTES.done = upaDone;
+window.PF_ROUTES.done = upaWithSignOut(upaDone);
 window.PF_ROUTES.error = upaError;
-window.PF_ROUTES.manage = upaManage;
+window.PF_ROUTES.manage = upaWithSignOut(upaManage);
+window.PF_ROUTES.hub = upaWithSignOut(window.PF_ROUTES.hub);
 window.pfCardDesc = upaCardDesc;
 window.PF_ROUTE_TITLES.status = "Sending records";
 
@@ -310,4 +372,6 @@ if (typeof window !== "undefined") {
   window.upaManage = upaManage;
   window.upaCardDesc = upaCardDesc;
   window.upaStart = upaStart;
+  window.upaFailureCopy = upaFailureCopy;
+  window.upaAppendSignOut = upaAppendSignOut;
 }

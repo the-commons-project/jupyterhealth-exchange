@@ -2,6 +2,7 @@
 order of checks, the job endpoint, the shell's endpoints in session mode, the settings keys, and
 one pull end to end into a (moto) bucket."""
 
+import io
 import json
 import logging
 from datetime import timedelta
@@ -28,6 +29,7 @@ from core.models import (
     JheClient,
     JheSetting,
     JheUser,
+    Patient,
     PatientIdentifier,
     PatientInvitation,
     StudyDataSource,
@@ -405,31 +407,98 @@ def test_the_job_endpoint_shows_only_the_patients_own_job(world, module_on, ehr,
     assert r.status_code == 200 and r.json()["status"] == "queued" and r.json()["source"]["brand"] == "Example Health"
     other = JheUser.objects.create_user(email="other@example.org", password="x", user_type="patient")
     stranger = Client()
-    stranger.force_login(other)
-    assert stranger.get(f"/api/v1/uscdi-patient-access/jobs/{job_id}").status_code == 404
+    stranger.force_login(other)  # logged in, but not through an invitation: nobody here
+    assert stranger.get(f"/api/v1/uscdi-patient-access/jobs/{job_id}").status_code == 403
     assert Client().get(f"/api/v1/uscdi-patient-access/jobs/{job_id}").status_code == 403
+    other_world = dict(world, patient=other.patient)
+    assert patient_browser(other_world).get(f"/api/v1/uscdi-patient-access/jobs/{job_id}").status_code == 404
 
 
-# --- the shell's endpoints under a patient session -------------------------------------------
+# --- the shell's calls: this client's own routes, never the shared ones ---------------------
 
 
-def test_the_shells_endpoints_accept_a_patient_session(world):
+SHARED_ROUTES = ("/api/v1/users/profile", "consents", "/api/v1/fhir_sources", "/api/v1/ehr-patient-portal/brands")
+
+
+def shared(route, patient):
+    return f"/api/v1/patients/{patient.id}/consents" if route == "consents" else route
+
+
+def bearer(user, app):
+    """A real OAuth access token: the shared routes authenticate tokens, not sessions."""
+    from oauth2_provider.models import AccessToken
+
+    token = AccessToken.objects.create(
+        user=user,
+        application=app,
+        token=f"token-{user.id}",
+        expires=timezone.now() + timedelta(hours=1),
+        scope="openid",
+    )
+    return {"HTTP_AUTHORIZATION": f"Bearer {token.token}"}
+
+
+def test_the_clients_own_routes_serve_the_shell(world):
     browser = patient_browser(world)
-    patient = world["patient"]
-    assert browser.get("/api/v1/users/profile").status_code == 200
-    assert browser.get(f"/api/v1/patients/{patient.id}/consents").status_code == 200
-    assert browser.get("/api/v1/fhir_sources").status_code == 200
-    assert browser.get("/api/v1/ehr-patient-portal/brands", {"q": "Example"}).json()["results"]
+    assert browser.get("/api/v1/uscdi-patient-access/profile").json()["patient"]["id"] == world["patient"].id
+    consents = browser.get("/api/v1/uscdi-patient-access/consents")
+    assert consents.status_code == 200 and consents.json()["patient"]["id"] == world["patient"].id
+    assert browser.get("/api/v1/uscdi-patient-access/fhir-sources").status_code == 200
+    assert browser.get("/api/v1/uscdi-patient-access/brands", {"q": "Example"}).json()["results"]
     body = {"study_scope_consents": []}
-    no_csrf = browser.patch(f"/api/v1/patients/{patient.id}/consents", data=body, content_type="application/json")
+    no_csrf = browser.patch("/api/v1/uscdi-patient-access/consents", data=body, content_type="application/json")
     assert no_csrf.status_code == 403
     with_csrf = browser.patch(
-        f"/api/v1/patients/{patient.id}/consents",
+        "/api/v1/uscdi-patient-access/consents",
         data=body,
         content_type="application/json",
         HTTP_X_CSRFTOKEN=csrf(browser),
     )
-    assert with_csrf.status_code != 403
+    assert with_csrf.status_code == 200
+
+
+def test_the_shared_routes_refuse_the_clients_session(world):
+    """JHE's shared routes are token-only, exactly as before this client existed."""
+    browser = patient_browser(world)
+    for route in SHARED_ROUTES:
+        assert browser.get(shared(route, world["patient"])).status_code in (401, 403), route
+
+
+def test_tokens_still_work_on_all_four_shared_routes(world):
+    patient = world["patient"]
+    headers = bearer(patient.jhe_user, world["app"])
+    for route in SHARED_ROUTES:
+        assert Client().get(shared(route, patient), **headers).status_code == 200, route
+
+
+def test_a_dead_token_never_falls_through_to_the_session(world):
+    """A shared device: an old tab's expired token, and another patient's session in the cookie jar."""
+    browser = patient_browser(world)
+    dead = {"HTTP_AUTHORIZATION": "Bearer expired-or-unknown"}
+    assert browser.get("/api/v1/users/profile", **dead).status_code == 401
+    assert browser.get("/api/v1/uscdi-patient-access/profile", **dead).status_code in (401, 403)
+
+
+def test_a_practitioner_who_is_also_a_patient_gets_nothing_by_session(world, user, organization):
+    """Even through the client's own invitation link: a dual-role user is never 'the patient' here."""
+    dual = Patient.objects.create(jhe_user=user, name_family="Dual", name_given="D")
+    add_patient_to_study(dual, world["study"])
+    browser = patient_browser(dict(world, patient=dual))
+    for route in ("profile", "consents", "fhir-sources", "brands"):
+        assert browser.get(f"/api/v1/uscdi-patient-access/{route}").status_code in (401, 403), route
+    assert browser.get(f"/api/v1/patients/{world['patient'].id}/consents").status_code in (401, 403)
+    allauth = Client()
+    allauth.force_login(user)  # the ordinary practitioner login: no mark at all
+    assert allauth.get("/api/v1/uscdi-patient-access/consents").status_code in (401, 403)
+
+
+def test_a_link_cannot_reset_a_patients_consents(world):
+    """The shared view's GET ?reset=true deletes consents: a cookie must never reach it."""
+    browser = patient_browser(world)
+    before = StudyPatientScopeConsent.objects.count()
+    assert browser.get("/api/v1/uscdi-patient-access/consents", {"reset": "true"}).status_code == 400
+    assert browser.get(f"/api/v1/patients/{world['patient'].id}/consents", {"reset": "true"}).status_code in (401, 403)
+    assert StudyPatientScopeConsent.objects.count() == before > 0
 
 
 def test_a_patient_session_cannot_write_fhir_sources(world):
@@ -441,18 +510,7 @@ def test_a_patient_session_cannot_write_fhir_sources(world):
         HTTP_X_CSRFTOKEN=csrf(browser),
     )
     assert r.status_code in (401, 403)
-
-
-def test_a_practitioners_session_gets_nothing_from_the_new_authentication(world, user):
-    browser = Client()
-    browser.force_login(user)
-    assert browser.get("/api/v1/users/profile").status_code in (401, 403)
-    assert browser.get("/api/v1/ehr-patient-portal/brands").status_code in (401, 403)
-
-
-def test_tokens_still_work_on_the_shells_endpoints(world, api_client):
-    assert api_client.get("/api/v1/users/profile").status_code == 200
-    assert api_client.get("/api/v1/ehr-patient-portal/brands").status_code == 200
+    assert browser.post("/api/v1/uscdi-patient-access/fhir-sources", HTTP_X_CSRFTOKEN=csrf(browser)).status_code == 405
 
 
 def test_a_patient_session_gets_nothing_from_the_practitioner_api(world):
@@ -627,6 +685,130 @@ def test_the_jobs_listing_is_the_patients_own_newest_first(world, module_on, ehr
     assert [j["id"] for j in listing] == ids
     assert browser.get("/api/v1/uscdi-patient-access/jobs", {"source": 999999}).json()["results"] == []
     other = JheUser.objects.create_user(email="other@example.org", password="x", user_type="patient")
+    assert (
+        patient_browser(dict(world, patient=other.patient)).get("/api/v1/uscdi-patient-access/jobs").json()["results"]
+        == []
+    )
     stranger = Client()
-    stranger.force_login(other)
-    assert stranger.get("/api/v1/uscdi-patient-access/jobs").json()["results"] == []
+    stranger.force_login(other)  # not through an invitation
+    assert stranger.get("/api/v1/uscdi-patient-access/jobs").status_code == 403
+
+
+# --- invitations, sign-out, the error screen, the launch's refusals --------------------------
+
+
+def test_the_reuse_window_runs_from_first_use_however_often_the_link_is_opened(world):
+    code = invitation_code(world)
+    patient_link = Client().get(CONNECT, {"code": code})
+    assert "?route=error" not in patient_link["Location"]
+    invitation = PatientInvitation.objects.get()
+    PatientInvitation.objects.filter(id=invitation.id).update(last_updated=timezone.now() - timedelta(hours=11))
+    first_use = PatientInvitation.objects.get().last_updated
+    again = Client()
+    again.get(CONNECT, {"code": code})
+    assert "_auth_user_id" in again.session  # inside the window
+    assert PatientInvitation.objects.get().last_updated == first_use  # and the window did not restart
+    PatientInvitation.objects.filter(id=invitation.id).update(last_updated=timezone.now() - timedelta(hours=13))
+    late = Client()
+    late.get(CONNECT, {"code": code})
+    assert "_auth_user_id" not in late.session
+
+
+@pytest.mark.parametrize("state", ["expired", "cancelled", "reissued"])
+def test_a_dead_invitation_gets_the_error_route(world, state):
+    code = invitation_code(world)
+    invitation = PatientInvitation.objects.get()
+    if state == "reissued":
+        PatientInvitation.issue(world["patient"], world["app"])
+    elif state == "expired":
+        PatientInvitation.objects.filter(id=invitation.id).update(last_updated=timezone.now() - timedelta(days=30))
+    else:
+        PatientInvitation.objects.filter(id=invitation.id).update(status=PatientInvitation.Status.CANCELLED)
+    browser = Client()
+    r = browser.get(CONNECT, {"code": code})
+    assert r["Location"].endswith("?route=error") and "_auth_user_id" not in browser.session
+
+
+def test_this_clients_invitation_cannot_be_turned_into_a_token(world, api_client):
+    invitation = PatientInvitation.issue(world["patient"], world["app"])
+    r = Client().post(f"/api/v1/invitation/{invitation.token}")
+    assert r.status_code == 403
+    assert PatientInvitation.objects.get(id=invitation.id).status == PatientInvitation.Status.ISSUED
+
+
+def test_sign_out_ends_the_session(world):
+    browser = patient_browser(world)
+    assert browser.get("/clients/uscdi-patient-access/sign-out").status_code == 405
+    r = browser.post("/clients/uscdi-patient-access/sign-out", {"csrfmiddlewaretoken": csrf(browser)})
+    assert r.status_code == 302 and r["Location"].endswith("?route=error")
+    assert "_auth_user_id" not in browser.session and flow_error(browser)["title"] == "You're signed out"
+    assert browser.get("/api/v1/uscdi-patient-access/profile").status_code in (401, 403)
+
+
+def test_the_error_screen_survives_a_reload_and_clears_when_the_patient_moves_on(world, module_on, ehr):
+    browser = patient_browser(world)
+    launch(browser, world, location_id="999999")
+    error_route = {"route": "error"}
+    first = browser.get(CONNECT, error_route).context["config"]["flowError"]
+    assert first["title"] == "We couldn't start the connection"
+    assert browser.get(CONNECT, error_route).context["config"]["flowError"] == first  # a reload
+    assert browser.get(CONNECT, {"route": "hub"}).context["config"]["flowError"] is None
+    assert browser.get(CONNECT, error_route).context["config"]["flowError"] is None
+
+
+def test_an_empty_checklist_is_refused(world, module_on, ehr):
+    browser = patient_browser(world)
+    r = launch(browser, world, scopes=())
+    assert r["Location"] == ERROR_ROUTE and "at least one" in flow_error(browser)["message"]
+    assert not AuthAttemptRecord.objects.exists()
+
+
+def test_a_vendor_without_a_client_id_is_not_available(world, module_on, ehr):
+    EhrVendor.objects.update(ehr_client_id="")
+    browser = patient_browser(world)
+    r = launch(browser, world)
+    assert r["Location"] == ERROR_ROUTE and "not available" in flow_error(browser)["message"]
+
+
+def test_a_pull_whose_consent_is_withdrawn_before_delivery_writes_nothing(world, module_on, aws, ehr):
+    set_setting("patient_access.s3.bucket", "string", BUCKET)
+    set_setting("patient_access.s3.access_key_id", "string", "k")
+    set_setting("patient_access.s3.secret_access_key", "string", "s")
+    set_setting("patient_access.s3.region", "string", "us-east-1")
+    browser, state = launched(world)
+    token_response(ehr)
+    ehr.add(responses.GET, f"{ISS}/Patient/ehr-p1", json={"resourceType": "Patient", "id": "ehr-p1"})
+    ehr.add(responses.GET, f"{ISS}/Observation", json={"resourceType": "Bundle"})
+    browser.get(CALLBACK, {"state": state, "code": "c"})
+    StudyPatientScopeConsent.objects.update(consented=False)
+    job_id = JobRecord.objects.get().id
+    assert module_on.runner.run(job_id)
+    job = module_on.jobs.get(job_id)
+    assert job.status is JobStatus.FAILED_TERMINAL and job.failure_kind.value == "consent_withdrawn"
+    assert boto3.client("s3", region_name="us-east-1").list_objects_v2(Bucket=BUCKET).get("KeyCount") == 0
+    assert browser.get(f"/api/v1/uscdi-patient-access/jobs/{job_id}").json()["failureKind"] == "consent_withdrawn"
+
+
+def test_the_seed_makes_the_client_invitable_for_the_demo_study(seeded):
+    from django.conf import settings
+
+    from core.models import StudyClient
+
+    app = get_application_model().objects.get(name="USCDI Patient Access")
+    assert app.jhe_client.invitation_url == f"{settings.SITE_URL}/clients/uscdi-patient-access/?code=CODE"
+    ds = DataSource.objects.get(name="USCDI Patient Access")
+    assert ClientDataSource.objects.filter(client=app, data_source=ds).exists()
+    assert DataSourceSupportedScope.objects.filter(data_source=ds, scope_code__coding_code="*").exists()
+    study_ids = set(StudyDataSource.objects.filter(data_source=ds).values_list("study_id", flat=True))
+    assert study_ids and study_ids <= set(StudyClient.objects.filter(client=app).values_list("study_id", flat=True))
+
+
+def test_rerunning_the_sandbox_seed_keeps_the_locations_a_pull_points_at(db, monkeypatch):
+    """A FhirSource points at its location; deleting and recreating locations would detach it."""
+    from django.core.management import call_command
+
+    monkeypatch.delenv("PATIENT_ACCESS_DEV_S3_BUCKET", raising=False)
+    call_command("seed_patient_access_sandbox", stdout=io.StringIO())
+    before = set(EhrBrandLocation.objects.values_list("id", flat=True))
+    call_command("seed_patient_access_sandbox", stdout=io.StringIO())
+    assert set(EhrBrandLocation.objects.values_list("id", flat=True)) == before

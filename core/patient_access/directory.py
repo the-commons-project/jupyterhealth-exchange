@@ -19,6 +19,11 @@ from patient_access.core.models import Brand, Endpoint, Facility, Selection
 from patient_access.core.source_settings import SourceSettings
 from patient_access.core.vendors import VENDORS, TypeChoice, VendorKey
 
+# The library's registry key for each vendor row, matched on the row's display name: the existing
+# EhrVendor table has no stable key column (a schema change this build does not make; PRD §10
+# question 9, full-build backlog 8 and 26). Renaming a row in the admin unmaps it. "SMART Sandbox"
+# is the dev seed's vendor; the mapping ships everywhere but only acts where a row of that name
+# exists, which also lets a hosted dev server use the SMART sandbox by seeding the row.
 VENDOR_KEYS: Mapping[str, VendorKey] = MappingProxyType(
     {
         "Epic Sandbox": VendorKey.EPIC,
@@ -71,9 +76,9 @@ class JheOrmDirectory:
         return VENDORS[key].type_choice if key is not None else TypeChoice.HOST
 
     @staticmethod
-    def type_choices() -> dict[str, str]:
+    def type_choices() -> dict[str, TypeChoice]:
         """Every vendor row name the registry knows, to where its patients pick types."""
-        return {name: VENDORS[key].type_choice.value for name, key in VENDOR_KEYS.items()}
+        return {name: VENDORS[key].type_choice for name, key in VENDOR_KEYS.items()}
 
     @staticmethod
     def offered_scopes(selection: Selection) -> tuple[str, ...]:

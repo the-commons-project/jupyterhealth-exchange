@@ -5,11 +5,18 @@ the patient_access library.
     GET  /clients/uscdi-patient-access/?code=...     invitation -> patient session -> the shell
     POST /clients/uscdi-patient-access/launch        the connect form -> 302 to the EHR's authorize URL
     GET  /clients/uscdi-patient-access/callback      the EHR's return: the job is created and started
+    POST /clients/uscdi-patient-access/sign-out      ends the session
     GET  /api/v1/uscdi-patient-access/jobs           the patient's own pulls, for the hub and manage screens
     GET  /api/v1/uscdi-patient-access/jobs/<id>      the patient's own job, for the status screen
+    GET  /api/v1/uscdi-patient-access/profile        the shell's calls, on this client's own routes:
+    GET, POST, PATCH .../consents                    each delegates to JHE's existing view for the
+    GET  /api/v1/uscdi-patient-access/fhir-sources   session's own patient, so the logic stays in one
+    GET  /api/v1/uscdi-patient-access/brands         place and JHE's shared routes stay token-only
 
-The patient is authenticated by a Django session the invitation link starts (not the shell's
-bearer token). The callback acts only when that session's patient is the one who launched, so an
+The patient is authenticated by a Django session the invitation link starts and marks as this
+client's (`core.patient_access.authentication`), never by the shell's bearer token. Only a
+patient-only user whose session carries the mark for their own patient counts as "the patient"
+anywhere here. The callback acts only when that patient is the one who launched, so an
 authorization code delivered to another browser is never exchanged. Nothing here touches the EHR
 Patient Portal client; the picker and checklist are copies.
 """
@@ -17,11 +24,12 @@ Patient Portal client; the picker and checklist are copies.
 from __future__ import annotations
 
 import logging
+from typing import Any
 from urllib.parse import urlencode
 
-from django.contrib.auth import login
+from django.contrib.auth import login, logout
 from django.db import transaction
-from django.http import HttpRequest, HttpResponse, QueryDict
+from django.http import HttpRequest, HttpResponse, JsonResponse, QueryDict
 from django.middleware.csrf import get_token
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -40,14 +48,30 @@ from core.models import (
     EhrBrandLocation,
     EhrVendor,
     FhirSource,
+    Patient,
     PatientInvitation,
 )
-from core.models.patient_invitation import InvitationCancelled, InvitationConflict, InvitationExpired
-from core.patient_access.authentication import PatientSessionAuthentication
+from core.models.patient_invitation import (
+    InvitationCancelled,
+    InvitationConflict,
+    InvitationExpired,
+    InvitationForAnotherClient,
+    InvitationWithoutUser,
+)
+from core.patient_access.authentication import (
+    InvitationSessionAuthentication,
+    is_patient_only,
+    mark_session,
+    session_mark,
+)
 from core.patient_access.consent import consenting_study_ids
 from core.patient_access.directory import JheOrmDirectory
-from core.patient_access.identity import launch_participant, pull_participant
+from core.patient_access.identity import JheAttrs, LaunchAttrs, launch_participant, pull_participant
 from core.patient_access.services import IdentifierConflict, attach_patient_identifier
+from core.views.ehr_patient_portal import brands_search
+from core.views.fhir_source import FhirSourceViewSet
+from core.views.jhe_user import JheUserViewSet
+from core.views.patient import PatientViewSet
 from core.views.patient_facing import patient_facing_config
 from patient_access.core.flow import (
     FlowError,
@@ -57,8 +81,8 @@ from patient_access.core.flow import (
     exchange_code,
     start_upstream_auth,
 )
-from patient_access.core.models import Job
-from patient_access.core.vendors import TypeChoice
+from patient_access.core.models import AuthAttempt, Job, JobStatus, OutcomeStatus, TokenResponse
+from patient_access.core.vocab import FailureKind, TypeChoice
 from patient_access.django_app.wiring import Module, NotConfigured, get_module
 
 logger = logging.getLogger(__name__)
@@ -73,17 +97,41 @@ SESSION_SECONDS = 12 * 3600
 FLOW_ERROR_KEY = "uscdi_patient_access_flow_error"
 LOGIN_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
-INVALID_INVITATION = (
-    "This invitation link isn't valid",
-    "It may have expired or been replaced. Ask your study team for a new link.",
+ERROR_ROUTE = "error"
+
+
+class FlowMessage(BaseModel):
+    """A patient-readable message for the error screen, carried in the session."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    title: str
+    message: str
+    retry: bool = True  # False: trying again cannot help (the session is gone); only Back is offered
+
+
+INVALID_INVITATION = FlowMessage(
+    title="This invitation link isn't valid",
+    message="It may have expired or been replaced. Ask your study team for a new link.",
+    retry=False,
 )
-SESSION_ENDED = ("Your session has ended", "Open the link from your invitation email to continue.")
-NOT_AVAILABLE = ("Not available", "Sharing records from your healthcare organization is not available here yet.")
+SESSION_ENDED = FlowMessage(
+    title="Your session has ended", message="Open the link from your invitation email to continue.", retry=False
+)
+NOT_AVAILABLE = FlowMessage(
+    title="Not available", message="Sharing records from your healthcare organization is not available here yet."
+)
+SIGNED_OUT = FlowMessage(
+    title="You're signed out",
+    message="You can close this page. To share again, open the link from your invitation email.",
+    retry=False,
+)
 CONNECT_FAILED = "We couldn't connect to your healthcare organization"
 LAUNCH_FAILED = "We couldn't start the connection"
 
 
-def _client():
+def _client() -> Any:
+    """This client's OAuth application row (the invitation names it), or None."""
     return get_application_model().objects.filter(name=CLIENT_NAME).first()
 
 
@@ -91,17 +139,35 @@ def _page() -> str:
     return reverse("uscdi-patient-access-connect")
 
 
-def _patient(request: HttpRequest):
+def _patient(request: HttpRequest | Request) -> Patient | None:
+    """The patient this client's session is for: a patient-only user whose session carries the
+    invitation link's mark for their own patient. Anyone else is nobody here."""
     user = request.user
-    return user.get_patient() if user.is_authenticated and user.is_patient() else None
+    mark = session_mark(request)
+    patient = user.get_patient() if mark is not None and is_patient_only(user) else None
+    return patient if patient is not None and mark is not None and patient.id == mark.patient_id else None
 
 
-def _fail(request: HttpRequest, title: str, message: str) -> HttpResponse:
-    request.session[FLOW_ERROR_KEY] = {"title": title, "message": message}
-    return redirect(f"{_page()}?{urlencode({'route': 'error'})}")
+def _fail(request: HttpRequest, flow: FlowMessage) -> HttpResponse:
+    request.session[FLOW_ERROR_KEY] = flow.model_dump()
+    return redirect(f"{_page()}?{urlencode({'route': ERROR_ROUTE})}")
 
 
-def _config(request: HttpRequest) -> dict:
+def _flow_error(request: HttpRequest) -> FlowMessage | None:
+    """The error a redirect carried to the error route. Kept while the patient is on that route (a
+    reload shows it again); dropped, unshown, once they are anywhere else."""
+    if request.GET.get("route") != ERROR_ROUTE:
+        request.session.pop(FLOW_ERROR_KEY, None)
+        return None
+    try:
+        raw = request.session.get(FLOW_ERROR_KEY)
+        return FlowMessage.model_validate(raw) if raw is not None else None
+    except ValidationError:
+        return None
+
+
+def _config(request: HttpRequest, flow: FlowMessage | None = None) -> dict[str, Any]:
+    """`flow`: an error this very request found (the module off), shown on any route."""
     config = patient_facing_config(CLIENT_NAME, CLIENT_KEY, _page())
     config["expectedResourceTypes"] = sorted(
         {s.removeprefix("patient/").removesuffix(".read") for s in EhrVendor.SUPPORTED_SCOPES}
@@ -113,9 +179,17 @@ def _config(request: HttpRequest) -> dict:
     config["launchUrl"] = reverse("uscdi-patient-access-launch")
     # Vendors whose own screen asks per type: the client skips its checklist for them.
     config["typeChoiceByVendor"] = JheOrmDirectory.type_choices()
-    config["flowError"] = request.session.pop(FLOW_ERROR_KEY, None)
-    if config["flowError"] is None and _patient(request) is None:
-        config["flowError"] = dict(zip(("title", "message"), SESSION_ENDED, strict=True))
+    config["signOutUrl"] = reverse("uscdi-patient-access-sign-out")
+    # The shell's own calls, pointed at this client's routes (see the module docstring).
+    config["apiPaths"] = {
+        "profile": "uscdi-patient-access/profile",
+        "consents": "uscdi-patient-access/consents",
+        "fhirSources": "uscdi-patient-access/fhir-sources",
+    }
+    flow = flow or _flow_error(request)
+    if flow is None and _patient(request) is None:
+        flow = SESSION_ENDED
+    config["flowError"] = flow.model_dump() if flow is not None else None
     return config
 
 
@@ -131,28 +205,33 @@ def connect(request: HttpRequest) -> HttpResponse:
     code = request.GET.get("code")
     if code:
         client = _client()
+        if client is None:
+            return _fail(request, INVALID_INVITATION)
         try:
-            if client is None:
-                raise InvitationConflict()
             user = PatientInvitation.redeem_for_user(_token_from_code(code), client)
         except (
             PatientInvitation.DoesNotExist,
             InvitationExpired,
             InvitationCancelled,
             InvitationConflict,
-            ValueError,
+            InvitationForAnotherClient,
+            InvitationWithoutUser,
         ):
-            return _fail(request, *INVALID_INVITATION)
+            return _fail(request, INVALID_INVITATION)
+        # login() rotates the session key and replaces any session this browser had; the mark
+        # is written after it, so it can only ever be on the session the invitation started.
         login(request, user, backend=LOGIN_BACKEND)
+        mark_session(request, user.get_patient().id)
         request.session.set_expiry(SESSION_SECONDS)
         params = request.GET.copy()
         params.pop("code")
         return redirect(f"{_page()}?{params.urlencode()}" if params else _page())
     try:
         get_module()
+        unavailable = None
     except NotConfigured:
-        request.session[FLOW_ERROR_KEY] = dict(zip(("title", "message"), NOT_AVAILABLE, strict=True))
-    return render(request, "clients/uscdi-patient-access/connect.html", {"config": _config(request)})
+        unavailable = NOT_AVAILABLE
+    return render(request, "clients/uscdi-patient-access/connect.html", {"config": _config(request, unavailable)})
 
 
 def _error(message: str, status: int) -> Response:
@@ -188,29 +267,38 @@ def launch(request: HttpRequest) -> HttpResponse:
     route with the message in the session, as the callback's do."""
     patient = _patient(request)
     if patient is None:
-        return _fail(request, *SESSION_ENDED)
+        return _fail(request, SESSION_ENDED)
     try:
         module = get_module()
     except NotConfigured:
-        return _fail(request, *NOT_AVAILABLE)
+        return _fail(request, NOT_AVAILABLE)
     try:
         form = LaunchForm.from_post(request.POST)
     except ValidationError:
-        return _fail(request, LAUNCH_FAILED, "Please choose your healthcare organization again.")
+        return _fail(
+            request, FlowMessage(title=LAUNCH_FAILED, message="Please choose your healthcare organization again.")
+        )
     data_source = DataSource.objects.filter(id=form.data_source_id).first()
     if data_source is None or not ClientDataSource.objects.filter(client=_client(), data_source=data_source).exists():
-        return _fail(request, LAUNCH_FAILED, "This study connection is not available.")
+        return _fail(request, FlowMessage(title=LAUNCH_FAILED, message="This study connection is not available."))
     if not consenting_study_ids(patient, data_source):
-        return _fail(request, LAUNCH_FAILED, "Please agree to share your records with your study first.")
+        return _fail(
+            request,
+            FlowMessage(title=LAUNCH_FAILED, message="Please agree to share your records with your study first."),
+        )
     try:
         selection = module.directory.selection(form.location_id)
     except KeyError:
-        return _fail(request, LAUNCH_FAILED, "That organization is not in the directory.")
+        return _fail(request, FlowMessage(title=LAUNCH_FAILED, message="That organization is not in the directory."))
     offered = JheOrmDirectory.offered_scopes(selection)
     if JheOrmDirectory.type_choice(selection.endpoint.vendor) is TypeChoice.EHR:
         chosen = offered  # the vendor's screen asks; our checklist was skipped
     else:
         chosen = tuple(s for s in offered if s in form.scopes)
+        if not chosen:
+            return _fail(
+                request, FlowMessage(title=LAUNCH_FAILED, message="Please choose at least one kind of record to share.")
+            )
     try:
         url = start_upstream_auth(
             participant=launch_participant(patient, data_source.id),
@@ -226,11 +314,11 @@ def launch(request: HttpRequest) -> HttpResponse:
             allow_http=module.config.allow_http,
         )
     except FlowError as e:
-        return _fail(request, LAUNCH_FAILED, str(e))
+        return _fail(request, FlowMessage(title=LAUNCH_FAILED, message=str(e)))
     return redirect(url)
 
 
-def _finish(request: HttpRequest, module: Module, patient, attempt, token) -> Job:
+def _finish(module: Module, patient: Patient, attempt: AuthAttempt[LaunchAttrs], token: TokenResponse) -> Job[JheAttrs]:
     """JHE's records for the pull and the job, in one transaction; the thread starts on commit."""
     data_source = DataSource.objects.get(id=attempt.participant.attrs.data_source_id)
     study_ids = consenting_study_ids(patient, data_source)
@@ -265,18 +353,20 @@ def callback(request: HttpRequest) -> HttpResponse:
     try:
         module = get_module()
     except NotConfigured:
-        return _fail(request, *NOT_AVAILABLE)
+        return _fail(request, NOT_AVAILABLE)
     try:
         attempt = begin_callback(request.GET.get("state", ""), module.attempts)
     except FlowError as e:
-        return _fail(request, CONNECT_FAILED, str(e))
+        return _fail(request, FlowMessage(title=CONNECT_FAILED, message=str(e)))
     patient = _patient(request)
     if patient is None or str(patient.id) != attempt.participant.ref:
         logger.warning("uscdi-patient-access callback refused: the session is not the launching patient's")
         return _fail(
             request,
-            CONNECT_FAILED,
-            "Please open your invitation link again on this device and connect from there.",
+            FlowMessage(
+                title=CONNECT_FAILED,
+                message="Please open your invitation link again on this device and connect from there.",
+            ),
         )
     try:
         token = exchange_code(
@@ -288,33 +378,66 @@ def callback(request: HttpRequest) -> HttpResponse:
             http=module.http,
             clock=module.clock,
         )
-        job = _finish(request, module, patient, attempt, token)
+        job = _finish(module, patient, attempt, token)
     except (FlowError, IdentifierConflict) as e:
-        return _fail(request, CONNECT_FAILED, str(e))
+        return _fail(request, FlowMessage(title=CONNECT_FAILED, message=str(e)))
     query = {"route": "status", "job": job.id, "source": str(job.participant.attrs.data_source_id)}
     return redirect(f"{_page()}?{urlencode(query)}")
 
 
-def job_json(job: Job) -> dict:
-    docs = job.documents
-    return {
-        "id": job.id,
-        "status": job.status.value,
-        "terminal": job.status.terminal,
-        "data_source_id": job.participant.attrs.data_source_id,
-        "source": {"brand": job.source.brand_name, "location": job.source.facility_name},
-        "types": [
-            {"label": o.label, "resource_type": o.resource_type, "status": o.status.value, "count": o.count}
-            for o in job.outcomes
-        ],
-        "documents": {"status": docs.status.value, "stored": len(docs.stored), "skipped": sum(docs.skipped.values())},
-        "delivered": job.delivery.receipt is not None,
-        "failure": job.failure if job.status.terminal else None,
-    }
+class TypeView(BaseModel):
+    label: str
+    resource_type: str
+    status: OutcomeStatus
+    count: int
+
+
+class SourceView(BaseModel):
+    brand: str
+    location: str | None
+
+
+class DocumentsView(BaseModel):
+    status: OutcomeStatus
+    stored: int
+    skipped: int
+
+
+class JobView(BaseModel):
+    """What the client's screens show of a pull. `failure_kind` decides the patient's words (the
+    client maps each kind to its copy); `failure` is the operator's text and is not shown."""
+
+    id: str
+    status: JobStatus
+    terminal: bool
+    data_source_id: int
+    source: SourceView
+    types: list[TypeView]
+    documents: DocumentsView
+    delivered: bool
+    failure_kind: FailureKind | None
+
+    @classmethod
+    def of(cls, job: Job[JheAttrs]) -> JobView:
+        docs = job.documents
+        return cls(
+            id=job.id,
+            status=job.status,
+            terminal=job.status.terminal,
+            data_source_id=job.participant.attrs.data_source_id,
+            source=SourceView(brand=job.source.brand_name, location=job.source.facility_name),
+            types=[
+                TypeView(label=o.label, resource_type=o.resource_type, status=o.status, count=o.count)
+                for o in job.outcomes
+            ],
+            documents=DocumentsView(status=docs.status, stored=len(docs.stored), skipped=sum(docs.skipped.values())),
+            delivered=job.delivery.receipt is not None,
+            failure_kind=job.failure_kind if job.status in (JobStatus.FAILED, JobStatus.FAILED_TERMINAL) else None,
+        )
 
 
 @api_view(["GET"])
-@authentication_classes([PatientSessionAuthentication])
+@authentication_classes([InvitationSessionAuthentication])
 @permission_classes([IsAuthenticated])
 def jobs(request: Request) -> Response:
     """The patient's own pulls, newest first; `?source=` narrows to one data source."""
@@ -326,11 +449,11 @@ def jobs(request: Request) -> Response:
     source = request.query_params.get("source")
     narrowed = {"data_source_id": int(source)} if source and source.isdigit() else None
     found = module.jobs.for_participant(str(patient.id), narrowed) if patient is not None else []
-    return Response({"results": [job_json(j) for j in found]})
+    return Response({"results": [JobView.of(j).model_dump(mode="json") for j in found]})
 
 
 @api_view(["GET"])
-@authentication_classes([PatientSessionAuthentication])
+@authentication_classes([InvitationSessionAuthentication])
 @permission_classes([IsAuthenticated])
 def job(request: Request, job_id: str) -> Response:
     patient = _patient(request)
@@ -338,6 +461,56 @@ def job(request: Request, job_id: str) -> Response:
         found = get_module().jobs.get(job_id) if patient is not None else None
     except (NotConfigured, KeyError):
         found = None
-    if found is None or found.participant.ref != str(patient.id):
+    if found is None or patient is None or found.participant.ref != str(patient.id):
         return _error("Not found", 404)
-    return Response(job_json(found))
+    return Response(JobView.of(found).model_dump(mode="json"))
+
+
+@require_POST
+def sign_out(request: HttpRequest) -> HttpResponse:
+    """Ends the session (Django's CSRF middleware checks the form). The 12-hour expiry stays the
+    backstop for a patient who just closes the page."""
+    logout(request)
+    return _fail(request, SIGNED_OUT)
+
+
+# --- the shell's calls, on this client's own routes ------------------------------------------
+#
+# JHE's existing views, bound to this client's session authentication instead of their tokens:
+# the logic stays where it is, the shared routes stay token-only, and each call here can only
+# ever act for the session's own patient.
+
+_SESSION_ONLY: dict[str, Any] = {
+    "authentication_classes": [InvitationSessionAuthentication],
+    "permission_classes": [IsAuthenticated],
+}
+_profile_view = JheUserViewSet.as_view({"get": "profile"}, **_SESSION_ONLY)
+_consents_view = PatientViewSet.as_view(
+    {"get": "consents", "post": "consents", "patch": "consents"}, detail=True, **_SESSION_ONLY
+)
+_sources_view = FhirSourceViewSet.as_view({"get": "list"}, **_SESSION_ONLY)
+_brands_view = brands_search.cls.as_view(**_SESSION_ONLY)
+_FORBIDDEN_BODY = {"detail": "Authentication credentials were not provided."}
+
+
+def profile(request: HttpRequest) -> HttpResponse:
+    return _profile_view(request)
+
+
+def consents(request: HttpRequest) -> HttpResponse:
+    """The session's own patient's consents. Never the dev-and-test `reset` switch of the shared
+    view: a GET that deletes would be triggerable by any link once a cookie authenticates it."""
+    patient = _patient(request)
+    if patient is None:
+        return JsonResponse(_FORBIDDEN_BODY, status=403)
+    if "reset" in request.GET:
+        return JsonResponse({"detail": "Not available here."}, status=400)
+    return _consents_view(request, pk=str(patient.id))
+
+
+def fhir_sources(request: HttpRequest) -> HttpResponse:
+    return _sources_view(request)
+
+
+def brands(request: HttpRequest) -> HttpResponse:
+    return _brands_view(request)

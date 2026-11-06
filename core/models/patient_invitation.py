@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import base64
 import hashlib
 import json
 import secrets
 from datetime import timedelta
 from random import SystemRandom
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlparse
 
 from django.conf import settings
@@ -15,6 +18,9 @@ from oauth2_provider.settings import oauth2_settings
 from core.services.jhe_settings import get_setting
 
 from .patient import Patient
+
+if TYPE_CHECKING:
+    from .jhe_user import JheUser
 
 _TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 _TOKEN_LENGTH = 32
@@ -30,6 +36,20 @@ class InvitationCancelled(Exception):
 
 class InvitationConflict(Exception):
     pass
+
+
+class InvitationWithoutUser(ValueError):
+    """The invitation's patient has no user account to log in as."""
+
+
+class InvitationForAnotherClient(Exception):
+    """The invitation was issued for a client that does not redeem it this way."""
+
+
+# Clients whose invitation link starts a Django session (`redeem_for_user`) instead of minting an
+# OAuth grant: the generic redemption endpoint refuses their invitations, so the link cannot be
+# turned into a bearer token.
+SESSION_ONLY_CLIENT_NAMES: frozenset[str] = frozenset({"USCDI Patient Access"})
 
 
 class PatientInvitation(models.Model):
@@ -121,20 +141,26 @@ class PatientInvitation(models.Model):
             raise InvitationConflict()
 
         if not invitation.patient.jhe_user_id:
-            raise ValueError("Patient has no associated user account.")
+            raise InvitationWithoutUser("Patient has no associated user account.")
 
         return invitation, recently_redeemed
 
     @staticmethod
     def _spend(invitation, recently_redeemed):
-        if not recently_redeemed:
-            invitation.status = PatientInvitation.Status.REDEEMED
+        """The first redemption marks the invitation redeemed, which starts the re-use window
+        (`last_updated`). A re-use inside the window writes nothing, so the window runs from the
+        first use and closes on time however often the link is opened."""
+        if recently_redeemed:
+            return
+        invitation.status = PatientInvitation.Status.REDEEMED
         invitation.save()
 
     # https://github.com/jazzband/django-oauth-toolkit/blob/102c85141ec44549e17080c676292e79e5eb46cc/oauth2_provider/oauth2_validators.py#L675
     @staticmethod
     def redeem(token):
         invitation, recently_redeemed = PatientInvitation._admit(token)
+        if invitation.client.name in SESSION_ONLY_CLIENT_NAMES:
+            raise InvitationForAnotherClient()
 
         jhe_user = invitation.patient.jhe_user
         code_verifier = base64.urlsafe_b64encode(token.encode()).rstrip(b"=").decode()
@@ -170,14 +196,14 @@ class PatientInvitation(models.Model):
         return invitation, grant
 
     @staticmethod
-    def redeem_for_user(token, client):
+    def redeem_for_user(token: str, client: Any) -> JheUser:
         """Redeem an invitation for the patient's user, without minting an OAuth grant: for a client
         that logs the patient in with a Django session (USCDI Patient Access). Same rules as
         ``redeem`` (expiry, the re-use window, reissue and cancel), and the invitation must have been
         issued for ``client``."""
         invitation, recently_redeemed = PatientInvitation._admit(token)
         if invitation.client_id != client.id:
-            raise InvitationConflict()
+            raise InvitationForAnotherClient()
         jhe_user = invitation.patient.jhe_user
         jhe_user.last_login = timezone.now()
         jhe_user.save()

@@ -132,8 +132,13 @@ def _validate_bucket(value: Any) -> None:
 
 
 def _validate_optional_url(value: Any) -> None:
-    if value and not (isinstance(value, str) and re.match(r"^https?://[^\s/]+", value)):
-        raise ValueError("must be an http(s) URL, or empty for AWS itself")
+    """The bundles (PHI) and signed requests go to this endpoint: https, except in development
+    (DEBUG) where the local store is plain http."""
+    scheme = r"https?" if settings.DEBUG else r"https"
+    if value and not (isinstance(value, str) and re.match(rf"^{scheme}://[^\s/]+", value)):
+        raise ValueError(
+            "must be an https URL, or empty for AWS itself" + ("" if settings.DEBUG else " (http only in development)")
+        )
 
 
 def _validate_region(value: Any) -> None:

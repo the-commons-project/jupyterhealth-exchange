@@ -8,6 +8,7 @@ bucket policy needs to allow). Exits non-zero with the reason when anything fail
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 from pydantic import ValidationError
@@ -22,7 +23,7 @@ PROBE_PREFIX = "_probe/"
 class Command(BaseCommand):
     help = "Check that USCDI Patient Access can deliver: settings, key layout, and the bucket."
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
         try:
             module = get_module()
         except NotConfigured as e:
