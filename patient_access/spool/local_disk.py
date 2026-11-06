@@ -6,9 +6,10 @@ Layout under {root}/{ref}/:
     blobs/{id}.cs       a document, Cobblestone streaming AEAD: written and read in chunks, so
                         memory stays flat at any size; a truncated file fails authentication
     blobs/{id}.tmp      a document being written; renamed on commit, deleted on abort
-    blobs.ndjson        one Fernet token per committed document, {id, meta}, appended on each
+    blobs/index.ndjson  one Fernet token per committed document, {id, meta}, appended on each
                         commit (the last line for an id wins); never rewritten, so committing the
-                        ten-thousandth document costs what the first did
+                        ten-thousandth document costs what the first did. Under blobs/, so the
+                        top level holds resource types and nothing else (`index` lists them)
 
 Blob ids are hashes of the resource ids (`documents.candidates.blob_id`), so no EHR identifier is
 in a file name. The resource key and the blob key are both derived from the job key (HKDF, with
@@ -43,7 +44,7 @@ CHUNK = 64 * 1024
 _SAFE = re.compile(r"[^A-Za-z0-9._-]")
 _BLOB_KEY_INFO = b"patient-access/spool/blob"
 _RESOURCE_KEY_INFO = b"patient-access/spool/resources"
-_INDEX = "blobs.ndjson"
+_INDEX = "blobs/index.ndjson"  # not at the top level, where every *.ndjson is a type
 
 
 def safe(name: str) -> str:

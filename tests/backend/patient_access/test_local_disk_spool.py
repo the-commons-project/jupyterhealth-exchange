@@ -143,7 +143,7 @@ def test_the_document_index_is_appended_and_the_last_line_wins(spool):
         w = h.open_blob(f"Doc-{i}-0")
         w.write(b"x" * (i + 1))
         w.commit(content_type="text/plain", referenced_by="r", source_url=None)
-        sizes.append((h.path / "blobs.ndjson").stat().st_size)
+        sizes.append((h.path / "blobs" / "index.ndjson").stat().st_size)
     assert sizes[0] < sizes[1] < sizes[2] and sizes[2] - sizes[1] < 1024  # one line each, not the lot
     w = h.open_blob("Doc-0-0")  # the same blob again, as a resumed pass would
     w.write(b"yy")
@@ -152,6 +152,17 @@ def test_the_document_index_is_appended_and_the_last_line_wins(spool):
     again = spool.open("job-1", KEY)
     assert again.blob_meta("Doc-0-0").content_type == "text/html" and again.blob_meta("Doc-0-0").size == 2
     assert len(again.index().blobs) == 3
+
+
+def test_the_index_lists_resource_types_and_nothing_else(spool):
+    """The document index is not a type: read as one, its lines went into the bundle as resources."""
+    h = spool.open("job-1", KEY)
+    h.append("Observation", {"resourceType": "Observation", "id": "o1"})
+    w = h.open_blob("Doc-1-0")
+    w.write(b"x")
+    w.commit(content_type="text/plain", referenced_by="r", source_url=None)
+    h.close()
+    assert spool.open("job-1", KEY).index().types == {"Observation": 1}
 
 
 def test_no_resource_id_appears_in_a_file_name(spool):

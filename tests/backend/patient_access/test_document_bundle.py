@@ -24,8 +24,8 @@ PDF_ID = blob_id("DiagnosticReport", "r1", 0)
 REFUSED_ID = blob_id("DiagnosticReport", "r1", 1)
 
 
-def spool_with_records():
-    spool = MemorySpoolHandle("job-1")
+def spool_with_records(spool=None):
+    spool = spool if spool is not None else MemorySpoolHandle("job-1")
     spool.append("Patient", {"resourceType": "Patient", "id": "p1", "name": [{"family": "Zoë"}]})
     spool.append(
         "Observation",
@@ -275,3 +275,15 @@ def test_every_resource_comes_out_of_the_disk_spool_as_it_went_in(tmp_path):
     spool.flush("Condition")
     out = [e["resource"] for e in render(job(), spool)["entry"] if e["resource"]["resourceType"] == "Condition"]
     assert out == resources
+
+
+def test_over_the_disk_spool_every_entry_is_a_resource_and_every_section_a_type(tmp_path):
+    """The disk spool's own files (its document index) never surface as resources or sections."""
+    from patient_access.spool.local_disk import LocalDiskSpool
+
+    spool = spool_with_records(LocalDiskSpool(tmp_path).open("job-1", bytes(range(32))))
+    bundle = render(finished_job(), spool)
+    types = [e["resource"].get("resourceType") for e in bundle["entry"]]
+    assert None not in types and types.count("Binary") == 2
+    titles = {s["title"] for s in bundle["entry"][0]["resource"]["section"]}
+    assert "blobs" not in titles and "index" not in titles
