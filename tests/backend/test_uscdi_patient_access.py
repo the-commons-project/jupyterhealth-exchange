@@ -483,11 +483,14 @@ def set_setting(key, value_type, value):
     ("key", "value_type", "value", "message"),
     [
         ("patient_access.s3.layout", "string", "{attrs.patient_id}/bundle.json", "per-pull"),
-        ("patient_access.s3.layout", "string", "{attrs.ssn}/{job.id}", "needs"),
+        ("patient_access.s3.layout", "string", "{attrs.ssn}/{job.id}", "not available"),
+        ("patient_access.s3.layout", "string", "{attrs.patient_id}/{created_at:%Y}/b.json", "per-pull"),
+        ("patient_access.s3.layout", "string", "{job.__init__}/{job.id}", "private"),
         ("patient_access.s3.bucket", "string", "Not A Bucket", "bucket name"),
         ("patient_access.s3.encryption", "string", "rot13", "one of"),
         ("patient_access.fhir.extension_base_url", "string", "http://x.org/sd", "https URL ending in /"),
         ("patient_access.documents.max_count", "int", -1, "0 or more"),
+        ("patient_access.documents.max_bytes_each", "int", 2**31, "32-bit"),
     ],
 )
 def test_settings_are_validated_when_saved(superuser, key, value_type, value, message):

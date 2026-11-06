@@ -12,6 +12,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from pydantic import SecretStr, ValidationError
 
 from core.services.jhe_settings import SettingSpec, SettingValueType, get_setting, register_setting
@@ -20,6 +21,7 @@ from patient_access.core.models import Job, Participant, Source
 from patient_access.core.settings import (
     DEFAULT_EXTENSION_BASE_URL,
     DEFAULT_LAYOUT,
+    MAX_ATTACHMENT_SIZE,
     BundleSettings,
     DocumentCaps,
     PatientAccessSettings,
@@ -33,6 +35,8 @@ from .identity import PROVIDER, JheAttrs
 PREFIX = "patient_access"
 _BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _REGION = re.compile(r"^[a-z0-9-]{2,32}$")
+
+HOST_NAME = "jupyterhealth-exchange"  # recorded beside the library in the bundle's provenance
 
 
 def _text(key: str) -> str | None:
@@ -68,7 +72,11 @@ def read_patient_access_settings() -> PatientAccessSettings:
             max_bytes_each=_int("documents.max_bytes_each", caps.max_bytes_each),
             max_total_bytes=_int("documents.max_total_bytes", caps.max_total_bytes),
         ),
-        bundle=BundleSettings(extension_base_url=_text("fhir.extension_base_url") or DEFAULT_EXTENSION_BASE_URL),
+        bundle=BundleSettings(
+            extension_base_url=_text("fhir.extension_base_url") or DEFAULT_EXTENSION_BASE_URL,
+            host_name=HOST_NAME,
+            host_version=settings.JHE_VERSION,
+        ),
     )
 
 
@@ -143,6 +151,12 @@ def _validate_count(value: Any) -> None:
         raise ValueError("must be a whole number of 0 or more")
 
 
+def _validate_document_size(value: Any) -> None:
+    _validate_count(value)
+    if value > MAX_ATTACHMENT_SIZE:
+        raise ValueError(f"must be at most {MAX_ATTACHMENT_SIZE} (FHIR R4 sizes are 32-bit)")
+
+
 def _validate_extension_base_url(value: Any) -> None:
     try:
         BundleSettings(extension_base_url=value)
@@ -192,7 +206,9 @@ SPECS: tuple[SettingSpec, ...] = (
         value_type=_STRING,
         help=(
             "USCDI Patient Access: server-side encryption requested for every object: AES256, aws:kms, or "
-            "bucket-default (no header; the bucket's own default encryption applies)."
+            "bucket-default (no header; the bucket's own default encryption applies). Use bucket-default only "
+            "with a bucket that encrypts by default (every AWS bucket does): on an S3-compatible store without "
+            "default encryption it stores the bundles unencrypted."
         ),
         example="AES256",
         validate=_validate_encryption,
@@ -225,9 +241,12 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec(
         key=f"{PREFIX}.documents.max_bytes_each",
         value_type=_INT,
-        help="USCDI Patient Access: the largest single document embedded, in bytes.",
+        help=(
+            f"USCDI Patient Access: the largest single document embedded, in bytes; at most {MAX_ATTACHMENT_SIZE} "
+            "(FHIR R4 sizes are 32-bit)."
+        ),
         example=str(_CAPS.max_bytes_each),
-        validate=_validate_count,
+        validate=_validate_document_size,
     ),
     SettingSpec(
         key=f"{PREFIX}.documents.max_total_bytes",
