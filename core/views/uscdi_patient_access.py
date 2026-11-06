@@ -24,6 +24,7 @@ Patient Portal client; the picker and checklist are copies.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode
 
@@ -361,6 +362,7 @@ def callback(request: HttpRequest) -> HttpResponse:
     try:
         attempt = begin_callback(request.GET.get("state", ""), module.attempts)
     except FlowError as e:
+        logger.warning("uscdi-patient-access callback refused: %s", e.kind.value)
         return _fail(request, FlowMessage(title=CONNECT_FAILED, message=str(e)))
     patient = _patient(request)
     if patient is None or str(patient.id) != attempt.participant.ref:
@@ -383,8 +385,13 @@ def callback(request: HttpRequest) -> HttpResponse:
             clock=module.clock,
         )
         job = _finish(module, patient, attempt, token)
-    except (FlowError, IdentifierConflict) as e:
+    except FlowError as e:
+        logger.warning("uscdi-patient-access callback failed: %s", e.kind.value)
         return _fail(request, FlowMessage(title=CONNECT_FAILED, message=str(e)))
+    except IdentifierConflict as e:
+        # Trying again cannot help: the EHR patient is another JHE patient's.
+        logger.warning("uscdi-patient-access callback failed: identifier conflict")
+        return _fail(request, FlowMessage(title=CONNECT_FAILED, message=str(e), retry=False))
     query = {"route": "status", "job": job.id, "source": str(job.participant.attrs.data_source_id)}
     return redirect(f"{_page()}?{urlencode(query)}")
 
@@ -415,6 +422,8 @@ class JobView(BaseModel):
     status: JobStatus
     terminal: bool
     data_source_id: int
+    fhir_source_id: int  # the hospital's record in JHE: the client groups a patient's pulls by it
+    finished_at: datetime | None
     source: SourceView
     types: list[TypeView]
     documents: DocumentsView
@@ -429,6 +438,8 @@ class JobView(BaseModel):
             status=job.status,
             terminal=job.status.terminal,
             data_source_id=job.participant.attrs.data_source_id,
+            fhir_source_id=job.participant.attrs.fhir_source_id,
+            finished_at=job.finished_at,
             source=SourceView(brand=job.source.brand_name, location=job.source.facility_name),
             types=[
                 TypeView(label=o.label, resource_type=o.resource_type, status=o.status, count=o.count)

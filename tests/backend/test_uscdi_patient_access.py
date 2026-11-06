@@ -384,7 +384,9 @@ def test_an_ehr_patient_linked_to_someone_else_stops_the_pull(world, module_on, 
     browser, state = launched(world)
     token_response(ehr)
     r = browser.get(CALLBACK, {"state": state, "code": "c"})
-    assert r["Location"].endswith("?route=error") and "already linked" in flow_error(browser)["message"]
+    assert r["Location"].endswith("?route=error")
+    carried = flow_error(browser)
+    assert "already linked" in carried["message"] and carried["retry"] is False  # trying again cannot help
     assert JobRecord.objects.count() == 0 and FhirSource.objects.count() == 0
 
 
@@ -406,6 +408,7 @@ def test_the_job_endpoint_shows_only_the_patients_own_job(world, module_on, ehr,
     job_id = JobRecord.objects.get().id
     r = browser.get(f"/api/v1/uscdi-patient-access/jobs/{job_id}")
     assert r.status_code == 200 and r.json()["status"] == "queued" and r.json()["source"]["brand"] == "Example Health"
+    assert r.json()["fhirSourceId"] == FhirSource.objects.get().id and "finishedAt" in r.json()
     other = JheUser.objects.create_user(email="other@example.org", password="x", user_type="patient")
     stranger = Client()
     stranger.force_login(other)  # logged in, but not through an invitation: nobody here
