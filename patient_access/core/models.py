@@ -299,6 +299,8 @@ class SkipReason(StrEnum):
     NETWORK = "network"
     UNREADABLE_BINARY = "unreadable_binary"
     TOKEN_EXPIRED = "token_expired"
+    TOO_SLOW = "too_slow"  # the download ran past max_seconds_each
+    SPOOL_CORRUPT = "spool_corrupt"  # the stored copy failed to decrypt or match its digest
 
 
 class DocumentRecord(Value):

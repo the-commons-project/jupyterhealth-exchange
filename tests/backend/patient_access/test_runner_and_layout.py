@@ -244,10 +244,18 @@ def test_values_cannot_escape_their_segment():
     ("template", "message"),
     [
         ("{attrs.patient_id}/bundle.json", "per-pull"),
+        ("{attrs.patient_id}/{created_at:%Y}/bundle.json", "per-pull"),  # one pull a year
+        ("{attrs.patient_id}/{created_at:%Y%m%d}/bundle.json", "per-pull"),  # one a day
         ("{secrets.key}/{job.id}", "unknown"),
+        ("{job.status}/{job.id}", "unknown"),
         ("a//{job.id}", "empty segment"),
         ("", "empty"),
         ("{job.id", "not a valid template"),
+        ("{job.__init__.__globals__}/{job.id}", "private"),
+        ("{job._secret}/{job.id}", "private"),
+        ("{attrs[patient_id]}/{job.id}", "index"),
+        ("{job.id!r}", "conversion"),
+        ("{job.id:>40}", "only created_at"),
     ],
 )
 def test_bad_layouts_are_refused_with_a_reason(template, message):
@@ -255,6 +263,21 @@ def test_bad_layouts_are_refused_with_a_reason(template, message):
         TemplateLayout(template)
 
 
+@pytest.mark.parametrize(
+    "template",
+    ["{created_at:%Y%m%dT%H%M%SZ}/bundle.json", "{created_at}/b.json", "{created_at:%Y-%m-%dT%T}/b.json", "{job.id}"],
+)
+def test_a_per_pull_part_is_the_job_id_or_a_time_to_the_second(template):
+    TemplateLayout(template)
+
+
+def test_the_traversal_that_reached_the_environment_is_refused():
+    """The review's demonstration: a template walking from the job to os.environ."""
+    template = "{job.__init__.__globals__[sys].modules[os].environ[PATIENT_ACCESS_ENCRYPTION_KEYS]}/{job.id}"
+    with pytest.raises(LayoutError):
+        TemplateLayout(template)
+
+
 def test_a_field_the_job_lacks_fails_at_render():
-    with pytest.raises(LayoutError, match="needs"):
+    with pytest.raises(LayoutError, match="not available"):
         TemplateLayout("{attrs.study}/{job.id}").render(job())

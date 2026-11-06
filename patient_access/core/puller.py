@@ -7,6 +7,7 @@ so a type is refetched from its first page unless every row for it settled.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
@@ -127,6 +128,19 @@ def error_text(r: requests.Response) -> str:
     return f"{r.status_code} {r.reason}"
 
 
+def _json(r: requests.Response) -> tuple[Any, int]:
+    """The body, with every NaN, Infinity and -Infinity (not JSON, but lenient servers send them
+    and Python's parser accepts them) replaced by null; and how many there were. FHIR allows none
+    of them; null keeps the hole visible rather than dropping the element."""
+    replaced = 0
+
+    def constant(name: str) -> None:
+        nonlocal replaced
+        replaced += 1
+
+    return json.loads(r.content, parse_constant=constant), replaced
+
+
 def _page(body: Any, single: bool) -> tuple[list[JsonObject], str | None]:
     """The resources a response holds and the next page's URL. Raises UnreadablePage."""
     try:
@@ -146,7 +160,9 @@ def _pull(
     outcome: TypeOutcome,
     seen: set[str],
     save: Callable[[], None],
-) -> None:
+) -> int:
+    """Pages one row into the spool. Returns how many non-finite numbers were replaced."""
+    replaced = 0
     url: str | None
     params: dict[str, str] | None
     url, params = search_url(client.base, spec, patient, client.profile.page_size)
@@ -159,8 +175,10 @@ def _pull(
         params = None  # `next` links carry their own query
         if r.status_code != 200:
             outcome.status, outcome.error = OutcomeStatus.ERROR, error_text(r)
-            return
-        resources, url = _page(r.json(), spec.single)
+            return replaced
+        body, nonfinite = _json(r)
+        replaced += nonfinite
+        resources, url = _page(body, spec.single)
         outcome.pages += 1
         for resource in resources:
             if resource.get("resourceType") != spec.resource_type:
@@ -176,6 +194,7 @@ def _pull(
             save()
     outcome.status = OutcomeStatus.OK
     outcome.seconds = round(time.monotonic() - started, 2)
+    return replaced
 
 
 def fetch_resources(
@@ -218,7 +237,13 @@ def fetch_resources(
                 o.status, o.error = OutcomeStatus.SKIPPED, "scope not granted"
                 continue
             try:
-                _pull(client, spec, patient, spool, o, seen, save)
+                if replaced := _pull(client, spec, patient, spool, o, seen, save):
+                    log.warning(
+                        "%s: %d non-finite numbers replaced with null",
+                        o.label,
+                        replaced,
+                        extra={"resource_type": resource_type},
+                    )
             except TokenExpired:
                 o.status, o.error = OutcomeStatus.ERROR, "authorization expired during download"
                 expired = True

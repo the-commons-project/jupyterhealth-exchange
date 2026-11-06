@@ -140,3 +140,37 @@ def test_bucket_default_encryption_sends_no_header():
 
     assert sse_arguments(s3_settings(encryption="bucket-default")) == {}
     assert sse_arguments(s3_settings()) == {"ServerSideEncryption": "AES256"}
+
+
+def test_a_stream_of_exactly_two_parts_is_two_parts(s3):
+    from patient_access.destinations.multipart import MIN_PART as PART
+
+    receipt = S3Sink(boto3_client, part_size=PART).put(job(), pieces(2 * PART), s3_settings(), Progress())
+    assert receipt.parts == 2 and receipt.bytes == 2 * PART
+    assert s3.head_object(Bucket=BUCKET, Key=KEY)["ContentLength"] == 2 * PART
+
+
+def test_more_parts_than_s3_allows_is_refused_and_aborted(monkeypatch):
+    from patient_access.destinations import multipart
+    from patient_access.destinations.multipart import TooManyParts
+
+    class Fake:
+        aborted = False
+
+        def create_multipart_upload(self, **kw):
+            return {"UploadId": "u"}
+
+        def upload_part(self, **kw):
+            return {"ETag": "e"}
+
+        def complete_multipart_upload(self, **kw):
+            return {"ETag": "f"}
+
+        def abort_multipart_upload(self, **kw):
+            Fake.aborted = True
+            return {}
+
+    monkeypatch.setattr(multipart, "MAX_PARTS", 2)
+    with pytest.raises(TooManyParts):
+        S3Sink(lambda s: Fake(), part_size=MIN_PART).put(job(), pieces(3 * MIN_PART + 1), s3_settings(), Progress())
+    assert Fake.aborted

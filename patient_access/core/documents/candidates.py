@@ -3,12 +3,14 @@
 A DocumentReference often offers one document in several formats; one is taken, by the vendor's
 preference order. A DiagnosticReport's `presentedForm` items are distinct renderings; each is
 taken. Blob ids are derived from the resource, so the formatter finds the same blob the
-downloader stored without any table between them.
+downloader stored without any table between them: the type, a hash of the resource's id and the
+attachment's index. A hash, not the id cleaned up: two ids that clean to the same text (`a:b`,
+`a;b`, or long ids sharing a prefix) would collide, and the id would sit in a file name.
 """
 
 from __future__ import annotations
 
-import re
+import hashlib
 from collections.abc import Iterator, Sequence
 from typing import Any
 
@@ -16,7 +18,7 @@ from ..interfaces import SpoolHandle
 from ..models import DocumentSource, JsonObject, Value
 from ..source_settings import DocumentProfile
 
-_UNSAFE = re.compile(r"[^A-Za-z0-9.-]")
+BLOB_HASH_CHARS = 24  # of SHA-256 hex: 96 bits, no collision among a pull's documents
 
 
 def resource_key(resource: JsonObject, position: int) -> str:
@@ -26,7 +28,9 @@ def resource_key(resource: JsonObject, position: int) -> str:
 
 
 def blob_id(resource_type: str, key: str, attachment_index: int) -> str:
-    return f"{resource_type}-{_UNSAFE.sub('_', key)}-{attachment_index}"
+    """Path-safe, fixed length, and a valid FHIR id (the Binary entry's)."""
+    digest = hashlib.sha256(key.encode()).hexdigest()[:BLOB_HASH_CHARS]
+    return f"{resource_type}-{digest}-{attachment_index}"
 
 
 def media_type(content_type: str | None) -> str:

@@ -239,6 +239,10 @@ class MemorySpoolHandle:
     def has_blob(self, blob_id: str) -> bool:
         return blob_id in self.blobs
 
+    def blob_meta(self, blob_id: str) -> BlobMeta | None:
+        held = self.blobs.get(blob_id)
+        return held[1] if held else None
+
     def iter_type(self, resource_type: str) -> Iterator[JsonObject]:
         yield from (dict(r) for r in self.types.get(resource_type, []))
 

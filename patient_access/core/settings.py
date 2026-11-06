@@ -55,16 +55,24 @@ class S3Settings(Value):
         return self
 
 
+MAX_ATTACHMENT_SIZE = 2**31 - 1
+"""FHIR R4's `Attachment.size` is an unsignedInt and a `valueInteger` is 32-bit signed: one
+document may be at most this many bytes, or the bundle is not valid R4."""
+
+
 class DocumentCaps(Value):
     """How much document content a pull may carry. Set very high by default: the partner wants
     everything, and the streaming write keeps memory flat at any size."""
 
     max_count: int = Field(default=10_000, ge=0)
-    max_bytes_each: int = Field(default=2 * GiB, ge=0)
+    max_bytes_each: int = Field(default=MAX_ATTACHMENT_SIZE, ge=0, le=MAX_ATTACHMENT_SIZE)
     max_total_bytes: int = Field(default=20 * GiB, ge=0)
     # A server that answers with a FHIR Binary JSON instead of raw bytes is parsed in memory, so
     # that path has its own, lower cap.
-    max_binary_json_bytes: int = Field(default=64 * MiB, ge=0)
+    max_binary_json_bytes: int = Field(default=16 * MiB, ge=0)
+    # One document's download may take at most this long, however slowly the server sends it
+    # (a read timeout alone never ends a server that drips a byte at a time).
+    max_seconds_each: float = Field(default=600.0, gt=0)
 
 
 class BundleSettings(Value):
@@ -73,6 +81,9 @@ class BundleSettings(Value):
     # The namespace of the bundle's custom extensions; a site that publishes its own profiles
     # sets its own.
     extension_base_url: str = DEFAULT_EXTENSION_BASE_URL
+    # The host application, recorded beside this library in the bundle's provenance.
+    host_name: str | None = None
+    host_version: str | None = None
 
     @field_validator("extension_base_url")
     @classmethod

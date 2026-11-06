@@ -252,3 +252,51 @@ def test_a_cancelled_lease_stops_before_the_next_request(ehr):
     with pytest.raises(LeaseLost):
         run_job(lease, w.deps)
     assert len(ehr.calls) == 0
+
+
+def test_a_document_whose_stored_copy_is_corrupt_is_left_out_not_the_pull():
+    """A job at the delivery stage with one stored note, whose bytes no longer match their digest."""
+    import base64 as b64
+    import secrets
+
+    from pydantic import SecretStr
+
+    from patient_access.core.documents.candidates import Candidate, blob_id
+    from patient_access.core.documents.downloader import Stored
+    from patient_access.core.documents.run import record
+    from patient_access.core.models import DocumentResult, DocumentSource, SkipReason
+
+    w = World()
+    note = blob_id("DocumentReference", "d1", 0)
+    key = secrets.token_bytes(32)
+    lease = w.jobs.lease_for(w.job.id, "setup")
+    j = w.jobs.get(w.job.id)
+    j.status, j.spool_ref = JobStatus.FETCHED, j.id
+    j.credentials.spool_key = SecretStr(b64.urlsafe_b64encode(key).decode())
+    handle = w.spool.open(j.id, key)
+    handle.append(
+        "DocumentReference",
+        {"resourceType": "DocumentReference", "id": "d1", "content": [{"attachment": {"url": "Binary/n1"}}]},
+    )
+    writer = handle.open_blob(note)
+    writer.write(b"the note")
+    meta = writer.commit(content_type="text/plain", referenced_by="DocumentReference/d1", source_url=None)
+    cand = Candidate(
+        blob_id=note,
+        source=DocumentSource.DOCUMENT_REFERENCE,
+        referenced_by="DocumentReference/d1",
+        attachment_index=0,
+        content_type="text/plain",
+    )
+    j.documents.record(record(cand, Stored(meta=meta)))
+    j.documents.status = OutcomeStatus.OK
+    handle.blobs[note] = (b"the nXte", meta)  # the stored bytes no longer match their digest
+    w.jobs.save(j, lease)
+    w.jobs.release(j.id, "setup")
+
+    final = w.run()
+    assert final.status is JobStatus.DONE
+    kept = next(r for r in final.documents.records if r.blob_id == note)
+    assert kept.result is DocumentResult.SKIPPED and kept.reason is SkipReason.SPOOL_CORRUPT
+    bundle = json.loads(next(iter(w.sink.objects.values())))
+    assert not any(e["resource"]["resourceType"] == "Binary" for e in bundle["entry"])

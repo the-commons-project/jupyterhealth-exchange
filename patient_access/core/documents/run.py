@@ -73,15 +73,14 @@ def fetch_documents(
     # Resume: what earlier runs stored is already spent.
     stored = {r.blob_id: r for r in out.stored if spool.has_blob(r.blob_id)}
     budget = Budget(caps=caps, count=len(stored), bytes=sum(r.size or 0 for r in stored.values()))
-    index = spool.index()
     stopped: Stop | None = None  # why the rest are skipped without a request
 
     for n, cand in enumerate(candidates(spool, profile), start=1):
         if cand.blob_id in stored:
             continue
-        if spool.has_blob(cand.blob_id):
-            # Committed by a run that died before saving its record.
-            meta = index.blobs[cand.blob_id]
+        if (meta := spool.blob_meta(cand.blob_id)) is not None:
+            # Committed by a run that died before saving its record, or earlier in this pass by a
+            # candidate with the same blob (read live: a snapshot would not have it).
             out.record(record(cand, Stored(meta=meta)))
             budget = budget.spend(meta.size)
             continue
@@ -92,7 +91,7 @@ def fetch_documents(
             out.record(record(cand, Skipped(reason=refusal)))
             continue
         try:
-            result = fetch_one(client, spool, cand, budget, caps.max_binary_json_bytes)
+            result = fetch_one(client, spool, cand, budget, caps)
         except TokenExpired:
             stopped = Stop.EXPIRED
             result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)

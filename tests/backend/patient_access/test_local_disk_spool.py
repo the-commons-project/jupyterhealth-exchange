@@ -108,3 +108,64 @@ def test_the_root_is_created_on_first_open(tmp_path):
     assert spool.sweep(frozenset(), timedelta(0)) == []
     spool.open("j", KEY)
     assert (tmp_path / "not-yet" / "j").is_dir()
+
+
+def test_a_blob_moved_into_another_job_does_not_decrypt(spool):
+    """Same key, same name, different job: the job's ref is part of the blob's context."""
+    one, two = spool.open("job-1", KEY), spool.open("job-2", KEY)
+    for h in (one, two):
+        w = h.open_blob("Doc-1-0")
+        w.write(h.ref.encode() * 1000)
+        w.commit(content_type="text/plain", referenced_by="r", source_url=None)
+    os.replace(one.blob_path("Doc-1-0"), two.blob_path("Doc-1-0"))
+    with pytest.raises(InvalidTag):
+        b"".join(two.iter_blob("Doc-1-0"))
+
+
+def test_a_blob_read_with_the_wrong_key_does_not_decrypt(tmp_path):
+    """Same job, same name, only the key differs."""
+    h = LocalDiskSpool(tmp_path / "a").open("job-1", KEY)
+    w = h.open_blob("Doc-1-0")
+    w.write(b"x" * 10_000)
+    meta = w.commit(content_type="text/plain", referenced_by="r", source_url=None)
+    stranger = LocalDiskSpool(tmp_path / "b").open("job-1", OTHER_KEY)
+    os.replace(h.blob_path("Doc-1-0"), stranger.blob_path("Doc-1-0"))
+    stranger.commit_meta("Doc-1-0", meta)
+    with pytest.raises(InvalidTag):
+        b"".join(stranger.iter_blob("Doc-1-0"))
+
+
+def test_the_document_index_is_appended_and_the_last_line_wins(spool):
+    """Committing never rewrites the index: at the 10,000-document cap that was ~16 GB of writes."""
+    h = spool.open("job-1", KEY)
+    sizes = []
+    for i in range(3):
+        w = h.open_blob(f"Doc-{i}-0")
+        w.write(b"x" * (i + 1))
+        w.commit(content_type="text/plain", referenced_by="r", source_url=None)
+        sizes.append((h.path / "blobs.ndjson").stat().st_size)
+    assert sizes[0] < sizes[1] < sizes[2] and sizes[2] - sizes[1] < 1024  # one line each, not the lot
+    w = h.open_blob("Doc-0-0")  # the same blob again, as a resumed pass would
+    w.write(b"yy")
+    w.commit(content_type="text/html", referenced_by="r", source_url=None)
+    h.close()
+    again = spool.open("job-1", KEY)
+    assert again.blob_meta("Doc-0-0").content_type == "text/html" and again.blob_meta("Doc-0-0").size == 2
+    assert len(again.index().blobs) == 3
+
+
+def test_no_resource_id_appears_in_a_file_name(spool):
+    from patient_access.core.documents.candidates import blob_id
+
+    h = spool.open("job-1", KEY)
+    bid = blob_id("DocumentReference", "eAzqoDIG-5nMnik8YHT6Whw3", 0)
+    w = h.open_blob(bid)
+    w.write(b"note")
+    w.commit(content_type="text/plain", referenced_by="r", source_url=None)
+    names = " ".join(p.name for p in h.path.rglob("*"))
+    assert "eAzqoDIG" not in names
+
+
+def test_resources_and_blobs_use_distinct_derived_keys(spool):
+    h = spool.open("job-1", KEY)
+    assert h.blob_key != KEY[:16] and h._fernet._encryption_key != KEY[16:]

@@ -10,7 +10,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from patient_access.formatters.stream import Digest, Entry, FramingError, InlineBlob, base64_stream, frame
+from patient_access.formatters.stream import BinaryEntry, Digest, ResourceEntry, base64_stream, frame
 
 KiB = 1024
 
@@ -37,27 +37,33 @@ def test_base64_stream_at_boundary_sizes(size):
         assert b"".join(base64_stream(pieces)) == base64.b64encode(data)
 
 
-def test_frame_writes_valid_json_with_documents_inline():
+def test_frame_writes_valid_json_with_documents_as_binaries():
     blobs = {"b1": b"note one \xe2\x9c\x93", "b2": bytes(range(256)) * 100}
     entries = [
-        Entry(full_url="urn:uuid:1", resource={"resourceType": "Patient", "name": [{"text": "Zoë"}]}),
-        Entry(
-            full_url="urn:uuid:2",
-            resource={
-                "resourceType": "DiagnosticReport",
-                "presentedForm": [{"contentType": "text/plain", "data": "__ph0__"}, {"data": "__ph1__"}],
-            },
-            inline=(InlineBlob(placeholder="__ph1__", blob_id="b2"), InlineBlob(placeholder="__ph0__", blob_id="b1")),
-        ),
+        ResourceEntry(full_url="urn:uuid:1", resource={"resourceType": "Patient", "name": [{"text": "Zoë"}]}),
+        BinaryEntry(full_url="urn:uuid:2", id="b1", content_type="text/plain; charset=utf-8", blob_id="b1", size=12),
+        BinaryEntry(full_url="urn:uuid:3", id="b2", content_type="application/pdf", blob_id="b2", size=25600),
     ]
     raw = b"".join(frame({"resourceType": "Bundle", "type": "document"}, entries, lambda b: [blobs[b]]))
     bundle = json.loads(raw)
-    assert bundle["type"] == "document" and len(bundle["entry"]) == 2
+    assert bundle["type"] == "document" and len(bundle["entry"]) == 3
     assert bundle["entry"][0]["resource"]["name"][0]["text"] == "Zoë"
-    forms = bundle["entry"][1]["resource"]["presentedForm"]
-    assert base64.b64decode(forms[0]["data"]) == blobs["b1"]
-    assert base64.b64decode(forms[1]["data"]) == blobs["b2"]
+    first, second = (e["resource"] for e in bundle["entry"][1:])
+    assert first == {
+        "resourceType": "Binary",
+        "id": "b1",
+        "contentType": "text/plain; charset=utf-8",
+        "data": base64.b64encode(blobs["b1"]).decode(),
+    }
+    assert base64.b64decode(second["data"]) == blobs["b2"]
     assert list(ijson.parse(raw))  # a streaming parser reads it to the end
+
+
+def test_an_empty_document_is_a_binary_without_data():
+    """FHIR forbids empty strings, so no `"data": ""`."""
+    entry = BinaryEntry(full_url="urn:uuid:1", id="b", content_type="text/plain", blob_id="b", size=0)
+    bundle = json.loads(b"".join(frame({"resourceType": "Bundle"}, [entry], lambda b: [])))
+    assert "data" not in bundle["entry"][0]["resource"]
 
 
 def test_frame_with_no_entries():
@@ -67,10 +73,26 @@ def test_frame_with_no_entries():
     }
 
 
-def test_missing_placeholder_is_a_framing_error():
-    entry = Entry(full_url="u", resource={"data": "x"}, inline=(InlineBlob(placeholder="__nope__", blob_id="b"),))
-    with pytest.raises(FramingError):
-        b"".join(frame({"resourceType": "Bundle"}, [entry], lambda b: [b"x"]))
+def test_the_output_is_ascii_whatever_the_ehr_sent():
+    """A lone surrogate (valid JSON escape, invalid Unicode) once failed every delivery attempt."""
+    resource = json.loads('{"resourceType":"Observation","valueString":"bad \\ud800 text","note":"Zoë"}')
+    raw = b"".join(frame({"resourceType": "Bundle"}, [ResourceEntry("urn:uuid:1", resource)], lambda b: []))
+    assert raw.isascii()
+    assert json.loads(raw)["entry"][0]["resource"]["note"] == "Zoë"
+
+
+def test_a_non_finite_number_is_refused_rather_than_written():
+    entry = ResourceEntry("urn:uuid:1", {"resourceType": "Observation", "valueQuantity": {"value": float("nan")}})
+    with pytest.raises(ValueError):
+        b"".join(frame({"resourceType": "Bundle"}, [entry], lambda b: []))
+
+
+@settings(max_examples=100)
+@given(text=st.text())
+def test_any_text_in_a_resource_frames_as_valid_json(text):
+    entry = ResourceEntry("urn:uuid:1", {"resourceType": "Observation", "valueString": text})
+    raw = b"".join(frame({"resourceType": "Bundle"}, [entry], lambda b: []))
+    assert json.loads(raw)["entry"][0]["resource"]["valueString"] == text
 
 
 @settings(max_examples=50)

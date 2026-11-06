@@ -159,6 +159,10 @@ class SpoolHandle(Protocol):
 
     def has_blob(self, blob_id: str) -> bool: ...
 
+    def blob_meta(self, blob_id: str) -> BlobMeta | None:
+        """A committed blob's metadata as of now (not a snapshot), or None."""
+        ...
+
     def iter_type(self, resource_type: str) -> Iterator[JsonObject]: ...
 
     def iter_blob(self, blob_id: str) -> Iterator[bytes]:

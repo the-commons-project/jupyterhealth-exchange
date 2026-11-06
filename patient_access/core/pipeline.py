@@ -16,6 +16,7 @@ under a lease, and `LeaseLost` from any save stops it without another write.
 from __future__ import annotations
 
 import base64
+import hashlib
 import secrets
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -34,10 +35,12 @@ from .models import (
     A,
     Delivery,
     DeliveryStatus,
+    DocumentResult,
     Job,
     JobStatus,
     OutcomeStatus,
     PendingUpload,
+    SkipReason,
 )
 from .puller import FetchAborted, fetch_resources
 from .settings import BundleSettings, PatientAccessSettings
@@ -257,6 +260,8 @@ def _deliver(job: Job[A], handle: SpoolHandle, settings: PatientAccessSettings, 
         _delivery_failed(job, deps, lease, log, e)
         return
     job.participant = job.participant.model_copy(update={"attrs": attrs})
+    _verify_documents(job, handle, log)
+    deps.jobs.save(job, lease)
     try:
         chunks = deps.render(job, handle, settings.bundle, deps.clock())
         receipt = deps.sink.put(job, chunks, settings.s3, _Progress(job, deps, lease))
@@ -269,6 +274,26 @@ def _deliver(job: Job[A], handle: SpoolHandle, settings: PatientAccessSettings, 
     job.status = JobStatus.DONE
     log.info("delivered %d bytes in %d parts", receipt.bytes, receipt.parts)
     _finish(job, deps, lease)
+
+
+def _verify_documents(job: Job[A], handle: SpoolHandle, log: JobLog) -> None:
+    """Read every stored document back before rendering: one that no longer decrypts or matches
+    its digest is recorded as skipped and left out, instead of failing the whole delivery halfway
+    through the stream (where nothing can be taken back). Costs a second read of the documents."""
+    for r in list(job.documents.stored):
+        digest, size = hashlib.sha256(), 0
+        try:
+            for chunk in handle.iter_blob(r.blob_id):
+                digest.update(chunk)
+                size += len(chunk)
+            intact = digest.hexdigest() == r.sha256 and size == r.size
+        except Exception:  # noqa: BLE001 - any failure to read it back is the same verdict
+            intact = False
+        if not intact:
+            job.documents.record(
+                r.model_copy(update={"result": DocumentResult.SKIPPED, "reason": SkipReason.SPOOL_CORRUPT})
+            )
+            log.warning("a stored document failed verification and is left out (%s)", r.source.value)
 
 
 def _delivery_failed(job: Job[A], deps: Deps[A], lease: Lease, log: JobLog, e: Exception) -> None:

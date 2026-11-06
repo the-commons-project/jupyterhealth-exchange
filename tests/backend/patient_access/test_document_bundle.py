@@ -4,17 +4,24 @@ import base64
 import hashlib
 import json
 
+import pytest
+
+from patient_access.core.documents.candidates import blob_id
 from patient_access.core.models import DocumentRecord, DocumentResult, DocumentSource, OutcomeStatus, SkipReason
 from patient_access.core.settings import BundleSettings
+from patient_access.core.vocab import TypeChoice
 from patient_access.formatters import render_bundle
-from patient_access.formatters.document_bundle import DOCUMENTS_SECTION_CODE, urn
-from patient_access.formatters.metadata import pull_metadata
+from patient_access.formatters.document_bundle import DOCUMENTS_SECTION_CODE, binary_urn, urn
+from patient_access.formatters.metadata import NotAPullBundle, pull_metadata
 from patient_access.testing.memory import MemorySpoolHandle
 
 from .helpers import ISS, NOW, job
 
 NOTE = "Patient seen today. été ✓".encode()
 PDF = bytes(range(256)) * 300
+NOTE_ID = blob_id("DocumentReference", "d1", 1)
+PDF_ID = blob_id("DiagnosticReport", "r1", 0)
+REFUSED_ID = blob_id("DiagnosticReport", "r1", 1)
 
 
 def spool_with_records():
@@ -47,13 +54,21 @@ def spool_with_records():
     )
     spool.append(
         "DiagnosticReport",
-        {"resourceType": "DiagnosticReport", "id": "r1", "presentedForm": [{"contentType": "application/pdf"}]},
+        {
+            "resourceType": "DiagnosticReport",
+            "id": "r1",
+            "presentedForm": [
+                {"contentType": "application/pdf"},
+                # Inline data the caps refused: must not reach the bundle anyway.
+                {"contentType": "application/pdf", "data": base64.b64encode(b"x" * 500).decode(), "size": 500},
+            ],
+        },
     )
-    for blob_id, data, ctype, ref in (
-        ("DocumentReference-d1-1", NOTE, "text/plain", "DocumentReference/d1"),
-        ("DiagnosticReport-r1-0", PDF, "application/pdf", "DiagnosticReport/r1"),
+    for bid, data, ctype, ref in (
+        (NOTE_ID, NOTE, "text/plain; charset=windows-1252", "DocumentReference/d1"),
+        (PDF_ID, PDF, "application/pdf", "DiagnosticReport/r1"),
     ):
-        w = spool.open_blob(blob_id)
+        w = spool.open_blob(bid)
         w.write(data)
         w.commit(content_type=ctype, referenced_by=ref, source_url=None)
     return spool
@@ -66,21 +81,25 @@ def finished_job():
             o.status = OutcomeStatus.OK
     j.outcomes[0].count = 1
     j.documents.status = OutcomeStatus.OK
-    j.documents.record(
-        DocumentRecord(
-            blob_id="DocumentReference-d1-1",
-            source=DocumentSource.DOCUMENT_REFERENCE,
-            referenced_by="DocumentReference/d1",
-            attachment_index=1,
-            content_type="text/plain",
-            result=DocumentResult.STORED,
-            size=len(NOTE),
-            sha256=hashlib.sha256(NOTE).hexdigest(),
+    for bid, data, ref, source, index in (
+        (NOTE_ID, NOTE, "DocumentReference/d1", DocumentSource.DOCUMENT_REFERENCE, 1),
+        (PDF_ID, PDF, "DiagnosticReport/r1", DocumentSource.DIAGNOSTIC_REPORT, 0),
+    ):
+        j.documents.record(
+            DocumentRecord(
+                blob_id=bid,
+                source=source,
+                referenced_by=ref,
+                attachment_index=index,
+                content_type="text/plain",
+                result=DocumentResult.STORED,
+                size=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),
+            )
         )
-    )
     j.documents.record(
         DocumentRecord(
-            blob_id="DiagnosticReport-r1-1",
+            blob_id=REFUSED_ID,
             source=DocumentSource.DIAGNOSTIC_REPORT,
             referenced_by="DiagnosticReport/r1",
             attachment_index=1,
@@ -96,12 +115,13 @@ def render(j, spool, base="https://jupyterhealth.org/fhir/StructureDefinition/")
     return json.loads(b"".join(render_bundle(j, spool, BundleSettings(extension_base_url=base), NOW)))
 
 
-def test_bundle_is_a_document_with_the_composition_first():
+def test_bundle_is_a_document_with_the_composition_first_and_the_binaries_last():
     bundle = render(finished_job(), spool_with_records())
     assert bundle["resourceType"] == "Bundle" and bundle["type"] == "document"
     types = [e["resource"]["resourceType"] for e in bundle["entry"]]
     assert types[:2] == ["Composition", "Device"]
-    assert sorted(types[2:]) == sorted(
+    assert types[-2:] == ["Binary", "Binary"]
+    assert sorted(types[2:-2]) == sorted(
         ["Patient", "Observation", "Observation", "DocumentReference", "DiagnosticReport"]
     )
     assert all(e["fullUrl"].startswith("urn:uuid:") for e in bundle["entry"])
@@ -118,22 +138,54 @@ def test_references_inside_the_pull_point_at_urns_and_the_rest_are_absolute():
     assert composition["subject"]["reference"] == patient_urn
 
 
-def test_documents_are_inline_and_decode_to_the_original_bytes():
+def test_a_reference_to_another_server_is_never_taken_for_one_of_ours():
+    spool = spool_with_records()
+    spool.append(
+        "Observation",
+        {
+            "resourceType": "Observation",
+            "id": "o3",
+            "subject": {"reference": "https://other.example.org/fhir/Patient/p1"},
+            "derivedFrom": [{"reference": "Observation/o1/_history/3"}],
+        },
+    )
+    by_id = {e["resource"].get("id"): e["resource"] for e in render(finished_job(), spool)["entry"]}
+    assert by_id["o3"]["subject"]["reference"] == "https://other.example.org/fhir/Patient/p1"
+    assert by_id["o3"]["derivedFrom"][0]["reference"] == urn("Observation", "o1")  # version suffix dropped
+
+
+def test_documents_are_binaries_the_attachments_point_at():
     bundle = render(finished_job(), spool_with_records())
     by_id = {e["resource"].get("id"): e["resource"] for e in bundle["entry"]}
     content = by_id["d1"]["content"]
-    assert "data" not in content[0]["attachment"]  # the format not chosen keeps its URL only
+    assert content[0]["attachment"]["url"] == f"{ISS}/Binary/pdf1"  # the format not taken keeps its URL
     note = content[1]["attachment"]
-    assert base64.b64decode(note["data"]) == NOTE
-    assert note["size"] == len(NOTE) and note["url"] == f"{ISS}/Binary/txt1"
-    assert base64.b64decode(by_id["r1"]["presentedForm"][0]["data"]) == PDF
+    assert note["url"] == binary_urn(NOTE_ID) and note["size"] == len(NOTE) and "data" not in note
+    binary = next(e for e in bundle["entry"] if e["fullUrl"] == binary_urn(NOTE_ID))["resource"]
+    assert binary["resourceType"] == "Binary" and base64.b64decode(binary["data"]) == NOTE
+    assert binary["contentType"] == "text/plain; charset=windows-1252"  # the served charset is kept
+    pdf = by_id["r1"]["presentedForm"][0]
+    pdf_binary = next(e for e in bundle["entry"] if e["fullUrl"] == pdf["url"])["resource"]
+    assert base64.b64decode(pdf_binary["data"]) == PDF
+
+
+def test_no_attachment_carries_data_without_a_binary_behind_it():
+    """The caps bound the bundle: inline bytes the EHR sent for a refused document are dropped."""
+    bundle = render(finished_job(), spool_with_records())
+    attachments = [
+        *(c["attachment"] for e in bundle["entry"] for c in e["resource"].get("content", [])),
+        *(f for e in bundle["entry"] for f in e["resource"].get("presentedForm", [])),
+    ]
+    assert attachments and all("data" not in a for a in attachments)
+    refused = next(e for e in bundle["entry"] if e["resource"].get("id") == "r1")["resource"]["presentedForm"][1]
+    assert refused["size"] == 500  # what the EHR said about it is kept
 
 
 def test_provenance_reads_back():
     meta = pull_metadata(render(finished_job(), spool_with_records()))
-    assert meta.job_id == "job-1" and meta.participant_ref == "40001"
+    assert meta.job_id == "job-1" and meta.participant_ref == "40001" and meta.finished == NOW.isoformat()
     assert meta.participant_attrs["fhir_source_id"] == 7
-    assert meta.source_brand == "Example Health"
+    assert meta.source_brand == "Example Health" and meta.type_choice == TypeChoice.HOST.value
     assert "patient/Observation.read" in meta.scopes_granted
     assert meta.scopes_declined == ("patient/Condition.read",)
     assert meta.meta_source == "https://jhe.example.org/fhir-source/7"
@@ -143,8 +195,19 @@ def test_provenance_reads_back():
     assert conditions.status is OutcomeStatus.NOT_REQUESTED
     stored = [d for d in meta.documents if d.result is DocumentResult.STORED]
     skipped = [d for d in meta.documents if d.result is DocumentResult.SKIPPED]
-    assert [d.referenced_by for d in stored] == ["DocumentReference/d1"]
-    assert skipped[0].reason is SkipReason.SIZE_CAP_EACH
+    assert [d.referenced_by for d in stored] == ["DocumentReference/d1", "DiagnosticReport/r1"]
+    assert stored[0].binary == binary_urn(NOTE_ID)
+    assert skipped[0].reason is SkipReason.SIZE_CAP_EACH and skipped[0].binary is None
+
+
+def test_the_pull_records_the_host_and_the_connection():
+    settings = BundleSettings(host_name="jupyterhealth-exchange", host_version="2.3.0")
+    raw = json.loads(b"".join(render_bundle(finished_job(), spool_with_records(), settings, NOW)))
+    pull = raw["entry"][0]["resource"]["extension"][0]["extension"]
+    software = {e["url"]: e.get("valueString") for e in next(p for p in pull if p["url"] == "software")["extension"]}
+    assert software["hostName"] == "jupyterhealth-exchange" and software["hostVersion"] == "2.3.0"
+    source = {e["url"]: e for e in next(p for p in pull if p["url"] == "source")["extension"]}
+    assert source["pkceAdvertised"]["valueBoolean"] is True and source["typeChoice"]["valueString"] == "host"
 
 
 def test_sections_carry_outcomes_and_empty_reasons():
@@ -154,7 +217,24 @@ def test_sections_carry_outcomes_and_empty_reasons():
     assert len(sections["Observation"]["extension"]) == 2  # Labs and Vital Signs
     assert sections["Condition"]["emptyReason"]["coding"][0]["code"] == "withheld"
     docs = sections[DOCUMENTS_SECTION_CODE]
-    assert docs["entry"] == [{"reference": urn("DocumentReference", "d1")}]
+    assert docs["entry"] == [{"reference": binary_urn(NOTE_ID)}, {"reference": binary_urn(PDF_ID)}]
+    outcome = {e["url"]: e for e in docs["extension"][0]["extension"]}
+    assert outcome["bytes"]["valueDecimal"] == len(NOTE) + len(PDF)  # a decimal: no 32-bit limit
+    assert "seconds" in outcome and "capped" in outcome
+
+
+def test_a_documents_pass_that_failed_reads_unavailable_not_none_known():
+    j = job()
+    j.documents.status, j.documents.error = OutcomeStatus.ERROR, "authorization ended"
+    docs = render(j, MemorySpoolHandle("j"))["entry"][0]["resource"]["section"][-1]
+    assert docs["emptyReason"]["coding"][0]["code"] == "unavailable"
+
+
+def test_reading_something_that_is_not_a_pull_bundle_says_so():
+    with pytest.raises(NotAPullBundle):
+        pull_metadata({"resourceType": "Bundle", "entry": [{"resource": {"resourceType": "Patient"}}]})
+    with pytest.raises(NotAPullBundle):
+        pull_metadata({"resourceType": "Bundle", "entry": [{"resource": {"resourceType": "Composition"}}]})
 
 
 def test_the_extension_base_url_is_the_sites_setting():
@@ -179,3 +259,19 @@ def test_resources_without_ids_still_get_urns_and_sections():
     bundle = render(job(), spool)
     urls = [e["fullUrl"] for e in bundle["entry"][2:]]
     assert len(set(urls)) == 2
+
+
+def test_every_resource_comes_out_of_the_disk_spool_as_it_went_in(tmp_path):
+    """Over the real encrypted spool: no reference or attachment to rewrite, so equal exactly."""
+    from patient_access.spool.local_disk import LocalDiskSpool
+
+    spool = LocalDiskSpool(tmp_path).open("job-1", bytes(range(32)))
+    resources = [
+        {"resourceType": "Condition", "id": f"c{i}", "code": {"text": "Zoë ✓  "}, "onsetDateTime": "2020-01-01"}
+        for i in range(50)
+    ]
+    for r in resources:
+        spool.append("Condition", r)
+    spool.flush("Condition")
+    out = [e["resource"] for e in render(job(), spool)["entry"] if e["resource"]["resourceType"] == "Condition"]
+    assert out == resources

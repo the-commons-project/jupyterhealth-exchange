@@ -5,28 +5,43 @@ iterator, with everything a consumer needs inside it.
                       fetch outcome as extensions; `meta.source` ties it back to the host
     Device            the author: this software
     the resources     `urn:uuid` fullUrls, internal references rewritten to them, references to
-                      things not in the pull made absolute against the server
-    documents         inline as base64 in `attachment.data`, streamed by the framer
+                      the same server's resources not in the pull made absolute against it
+    Binary            one per stored document, last; its bytes base64-streamed by the framer.
+                      The attachment that referenced the document points at it by fullUrl, as
+                      an EHR's DocumentReference points at its own Binary. The Composition's
+                      "Document content" section lists them, so every entry is reachable from
+                      the Composition, as a document Bundle requires.
+
+An attachment with no Binary behind it (a document the caps refused, an alternate format not
+taken) never carries `data`: the EHR's inline bytes would otherwise slip past the caps. It keeps
+its `url`, `size` and `hash`.
 
 Two passes over the spool: the first collects ids (to rewrite references and list sections), the
 second emits entries. Nothing holds more than one resource at a time beyond the id index.
 Deterministic: the same spool and job give the same bytes (except the bundle's timestamp).
+
+Known limitation, shared with fhir.resources and the browser's JSON parser: a decimal's textual
+precision is not kept (`1.10` is written `1.10` only if the EHR's JSON parsed to that float; it
+comes out `1.1`). The value is never wrong.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from enum import StrEnum
+from typing import Any, Protocol, runtime_checkable
 
 from patient_access import __version__
 from patient_access.core.documents.candidates import blob_id, resource_key
 from patient_access.core.interfaces import SpoolHandle
 from patient_access.core.models import (
     A,
+    BlobMeta,
     DocumentOutcome,
+    DocumentResult,
     DocumentSource,
     Job,
     JsonObject,
@@ -37,12 +52,21 @@ from patient_access.core.models import (
 from patient_access.core.scopes import ScopeSet
 from patient_access.core.settings import BundleSettings
 
-from .stream import Entry, InlineBlob
+from .stream import BinaryEntry, Entry, ResourceEntry
 
 NS = uuid.UUID("6f1c7d0e-3b0a-4c5e-9a57-1d2c0b7e9a10")
 SOFTWARE = "patient_access"
 LOINC_SUMMARY = {"system": "http://loinc.org", "code": "60591-5", "display": "Patient summary Document"}
 EMPTY_REASON = "http://terminology.hl7.org/CodeSystem/list-empty-reason"
+
+
+class EmptyReason(StrEnum):
+    """Why a section has no entries (HL7 list-empty-reason)."""
+
+    UNAVAILABLE = "unavailable"  # a fetch for it failed
+    WITHHELD = "withheld"  # not selected by the patient, or not granted
+    NILKNOWN = "nilknown"  # fetched, and there was nothing
+
 
 PULL_EXTENSION = "patient-access-pull"
 SECTION_OUTCOME_EXTENSION = "patient-access-section-outcome"
@@ -96,7 +120,7 @@ def ext(url: str, value: ExtensionValue) -> JsonObject | None:
             return {"url": url, "valueString": value}
 
 
-def repeated(url: str, values: Any) -> list[JsonObject | None]:
+def repeated(url: str, values: Iterable[ExtensionValue]) -> list[JsonObject | None]:
     return [ext(url, v) for v in values]
 
 
@@ -116,13 +140,18 @@ def attrs_extensions(attrs: Mapping[str, Any]) -> list[JsonObject | None]:
     return out
 
 
-def pull_extension(job: Job[A], base: str) -> JsonObject:
+def pull_extension(job: Job[A], settings: BundleSettings, now: datetime) -> JsonObject:
     src = job.source
     not_granted = ScopeSet.parse(src.scopes_granted).withheld(src.scopes_requested)
+    host = [ext("hostName", settings.host_name), ext("hostVersion", settings.host_version)]
     return nested(
-        base + PULL_EXTENSION,
+        settings.extension_base_url + PULL_EXTENSION,
         [
-            nested("job", [ext("id", job.id), ext("created", job.created_at), ext("runs", job.runs)]),
+            # `finished`: when the bundle was assembled, the end of the pull it records.
+            nested(
+                "job",
+                [ext("id", job.id), ext("created", job.created_at), ext("finished", now), ext("runs", job.runs)],
+            ),
             nested(
                 "participant",
                 [
@@ -146,7 +175,11 @@ def pull_extension(job: Job[A], base: str) -> JsonObject:
                     ext("customerId", src.customer_id),
                     ext("customerName", src.customer_name),
                     ext("ehrPatientId", src.ehr_patient_id),
-                    ext("authMethod", src.auth_method),
+                    ext("authMethod", src.auth_method.value),
+                    ext("pkceAdvertised", src.pkce_advertised),
+                    # Who chose the record types: our checklist ("host"), or the EHR's own screen
+                    # ("ehr"), in which case notGranted includes types the patient unticked there.
+                    ext("typeChoice", src.type_choice.value),
                 ],
             ),
             nested(
@@ -158,7 +191,7 @@ def pull_extension(job: Job[A], base: str) -> JsonObject:
                     *repeated("notGranted", not_granted),
                 ],
             ),
-            nested("software", [ext("name", SOFTWARE), ext("version", __version__)]),
+            nested("software", [ext("name", SOFTWARE), ext("version", __version__), *host]),
         ],
     )
 
@@ -179,14 +212,19 @@ def outcome_extension(o: TypeOutcome, base: str) -> JsonObject:
     )
 
 
-def documents_extension(docs: DocumentOutcome, base: str) -> JsonObject:
+def documents_extension(docs: DocumentOutcome, binaries: Mapping[str, str], base: str) -> JsonObject:
+    """`binaries`: blob id -> the Binary entry's fullUrl, for the documents in the bundle."""
     return nested(
         base + DOCUMENTS_OUTCOME_EXTENSION,
         [
             ext("status", docs.status.value),
             ext("error", docs.error),
-            ext("stored", len(docs.stored)),
-            ext("bytes", docs.bytes),
+            ext("stored", len(binaries)),
+            # A decimal, not an integer: R4's valueInteger is 32-bit and a pull's documents may
+            # total more than 2 GiB (each one is capped below that).
+            ext("bytes", float(sum(r.size or 0 for r in docs.stored if r.blob_id in binaries))),
+            ext("seconds", docs.seconds),
+            ext("capped", docs.capped),
             *[
                 nested("skipped", [ext("reason", reason.value), ext("count", count)])
                 for reason, count in sorted(docs.skipped.items())
@@ -204,6 +242,7 @@ def documents_extension(docs: DocumentOutcome, base: str) -> JsonObject:
                         ext("detail", r.detail),
                         ext("size", r.size),
                         ext("sha256", r.sha256),
+                        ext("binary", binaries.get(r.blob_id)),
                     ],
                 )
                 for r in docs.records
@@ -215,17 +254,31 @@ def documents_extension(docs: DocumentOutcome, base: str) -> JsonObject:
 # --- references ------------------------------------------------------------------------------
 
 
+def _reference_key(reference: str, iss: str) -> str | None:
+    """`Type/id` for a reference to a resource on this server (relative, or absolute under its
+    base URL; a version suffix `/_history/n` dropped), else None (a reference to another server
+    is never mistaken for one of ours, however its path ends)."""
+    if reference.startswith(iss + "/"):
+        rel = reference[len(iss) + 1 :]
+    elif "://" in reference:
+        return None
+    else:
+        rel = reference.lstrip("/")
+    parts = rel.split("/")
+    if len(parts) == 4 and parts[2] == "_history":
+        parts = parts[:2]
+    return "/".join(parts) if len(parts) == 2 and all(parts) else None
+
+
 def rewrite_refs(node: Any, index: Mapping[str, str], iss: str) -> Any:
-    """Every `reference` naming a resource in the bundle becomes its urn; the rest are made
-    absolute against the server so they stay meaningful outside it."""
+    """Every `reference` to a resource in the bundle becomes its urn; other references to this
+    server are made absolute so they stay meaningful outside it; references elsewhere are kept."""
     if isinstance(node, dict):
         out: JsonObject = {}
         for k, v in node.items():
             if k == "reference" and isinstance(v, str) and not v.startswith(("#", "urn:")):
-                rel = v[len(iss) + 1 :] if v.startswith(iss + "/") else v
-                parts = rel.split("/")
-                key = "/".join(parts[-2:]) if len(parts) >= 2 else rel
-                out[k] = index.get(key) or (v if "://" in v else f"{iss}/{rel}")
+                key = _reference_key(v, iss)
+                out[k] = (index.get(key) if key else None) or (v if "://" in v else f"{iss}/{v.lstrip('/')}")
             else:
                 out[k] = rewrite_refs(v, index, iss)
         return out
@@ -239,7 +292,9 @@ def rewrite_refs(node: Any, index: Mapping[str, str], iss: str) -> Any:
 
 @dataclass
 class _Index:
-    """Pass 1: every resource's urn and each type's section entries."""
+    """Pass 1: every resource's urn and each type's section entries. A mutable dataclass, not a
+    pydantic model: an accumulator filled one resource at a time across the whole spool, which
+    validated assignment would copy as it grows."""
 
     urns: dict[str, str] = field(default_factory=dict)  # "Type/key" -> urn
     sections: dict[str, list[str]] = field(default_factory=dict)  # type -> urns
@@ -262,12 +317,16 @@ def _collect(spool: SpoolHandle, types: list[str]) -> _Index:
     return idx
 
 
-def _empty_reason(outcomes: list[TypeOutcome]) -> str:
+def _empty_reason(outcomes: list[TypeOutcome]) -> EmptyReason:
     if any(o.status is OutcomeStatus.ERROR for o in outcomes):
-        return "unavailable"
+        return EmptyReason.UNAVAILABLE
     if outcomes and all(o.status.withheld for o in outcomes):
-        return "withheld"
-    return "nilknown"
+        return EmptyReason.WITHHELD
+    return EmptyReason.NILKNOWN
+
+
+def _empty(reason: EmptyReason) -> JsonObject:
+    return {"coding": [{"system": EMPTY_REASON, "code": reason.value}]}
 
 
 def _section(t: str, urns: list[str], outcomes: list[TypeOutcome], base: str) -> JsonObject:
@@ -277,22 +336,21 @@ def _section(t: str, urns: list[str], outcomes: list[TypeOutcome], base: str) ->
     if urns:
         section["entry"] = [{"reference": u} for u in urns]
     else:
-        section["emptyReason"] = {"coding": [{"system": EMPTY_REASON, "code": _empty_reason(outcomes)}]}
+        section["emptyReason"] = _empty(_empty_reason(outcomes))
     return section
 
 
-def _documents_section(job: Job[A], idx: _Index, base: str) -> JsonObject:
-    holders = sorted({r.referenced_by for r in job.documents.stored})
-    urns = [idx.urns[h] for h in holders if h in idx.urns]
+def _documents_section(job: Job[A], binaries: Mapping[str, str], base: str) -> JsonObject:
     section: JsonObject = {
         "title": "Document content",
         "code": {"text": DOCUMENTS_SECTION_CODE},
-        "extension": [documents_extension(job.documents, base)],
+        "extension": [documents_extension(job.documents, binaries, base)],
     }
-    if urns:
-        section["entry"] = [{"reference": u} for u in urns]
+    if binaries:
+        section["entry"] = [{"reference": u} for u in binaries.values()]
     else:
-        section["emptyReason"] = {"coding": [{"system": EMPTY_REASON, "code": "nilknown"}]}
+        error = job.documents.status is OutcomeStatus.ERROR
+        section["emptyReason"] = _empty(EmptyReason.UNAVAILABLE if error else EmptyReason.NILKNOWN)
     return section
 
 
@@ -300,32 +358,39 @@ def _absolute(url: str, iss: str) -> str:
     return url if "://" in url else f"{iss}/{url.lstrip('/')}"
 
 
-def _inline_documents(
-    resource: JsonObject, t: str, key: str, blobs: SpoolIndex, nonce: str, iss: str
-) -> tuple[JsonObject, tuple[InlineBlob, ...]]:
-    """Placeholders in place of `data` for every attachment the spool holds a blob for."""
+def binary_urn(blob_id: str) -> str:
+    return urn("Binary", blob_id)
+
+
+def _point_attachments(resource: JsonObject, t: str, key: str, delivered: Mapping[str, BlobMeta], iss: str) -> None:
+    """Every attachment of a document-bearing resource: the ones with a document in the bundle
+    point at its Binary; the rest keep their url (made absolute) and lose any inline `data`."""
     source = {s.resource_type: s for s in DocumentSource}.get(t)
     if source is None:
-        return resource, ()
-    field_name = "content" if source is DocumentSource.DOCUMENT_REFERENCE else "presentedForm"
-    items = resource.get(field_name)
+        return
+    items = resource.get("content" if source is DocumentSource.DOCUMENT_REFERENCE else "presentedForm")
     if not isinstance(items, list):
-        return resource, ()
-    inline: list[InlineBlob] = []
+        return
     for i, item in enumerate(items):
-        bid = blob_id(t, key, i)
-        meta = blobs.blobs.get(bid)
-        att = item.get("attachment") if source is DocumentSource.DOCUMENT_REFERENCE else item
-        if meta is None or not isinstance(att, dict):
+        att = item.get("attachment") if source is DocumentSource.DOCUMENT_REFERENCE and isinstance(item, dict) else item
+        if not isinstance(att, dict):
             continue
-        placeholder = f"__patient_access_inline_{nonce}_{len(inline)}__"
-        att["contentType"] = meta.content_type
-        att["data"] = placeholder
-        att["size"] = meta.size
-        if isinstance(att.get("url"), str):
+        att.pop("data", None)
+        bid = blob_id(t, key, i)
+        meta = delivered.get(bid)
+        if meta is not None:
+            att["url"] = binary_urn(bid)
+            att["contentType"] = meta.content_type
+            att["size"] = meta.size
+        elif isinstance(att.get("url"), str):
             att["url"] = _absolute(att["url"], iss)
-        inline.append(InlineBlob(placeholder=placeholder, blob_id=bid))
-    return resource, tuple(inline)
+
+
+@runtime_checkable
+class HasSourceUri(Protocol):
+    """Host attributes that name the host's record of the pull; it becomes `meta.source`."""
+
+    fhir_source_uri: str
 
 
 def document_bundle(
@@ -334,10 +399,13 @@ def document_bundle(
     """The Bundle's header (every field but `entry`) and its entries, Composition first."""
     base = settings.extension_base_url
     iss = job.source.iss.rstrip("/")
-    blobs = spool.index()
-    types = resource_types(job, blobs)
+    types = resource_types(job, spool.index())
     idx = _collect(spool, types)
-    nonce = uuid.uuid4().hex
+    delivered: dict[str, BlobMeta] = {}
+    for r in job.documents.records:
+        if r.result is DocumentResult.STORED and (meta := spool.blob_meta(r.blob_id)) is not None:
+            delivered[r.blob_id] = meta
+    binaries = {bid: binary_urn(bid) for bid in delivered}
 
     by_type: dict[str, list[TypeOutcome]] = {}
     for o in job.outcomes:
@@ -349,7 +417,7 @@ def document_bundle(
     composition: JsonObject = {
         "resourceType": "Composition",
         "id": composition_id,
-        "extension": [pull_extension(job, base)],
+        "extension": [pull_extension(job, settings, now)],
         "status": "final",
         "type": {"coding": [LOINC_SUMMARY]},
         "subject": {"reference": idx.urns.get(patient_key, f"{iss}/{patient_key}")},
@@ -358,12 +426,12 @@ def document_bundle(
         "title": f"Records shared from {job.source.brand_name}",
         "section": [
             *[_section(t, idx.sections.get(t, []), by_type.get(t, []), base) for t in types],
-            _documents_section(job, idx, base),
+            _documents_section(job, binaries, base),
         ],
     }
-    source_uri = getattr(job.participant.attrs, "fhir_source_uri", None)
-    if isinstance(source_uri, str) and source_uri:
-        composition["meta"] = {"source": source_uri}
+    attrs: object = job.participant.attrs  # the host's model: may or may not name a source URI
+    if isinstance(attrs, HasSourceUri) and attrs.fhir_source_uri:
+        composition["meta"] = {"source": attrs.fhir_source_uri}
     device: JsonObject = {
         "resourceType": "Device",
         "id": device_id,
@@ -379,13 +447,17 @@ def document_bundle(
     }
 
     def entries() -> Iterator[Entry]:
-        yield Entry(full_url=f"urn:uuid:{composition_id}", resource=composition)
-        yield Entry(full_url=f"urn:uuid:{device_id}", resource=device)
+        yield ResourceEntry(full_url=f"urn:uuid:{composition_id}", resource=composition)
+        yield ResourceEntry(full_url=f"urn:uuid:{device_id}", resource=device)
         for t in types:
             for position, raw in enumerate(spool.iter_type(t)):
                 key = resource_key(raw, position)
                 resource = rewrite_refs(raw, idx.urns, iss)
-                resource, inline = _inline_documents(resource, t, key, blobs, nonce, iss)
-                yield Entry(full_url=idx.urns[f"{t}/{key}"], resource=resource, inline=inline)
+                _point_attachments(resource, t, key, delivered, iss)
+                yield ResourceEntry(full_url=idx.urns[f"{t}/{key}"], resource=resource)
+        for bid, meta in delivered.items():
+            yield BinaryEntry(
+                full_url=binaries[bid], id=bid, content_type=meta.content_type, blob_id=bid, size=meta.size
+            )
 
     return header, entries()

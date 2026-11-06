@@ -6,12 +6,16 @@ Layout under {root}/{ref}/:
     blobs/{id}.cs       a document, Cobblestone streaming AEAD: written and read in chunks, so
                         memory stays flat at any size; a truncated file fails authentication
     blobs/{id}.tmp      a document being written; renamed on commit, deleted on abort
-    blobs.json          Fernet token of {blob id: BlobMeta}, rewritten on each commit
+    blobs.ndjson        one Fernet token per committed document, {id, meta}, appended on each
+                        commit (the last line for an id wins); never rewritten, so committing the
+                        ten-thousandth document costs what the first did
 
-The blob key is derived from the job key (HKDF) and every blob is bound to its own name as the
-Cobblestone context, so a file moved between blobs or jobs does not decrypt. Without the job's
-key, held encrypted on the job row and cleared at a terminal state, a leftover directory is
-unreadable; `delete` and `sweep` remove the bytes too.
+Blob ids are hashes of the resource ids (`documents.candidates.blob_id`), so no EHR identifier is
+in a file name. The resource key and the blob key are both derived from the job key (HKDF, with
+distinct `info`), and every blob is bound to its own name as the Cobblestone context, so a file
+moved between blobs or jobs does not decrypt. Without the job's key, held encrypted on the job
+row and cleared at a terminal state, a leftover directory is unreadable; `delete` and `sweep`
+remove the bytes too.
 """
 
 from __future__ import annotations
@@ -38,6 +42,8 @@ from patient_access.core.models import BlobMeta, JsonObject, SpoolIndex
 CHUNK = 64 * 1024
 _SAFE = re.compile(r"[^A-Za-z0-9._-]")
 _BLOB_KEY_INFO = b"patient-access/spool/blob"
+_RESOURCE_KEY_INFO = b"patient-access/spool/resources"
+_INDEX = "blobs.ndjson"
 
 
 def safe(name: str) -> str:
@@ -45,17 +51,8 @@ def safe(name: str) -> str:
     return out if out.strip(".") else "_"
 
 
-def _blob_key(job_key: bytes) -> bytes:
-    return HKDF(algorithm=hashes.SHA256(), length=16, salt=None, info=_BLOB_KEY_INFO).derive(job_key)
-
-
-def _write_atomic(path: Path, data: bytes) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+def _derive(job_key: bytes, info: bytes, length: int) -> bytes:
+    return HKDF(algorithm=hashes.SHA256(), length=length, salt=None, info=info).derive(job_key)
 
 
 class CobblestoneBlobWriter:
@@ -113,8 +110,8 @@ class LocalDiskSpoolHandle:
             raise ValueError("the spool key must be 32 bytes")
         self.ref = ref
         self.path = path
-        self._fernet = Fernet(base64.urlsafe_b64encode(key))
-        self.blob_key = _blob_key(key)
+        self._fernet = Fernet(base64.urlsafe_b64encode(_derive(key, _RESOURCE_KEY_INFO, 32)))
+        self.blob_key = _derive(key, _BLOB_KEY_INFO, 16)
         (path / "blobs").mkdir(parents=True, exist_ok=True)
         self._files: dict[str, BinaryIO] = {}
         self._blob_meta: dict[str, BlobMeta] = self._load_meta()
@@ -166,22 +163,35 @@ class LocalDiskSpoolHandle:
         return self.path / "blobs" / f"{safe(blob_id)}.cs"
 
     def _load_meta(self) -> dict[str, BlobMeta]:
-        p = self.path / "blobs.json"
+        p = self.path / _INDEX
         if not p.exists():
             return {}
-        raw = json.loads(self._fernet.decrypt(p.read_bytes()))
-        return {k: BlobMeta.model_validate(v) for k, v in raw.items()}
+        out: dict[str, BlobMeta] = {}
+        with open(p, "rb") as fh:
+            for line in fh:
+                if line.strip():
+                    entry = json.loads(self._fernet.decrypt(line.strip()))
+                    out[entry["id"]] = BlobMeta.model_validate(entry["meta"])
+        return out
 
     def commit_meta(self, blob_id: str, meta: BlobMeta) -> None:
         self._blob_meta[blob_id] = meta
-        payload = json.dumps({k: v.model_dump(mode="json") for k, v in self._blob_meta.items()}).encode()
-        _write_atomic(self.path / "blobs.json", self._fernet.encrypt(payload))
+        line = json.dumps({"id": blob_id, "meta": meta.model_dump(mode="json")}).encode()
+        with open(self.path / _INDEX, "ab") as f:
+            f.write(self._fernet.encrypt(line) + b"\n")
+            f.flush()
+            os.fsync(f.fileno())
+
+    def blob_meta(self, blob_id: str) -> BlobMeta | None:
+        """The committed document's metadata, as of now, or None."""
+        meta = self._blob_meta.get(blob_id)
+        return meta if meta is not None and self.blob_path(blob_id).exists() else None
 
     def open_blob(self, blob_id: str) -> CobblestoneBlobWriter:
         return CobblestoneBlobWriter(self, blob_id)
 
     def has_blob(self, blob_id: str) -> bool:
-        return blob_id in self._blob_meta and self.blob_path(blob_id).exists()
+        return self.blob_meta(blob_id) is not None
 
     def iter_blob(self, blob_id: str) -> Iterator[bytes]:
         if blob_id not in self._blob_meta:

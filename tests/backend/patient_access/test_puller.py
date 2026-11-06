@@ -257,3 +257,17 @@ def test_outcomes_are_planned_with_their_status_not_patched_after():
     outcomes = plan_outcomes(source_settings(), ("patient/Observation.read",), ("patient/Observation.read",))
     statuses = {o.label: o.status for o in outcomes}
     assert statuses["Labs"] is OutcomeStatus.PENDING and statuses["Allergies"] is OutcomeStatus.NOT_REQUESTED
+
+
+@responses.activate
+def test_non_finite_numbers_from_the_ehr_become_null_and_are_logged(caplog):
+    body = '{"resourceType":"Bundle","entry":[{"resource":{"resourceType":"Observation","id":"o1",'
+    body += '"valueQuantity":{"value":NaN},"referenceRange":[{"high":{"value":Infinity}}]}}]}'
+    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+    responses.add(responses.GET, f"{ISS}/Observation", body=body, content_type="application/fhir+json")
+    spool = MemorySpoolHandle("j")
+    with caplog.at_level(logging.WARNING):
+        fetch_resources(job(), spool, source_settings(), make_client(), lambda: None, LOG)
+    (o1,) = list(spool.iter_type("Observation"))
+    assert o1["valueQuantity"]["value"] is None and o1["referenceRange"][0]["high"]["value"] is None
+    assert "2 non-finite numbers replaced" in caplog.text
