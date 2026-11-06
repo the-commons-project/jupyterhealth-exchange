@@ -1,5 +1,4 @@
 from django.db.models import Q
-from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -8,7 +7,6 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.fhir.ref_indexing import index_fhir_source_refs
 from core.models import EhrBrand, FhirSource
-from core.patient_access.authentication import PatientSessionReadAuthentication
 from core.serializers import FhirSourceSerializer
 
 
@@ -21,8 +19,6 @@ class FhirSourceViewSet(ModelViewSet):
 
     serializer_class = FhirSourceSerializer
     model_class = FhirSource
-    # A patient session may read (the USCDI Patient Access shell lists sources); writes stay token-only.
-    authentication_classes = [OAuth2Authentication, PatientSessionReadAuthentication]
 
     def get_queryset(self):
         patient = self.request.user.get_patient()

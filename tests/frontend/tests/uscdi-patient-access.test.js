@@ -110,11 +110,11 @@ describe("the shell in session mode", () => {
 });
 
 describe("the picker and the launch", () => {
-  test("searches the brands API through the session", async () => {
+  test("searches the brands through the client's own route", async () => {
     const rows = [{ id: 9, brandName: "Example Health", facilityName: "Clinic", addressText: "1 Main" }];
     global.fetch = jest.fn(() => jsonResponse({ results: rows }));
     expect(await window.upaSearchBrands("example")).toEqual(rows);
-    expect(global.fetch.mock.calls[0][0]).toContain("/api/v1/ehr-patient-portal/brands?q=example");
+    expect(global.fetch.mock.calls[0][0]).toContain("/api/v1/uscdi-patient-access/brands?q=example");
   });
 
   test("a failed search is an empty list", async () => {
@@ -190,12 +190,22 @@ describe("status and done", () => {
     nav.mockRestore();
   });
 
-  test("a failed job shows its reason", async () => {
+  test("a failed job is worded by its kind, never with the server's own text", async () => {
     global.fetch = jest.fn(() =>
-      jsonResponse({ ...JOB, status: "failed_terminal", failure: "Please connect again." })
+      jsonResponse({ ...JOB, status: "failed_terminal", terminal: true, failureKind: "reconnect", failure: "x" })
     );
     await window.upaStatus({ job: "j1", source: "5" });
-    expect(document.getElementById("pf_main").textContent).toContain("Please connect again.");
+    const text = document.getElementById("pf_main").textContent;
+    expect(text).toContain("Please connect again");
+    expect(text).toContain("Connect again");
+  });
+
+  test("every failure kind has patient copy, and an unknown one falls back", () => {
+    for (const kind of ["retry_later", "reconnect", "contact_study", "consent_withdrawn"]) {
+      const [title, message] = window.upaFailureCopy({ failureKind: kind });
+      expect(title && message).toBeTruthy();
+    }
+    expect(window.upaFailureCopy({ failureKind: "new_kind" })[0]).toBe("We couldn't send your records");
   });
 
   test("the done screen reads the job, not JHE's FHIR store", async () => {
@@ -245,3 +255,59 @@ describe("errors carried by the server", () => {
     expect(document.getElementById("pf_main").textContent).toContain("From the URL");
   });
 });
+
+describe("the shell's calls and signing out", () => {
+  test("the shell's own calls go to the client's routes when it maps them", async () => {
+    global.PATIENT_FACING_CONFIG.apiPaths = { profile: "uscdi-patient-access/profile" };
+    expect(window.pfPath("profile", "users/profile")).toBe("uscdi-patient-access/profile");
+    expect(window.pfPath("fhirSources", "fhir_sources")).toBe("fhir_sources");
+    global.PATIENT_FACING_CONFIG.apiPaths = undefined;
+    expect(window.pfPath("profile", "users/profile")).toBe("users/profile"); // every other client
+  });
+
+  test("hub, done and manage carry a sign-out form posting with the CSRF token", () => {
+    global.PATIENT_FACING_CONFIG.signOutUrl = "/clients/uscdi-patient-access/sign-out";
+    document.getElementById("pf_main").innerHTML = "<p>hub</p>";
+    window.upaAppendSignOut();
+    window.upaAppendSignOut(); // once only
+    const forms = document.querySelectorAll("#pf_main form.upa-sign-out");
+    expect(forms.length).toBe(1);
+    expect(forms[0].getAttribute("action")).toBe("/clients/uscdi-patient-access/sign-out");
+    expect(new FormData(forms[0]).get("csrfmiddlewaretoken")).toBe("csrf-1");
+  });
+
+  test("Continue is disabled while nothing is ticked", async () => {
+    global.PATIENT_FACING_CONFIG.typeChoiceByVendor = { "SMART Sandbox": "host" };
+    await connectStep();
+    window.upaAfterHospital({ id: 9, vendorName: "SMART Sandbox", supportedScopes: "patient/Observation.read" });
+    const button = document.getElementById("scope-picker-continue");
+    expect(button.disabled).toBe(false);
+    const box = document.querySelector("#scope-picker-list input[name=scopes]");
+    box.checked = false;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(button.disabled).toBe(true);
+  });
+
+  test("a vendor whose own screen asks says where the patient is going", async () => {
+    global.PATIENT_FACING_CONFIG.typeChoiceByVendor = { "Epic Sandbox": "ehr" };
+    await connectStep();
+    window.upaAfterHospital({ id: 9, vendorName: "Epic Sandbox", brandName: "Epic Health", supportedScopes: "" });
+    expect(document.getElementById("launch-status").textContent).toContain("Epic Health");
+  });
+});
+
+describe("the error screen", () => {
+  test("a message where retrying cannot help offers only Back", () => {
+    global.PATIENT_FACING_CONFIG.flowError = { title: "You're signed out", message: "Close this page.", retry: false };
+    window.upaError({});
+    const labels = [...document.querySelectorAll("#pf_main .pf-actions .pf-btn")].map((b) => b.textContent.trim());
+    expect(labels).toEqual(["Back"]);
+  });
+
+  test("other errors keep their retry", () => {
+    global.PATIENT_FACING_CONFIG.flowError = { title: "We couldn't start the connection", message: "x", retry: true };
+    window.upaError({});
+    expect(document.querySelectorAll("#pf_main .pf-actions .pf-btn").length).toBe(2);
+  });
+});
+

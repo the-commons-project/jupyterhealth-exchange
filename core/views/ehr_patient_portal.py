@@ -3,13 +3,11 @@ import logging
 from django.db.models import Q
 from django.shortcuts import render
 from django.urls import reverse
-from oauth2_provider.contrib.rest_framework import OAuth2Authentication
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.models import OW_USER_ID_SYSTEM, EhrBrandLocation, EhrVendor, PatientIdentifier
-from core.patient_access.authentication import PatientSessionAuthentication
 from core.views.patient_facing import patient_facing_config
 
 logger = logging.getLogger(__name__)
@@ -107,8 +105,6 @@ def _parse_limit(raw):
 
 
 @api_view(["GET"])
-# Also from a patient session: the USCDI Patient Access picker (see PatientSessionAuthentication).
-@authentication_classes([OAuth2Authentication, PatientSessionAuthentication])
 @permission_classes([IsAuthenticated])
 def brands_search(request):
     """GET /api/v1/ehr-patient-portal/brands?q=&state=&postal=&limit= -- searches facilities by name/city/brand (`q`) and state/postal; each result carries the brand's fhir_base_url (the SMART `iss`) plus its vendor's ehr_client_id/supported_scopes, everything the browser needs to authorize."""

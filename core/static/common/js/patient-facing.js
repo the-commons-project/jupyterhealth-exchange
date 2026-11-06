@@ -139,6 +139,13 @@ function pfSessionMode() {
 const PF_SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];
 
 // Authenticated JSON request against /api/v1/ (bearer token, or the session in session mode); resolves to the parsed body (null for 204), throws on error.
+// The API path for one of the shell's own calls. A client served over its own routes maps them in
+// PATIENT_FACING_CONFIG.apiPaths ({profile, consents, fhirSources}); everyone else gets JHE's.
+function pfPath(name, fallback) {
+  const paths = (PATIENT_FACING_CONFIG && PATIENT_FACING_CONFIG.apiPaths) || {};
+  return paths[name] || fallback;
+}
+
 async function pfApi(method, path, body) {
   const headers = { "Cache-Control": "no-cache" };
   if (pfSessionMode()) {
@@ -166,6 +173,7 @@ function showFlowError(title, message, actions) {
     message: message,
     retryLabel: actions.retryLabel || "Try again",
     retryHref: actions.retryHref || null,
+    noRetry: Boolean(actions.noRetry), // a message where retrying cannot help (opt-in; default unchanged)
     backHref: PATIENT_FACING_CONFIG.pageUrl,
   });
 }
@@ -337,12 +345,12 @@ function pfResetPatient() {
 }
 
 async function pfPatientId() {
-  if (!pfPatient) pfPatient = (await pfApi("GET", "users/profile")).patient;
+  if (!pfPatient) pfPatient = (await pfApi("GET", pfPath("profile", "users/profile"))).patient;
   return pfPatient.id;
 }
 
 async function pfSourcesNow() {
-  const consents = await pfApi("GET", `patients/${await pfPatientId()}/consents`);
+  const consents = await pfApi("GET", pfPath("consents", `patients/${await pfPatientId()}/consents`));
   return pfSources(consents, PATIENT_FACING_CONFIG);
 }
 
@@ -364,12 +372,12 @@ function pfConsentWrites(scopes, consented) {
 async function pfWriteConsents(scopes, consented) {
   const patientId = await pfPatientId();
   const writes = pfConsentWrites(scopes, consented);
-  if (writes.POST.length) await pfApi("POST", `patients/${patientId}/consents`, { study_scope_consents: writes.POST });
-  if (writes.PATCH.length) await pfApi("PATCH", `patients/${patientId}/consents`, { study_scope_consents: writes.PATCH });
+  if (writes.POST.length) await pfApi("POST", pfPath("consents", `patients/${patientId}/consents`), { study_scope_consents: writes.POST });
+  if (writes.PATCH.length) await pfApi("PATCH", pfPath("consents", `patients/${patientId}/consents`), { study_scope_consents: writes.PATCH });
 }
 
 async function pfFhirSources() {
-  return (await pfApi("GET", "fhir_sources")).results;
+  return (await pfApi("GET", pfPath("fhirSources", "fhir_sources"))).results;
 }
 
 // The newest FhirSource registered for a data source, or null.
@@ -568,6 +576,7 @@ if (typeof window !== "undefined") {
   window.pfRouteAndParams = pfRouteAndParams;
   window.pfUrl = pfUrl;
   window.pfRender = pfRender;
+  window.pfPath = pfPath;
   window.pfShowLoading = pfShowLoading;
   window.pfHideLoading = pfHideLoading;
   window.pfRegisterPartials = pfRegisterPartials;

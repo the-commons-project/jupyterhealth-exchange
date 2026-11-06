@@ -10,7 +10,7 @@
     <label for="hospital-search" class="pf-eyebrow pf-eyebrow--tight">Find your healthcare organization</label>
     <div class="pf-search">
       <input id="hospital-search" type="search" class="pf-input" placeholder="Search by hospital name, city, or state" autocomplete="off" />
-      <div id="hospital-results"></div>
+      <div id="hospital-results" aria-live="polite"></div>
     </div>
   </div>
   <!-- The launch: a real form post. The server records the attempt and redirects to the EHR's
@@ -19,13 +19,14 @@
     <input type="hidden" name="csrfmiddlewaretoken" value="{{csrfToken}}" />
     <input type="hidden" name="data_source_id" value="{{dataSourceId}}" />
     <input type="hidden" name="location_id" id="launch-location" value="" />
-    <div id="scope-picker" hidden>
-      <label class="pf-eyebrow pf-eyebrow--tight">Choose what to share</label>
+    <fieldset id="scope-picker" hidden style="border: 0; margin: 0; padding: 0; min-width: 0">
+      <legend class="pf-eyebrow pf-eyebrow--tight">Choose what to share</legend>
       <div id="scope-picker-list" class="pf-card-stack"></div>
       <div class="pf-actions">
         <button id="scope-picker-continue" type="submit" class="pf-btn pf-btn--wide">Continue</button>
       </div>
-    </div>
+    </fieldset>
+    <p id="launch-status" class="pf-lede" role="status" aria-live="polite"></p>
   </form>
 </script>
 {% endverbatim %}

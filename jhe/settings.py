@@ -79,7 +79,7 @@ USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
-def _env_flag(name, default):
+def _env_flag(name: str, default: bool) -> bool:
     value = os.getenv(name)
     return default if value is None else value.strip().lower() in ("1", "true", "yes")
 
@@ -95,7 +95,7 @@ SESSION_COOKIE_SECURE = _env_flag("SESSION_COOKIE_SECURE", not DEBUG)
 CSRF_COOKIE_SECURE = _env_flag("CSRF_COOKIE_SECURE", not DEBUG)
 
 
-def _patient_access_keys():
+def _patient_access_keys() -> list[str]:
     """PATIENT_ACCESS_ENCRYPTION_KEYS, or the file PATIENT_ACCESS_ENCRYPTION_KEYS_FILE names (the
     docker compose dev stack generates one under ./local; a file reaches `compose exec` commands
     too, where a variable exported by the entrypoint would not)."""

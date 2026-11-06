@@ -1,6 +1,5 @@
 import logging
 
-from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -8,7 +7,6 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.models import JheUser, Organization
 from core.pagination import CustomPageNumberPagination
-from core.patient_access.authentication import PatientSessionAuthentication
 from core.permissions import IsSelfUrlPath
 from core.serializers import JheUserPatientProfileSerializer, JheUserSerializer, OrganizationSerializer
 
@@ -35,8 +33,7 @@ class JheUserViewSet(ModelViewSet):
         else:
             return JheUser.objects.order_by("last_name")
 
-    # Also from a patient session: the USCDI Patient Access shell (see PatientSessionAuthentication).
-    @action(detail=False, methods=["GET"], authentication_classes=[OAuth2Authentication, PatientSessionAuthentication])
+    @action(detail=False, methods=["GET"])
     def profile(self, request):
         user_with_patient = request.user
         user_with_patient.patient = request.user.get_patient
