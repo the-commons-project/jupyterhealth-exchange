@@ -231,7 +231,7 @@ SPECS: tuple[SettingSpec, ...] = (
             "USCDI Patient Access: the object key's prefix, as a template; the module appends the pull's "
             "start time and job id, then bundle.json, so no two pulls share a key. Fields: "
             "{attrs.patient_id}, {attrs.data_source_id}, {attrs.fhir_source_id}, {participant.ref}, "
-            "{source.id}, {source.vendor}, {source.brand_name}, {source.facility_id}. May be empty."
+            "{source.id}, {source.vendor}, {source.brand_name}, {source.facility_id}. Empty: the default."
         ),
         example=DEFAULT_LAYOUT,
         validate=validate_layout,
