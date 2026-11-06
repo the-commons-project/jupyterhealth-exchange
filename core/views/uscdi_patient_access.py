@@ -35,7 +35,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
-from oauth2_provider.models import get_application_model
+from oauth2_provider.models import AbstractApplication, get_application_model
 from pydantic import BaseModel, ConfigDict, ValidationError
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -60,7 +60,7 @@ from core.models.patient_invitation import (
 )
 from core.patient_access.authentication import (
     InvitationSessionAuthentication,
-    is_patient_only,
+    is_patient,
     mark_session,
     session_mark,
 )
@@ -130,7 +130,7 @@ CONNECT_FAILED = "We couldn't connect to your healthcare organization"
 LAUNCH_FAILED = "We couldn't start the connection"
 
 
-def _client() -> Any:
+def _client() -> AbstractApplication | None:
     """This client's OAuth application row (the invitation names it), or None."""
     return get_application_model().objects.filter(name=CLIENT_NAME).first()
 
@@ -140,11 +140,11 @@ def _page() -> str:
 
 
 def _patient(request: HttpRequest | Request) -> Patient | None:
-    """The patient this client's session is for: a patient-only user whose session carries the
-    invitation link's mark for their own patient. Anyone else is nobody here."""
+    """The patient this client's session is for: a user whose session carries the invitation
+    link's mark for their own patient. Anyone else is nobody here."""
     user = request.user
     mark = session_mark(request)
-    patient = user.get_patient() if mark is not None and is_patient_only(user) else None
+    patient = user.get_patient() if mark is not None and is_patient(user) else None
     return patient if patient is not None and mark is not None and patient.id == mark.patient_id else None
 
 
@@ -204,6 +204,10 @@ def connect(request: HttpRequest) -> HttpResponse:
     serve the patient-facing shell."""
     code = request.GET.get("code")
     if code:
+        # Opening a link always starts from nothing: whoever this browser was signed in as (an
+        # earlier patient on a shared device, a practitioner) is signed out first, so a link that
+        # then fails leaves no session behind for the error screen's Back to walk into.
+        logout(request)
         client = _client()
         if client is None:
             return _fail(request, INVALID_INVITATION)
@@ -442,12 +446,15 @@ class JobView(BaseModel):
 def jobs(request: Request) -> Response:
     """The patient's own pulls, newest first; `?source=` narrows to one data source."""
     patient = _patient(request)
+    source = request.query_params.get("source")
+    try:
+        narrowed = {"data_source_id": int(source)} if source else None
+    except ValueError:
+        return _error("source must be a number", 400)
     try:
         module = get_module()
     except NotConfigured:
         return Response({"results": []})
-    source = request.query_params.get("source")
-    narrowed = {"data_source_id": int(source)} if source and source.isdigit() else None
     found = module.jobs.for_participant(str(patient.id), narrowed) if patient is not None else []
     return Response({"results": [JobView.of(j).model_dump(mode="json") for j in found]})
 

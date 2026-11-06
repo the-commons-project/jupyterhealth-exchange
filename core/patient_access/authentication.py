@@ -3,11 +3,12 @@ own endpoints.
 
 The invitation link logs the patient in (a Django session) and marks that session as this
 client's, for that patient (`mark_session`). The client's endpoints accept a request only when
-the session carries the mark, the mark names the logged-in user's patient, and the user is a
-patient and nothing else: a practitioner's or an admin's ordinary login never carries the mark,
-and a user who is both practitioner and patient is refused even with it. JHE's shared API routes
-stay token-only; nothing here is added to them. DRF's session class enforces CSRF for every
-unsafe method.
+the session carries the mark and the mark names the logged-in user's patient. A practitioner's or
+an admin's ordinary login never carries the mark, so it is never accepted here; a user who is both
+a practitioner and a patient uses their own link like any patient, and the session gives this
+client's routes their patient and nothing more. JHE's shared API routes stay token-only; nothing
+here is added to them. DRF's session class enforces CSRF for every unsafe method. The session is
+refused by JHE's OAuth authorize page (`JheAuthorizationView`), so it can never become a token.
 """
 
 from __future__ import annotations
@@ -43,15 +44,9 @@ def session_mark(request: HttpRequest | Request) -> SessionMark | None:
         return None
 
 
-def is_patient_only(user: Any) -> bool:
-    """A patient and nothing else: not a practitioner, not staff, not a superuser."""
-    return bool(
-        getattr(user, "is_authenticated", False)
-        and user.is_patient()
-        and not user.is_practitioner()
-        and not user.is_staff
-        and not user.is_superuser
-    )
+def is_patient(user: Any) -> bool:
+    """A logged-in user with a patient record, whatever else they are."""
+    return bool(getattr(user, "is_authenticated", False) and user.is_patient())
 
 
 class InvitationSessionAuthentication(SessionAuthentication):
@@ -67,7 +62,7 @@ class InvitationSessionAuthentication(SessionAuthentication):
             return None
         user, _ = result
         mark = session_mark(request)
-        patient = user.get_patient() if is_patient_only(user) else None
+        patient = user.get_patient() if is_patient(user) else None
         if mark is None or patient is None or patient.id != mark.patient_id:
             return None
         return result

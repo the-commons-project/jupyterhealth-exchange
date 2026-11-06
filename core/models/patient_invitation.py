@@ -6,7 +6,7 @@ import json
 import secrets
 from datetime import timedelta
 from random import SystemRandom
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import quote, urlparse
 
 from django.conf import settings
@@ -20,6 +20,8 @@ from core.services.jhe_settings import get_setting
 from .patient import Patient
 
 if TYPE_CHECKING:
+    from oauth2_provider.models import AbstractApplication, AbstractGrant
+
     from .jhe_user import JheUser
 
 _TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -111,7 +113,7 @@ class PatientInvitation(models.Model):
         return invitation, link
 
     @staticmethod
-    def _admit(token):
+    def _admit(token: str) -> tuple[PatientInvitation, bool]:
         """The invitation a token names, if it may be used now, and whether it was already redeemed
         within the re-use window. Raises the Invitation* exceptions (and DoesNotExist)."""
         invitation = PatientInvitation.objects.get(
@@ -146,7 +148,7 @@ class PatientInvitation(models.Model):
         return invitation, recently_redeemed
 
     @staticmethod
-    def _spend(invitation, recently_redeemed):
+    def _spend(invitation: PatientInvitation, recently_redeemed: bool) -> None:
         """The first redemption marks the invitation redeemed, which starts the re-use window
         (`last_updated`). A re-use inside the window writes nothing, so the window runs from the
         first use and closes on time however often the link is opened."""
@@ -157,7 +159,7 @@ class PatientInvitation(models.Model):
 
     # https://github.com/jazzband/django-oauth-toolkit/blob/102c85141ec44549e17080c676292e79e5eb46cc/oauth2_provider/oauth2_validators.py#L675
     @staticmethod
-    def redeem(token):
+    def redeem(token: str) -> tuple[PatientInvitation, AbstractGrant]:
         invitation, recently_redeemed = PatientInvitation._admit(token)
         if invitation.client.name in SESSION_ONLY_CLIENT_NAMES:
             raise InvitationForAnotherClient()
@@ -196,7 +198,7 @@ class PatientInvitation(models.Model):
         return invitation, grant
 
     @staticmethod
-    def redeem_for_user(token: str, client: Any) -> JheUser:
+    def redeem_for_user(token: str, client: AbstractApplication) -> JheUser:
         """Redeem an invitation for the patient's user, without minting an OAuth grant: for a client
         that logs the patient in with a Django session (USCDI Patient Access). Same rules as
         ``redeem`` (expiry, the re-use window, reissue and cancel), and the invitation must have been

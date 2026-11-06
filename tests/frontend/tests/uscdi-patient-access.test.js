@@ -296,6 +296,31 @@ describe("the shell's calls and signing out", () => {
   });
 });
 
+describe("back from the EHR", () => {
+  test("a page restored from the back-forward cache drops the overlay and restarts the connect step", async () => {
+    await connectStep();
+    window.history.replaceState({}, "", "/clients/uscdi-patient-access/?route=connect&source=5");
+    window.pfShowLoading();
+    const retry = jest.spyOn(window, "pfRetry").mockImplementation(() => {});
+    const restored = new Event("pageshow");
+    Object.defineProperty(restored, "persisted", { value: true });
+    window.dispatchEvent(restored);
+    expect(document.getElementById("navLoadingOverlay").style.display).toBe("none");
+    expect(retry).toHaveBeenCalledTimes(1);
+    retry.mockRestore();
+  });
+
+  test("an ordinary page load is left alone", () => {
+    window.history.replaceState({}, "", "/clients/uscdi-patient-access/?route=connect&source=5");
+    window.pfShowLoading();
+    const retry = jest.spyOn(window, "pfRetry").mockImplementation(() => {});
+    window.dispatchEvent(new Event("pageshow"));
+    expect(document.getElementById("navLoadingOverlay").style.display).toBe("flex");
+    expect(retry).not.toHaveBeenCalled();
+    retry.mockRestore();
+  });
+});
+
 describe("the error screen", () => {
   test("a message where retrying cannot help offers only Back", () => {
     global.PATIENT_FACING_CONFIG.flowError = { title: "You're signed out", message: "Close this page.", retry: false };
