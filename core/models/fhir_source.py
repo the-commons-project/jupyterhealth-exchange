@@ -1,4 +1,34 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from django.db import models
+
+if TYPE_CHECKING:
+    from .data_source import DataSource
+    from .ehr_brand import EhrBrandLocation
+    from .patient import Patient
+
+
+class FhirSourceManager(models.Manager["FhirSource"]):
+    def get_or_create_for_pull(
+        self, patient: Patient, data_source: DataSource, location: EhrBrandLocation | None
+    ) -> tuple[FhirSource, bool]:
+        """The FhirSource a server-side pull (USCDI Patient Access) is recorded under: the patient's
+        existing source for the picked facility's brand and this data source, else a new one --
+        the one-per-brand rule FhirSourceViewSet.create applies, so a reconnect reuses its source
+        and repeat pulls are told apart by their own timestamps. Returns ``(source, created)``."""
+        brand = location.brand if location is not None else None
+        if brand is not None:
+            existing = (
+                self.filter(patient=patient, data_source=data_source, ehr_brand_location__brand=brand)
+                .order_by("id")
+                .first()
+            )
+            if existing is not None:
+                return existing, False
+        label = " - ".join(filter(None, [brand.vendor.name, brand.name])) if brand is not None else "EHR records"
+        return self.create(patient=patient, data_source=data_source, label=label, ehr_brand_location=location), True
 
 
 class FhirSource(models.Model):
@@ -41,6 +71,8 @@ class FhirSource(models.Model):
         related_name="fhir_sources",
     )
     last_updated = models.DateTimeField(auto_now=True)
+
+    objects = FhirSourceManager()
 
     def __str__(self):
         return self.label or f"FhirSource {self.pk}"

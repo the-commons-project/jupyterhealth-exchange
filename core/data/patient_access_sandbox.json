@@ -1,0 +1,28 @@
+{
+  "vendor": "SMART Sandbox",
+  "client_id": "uscdi-patient-access-dev",
+  "brands": [
+    {
+      "name": "SMART Sandbox Health",
+      "line": "1 Sandbox Way",
+      "city": "Boston",
+      "state": "MA",
+      "postal": "02115",
+      "launch": {"client_type": "public", "pkce": "always"}
+    },
+    {
+      "name": "SMART Sandbox Express (no login, fixed patient)",
+      "line": "4 Sandbox Way",
+      "city": "Cambridge",
+      "state": "MA",
+      "postal": "02139",
+      "launch": {
+        "client_type": "public",
+        "pkce": "always",
+        "skip_login": true,
+        "skip_auth": true,
+        "patient": ["12edb5a0-ec71-45b7-aff6-0fef1c382881"]
+      }
+    }
+  ]
+}

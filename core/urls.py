@@ -6,7 +6,7 @@ from rest_framework.routers import DefaultRouter
 from core.fhir.config import FHIR_VERSION
 
 from . import views
-from .views import common, ehr_patient_portal, ow
+from .views import common, ehr_patient_portal, ow, uscdi_patient_access
 from .views.fhir import FHIRResourceView, capability_statement, smart_configuration
 from .views.fhir_import import FHIRImportView
 
@@ -113,6 +113,35 @@ urlpatterns = [
         name="ehr-patient-portal-callback",
     ),
     path("api/v1/ehr-patient-portal/brands", ehr_patient_portal.brands_search, name="ehr-patient-portal-brands"),
+    # USCDI Patient Access: the server-side counterpart of the EHR Patient Portal (patient_access
+    # library). Its callback path is registered with each EHR vendor separately.
+    path("clients/uscdi-patient-access/", uscdi_patient_access.connect, name="uscdi-patient-access-connect"),
+    path(
+        "clients/uscdi-patient-access/callback",
+        uscdi_patient_access.callback,
+        name="uscdi-patient-access-callback",
+    ),
+    path("clients/uscdi-patient-access/launch", uscdi_patient_access.launch, name="uscdi-patient-access-launch"),
+    path(
+        "clients/uscdi-patient-access/sign-out",
+        uscdi_patient_access.sign_out,
+        name="uscdi-patient-access-sign-out",
+    ),
+    # The shell's calls, on this client's own routes (JHE's shared ones stay token-only).
+    path("api/v1/uscdi-patient-access/profile", uscdi_patient_access.profile, name="uscdi-patient-access-profile"),
+    path("api/v1/uscdi-patient-access/consents", uscdi_patient_access.consents, name="uscdi-patient-access-consents"),
+    path(
+        "api/v1/uscdi-patient-access/fhir-sources",
+        uscdi_patient_access.fhir_sources,
+        name="uscdi-patient-access-fhir-sources",
+    ),
+    path("api/v1/uscdi-patient-access/brands", uscdi_patient_access.brands, name="uscdi-patient-access-brands"),
+    path("api/v1/uscdi-patient-access/jobs", uscdi_patient_access.jobs, name="uscdi-patient-access-jobs"),
+    path(
+        "api/v1/uscdi-patient-access/jobs/<str:job_id>",
+        uscdi_patient_access.job,
+        name="uscdi-patient-access-job",
+    ),
     path(
         "api/v1/ehr-patient-portal/identifier",
         ehr_patient_portal.save_patient_identifier,

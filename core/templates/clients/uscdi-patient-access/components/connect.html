@@ -1,0 +1,32 @@
+{% verbatim %}
+<script id="t-connect" type="text/template">
+  <a class="pf-back" href="#" onclick="pfNav('hub'); return false;"><i class="bi bi-arrow-left"></i> Back</a>
+  {{> rail rail}}
+  <p class="pf-eyebrow">Clinical records</p>
+  <h1 class="pf-h1">Share your medical records</h1>
+  <p class="pf-lede">Connect your healthcare organization to securely share your clinical records with your study: labs, conditions, medications and more. You choose your organization and sign in with them directly.</p>
+  <div class="pf-callout">We only send the records you approve, over an encrypted connection, and only to the study you were invited to. Your records are sent once, when you connect.</div>
+  <div id="hospital-picker" hidden>
+    <label for="hospital-search" class="pf-eyebrow pf-eyebrow--tight">Find your healthcare organization</label>
+    <div class="pf-search">
+      <input id="hospital-search" type="search" class="pf-input" placeholder="Search by hospital name, city, or state" autocomplete="off" />
+      <div id="hospital-results" aria-live="polite"></div>
+    </div>
+  </div>
+  <!-- The launch: a real form post. The server records the attempt and redirects to the EHR's
+       sign-in; the search box stays outside it so Enter there never submits. -->
+  <form id="launch-form" method="post" action="{{launchUrl}}">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{csrfToken}}" />
+    <input type="hidden" name="data_source_id" value="{{dataSourceId}}" />
+    <input type="hidden" name="location_id" id="launch-location" value="" />
+    <fieldset id="scope-picker" hidden style="border: 0; margin: 0; padding: 0; min-width: 0">
+      <legend class="pf-eyebrow pf-eyebrow--tight">Choose what to share</legend>
+      <div id="scope-picker-list" class="pf-card-stack"></div>
+      <div class="pf-actions">
+        <button id="scope-picker-continue" type="submit" class="pf-btn pf-btn--wide">Continue</button>
+      </div>
+    </fieldset>
+    <p id="launch-status" class="pf-lede" role="status" aria-live="polite"></p>
+  </form>
+</script>
+{% endverbatim %}
