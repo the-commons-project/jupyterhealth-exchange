@@ -1,7 +1,7 @@
 """The documents pass: every document's candidates through the budget and the downloader, one
-record per attempt. A document's formats are tried best first until one is stored; a budget
-refusal (the count or the total) stops the group, since no alternative could help, as does the
-end of the EHR's authorization.
+record per attempt. A document's formats are tried best first until one is stored; the count
+cap stops the group, since no alternative could help, as does the end of the EHR's
+authorization; a size refusal is about that one format, so a smaller alternate is still tried.
 
 Returns whether it completed. When the EHR's authorization ends part-way (the token expires, or
 the server answers 401), the remaining candidates are recorded as skipped without a request and
@@ -26,8 +26,9 @@ from .downloader import FetchResult, Skipped, Stored, fetch_one
 
 SAVE_EVERY = 10
 CAP_REASONS = frozenset({SkipReason.COUNT_CAP, SkipReason.SIZE_CAP_EACH, SkipReason.SIZE_CAP_TOTAL})
-# After one of these, no other format of the same document could be stored either.
-NO_ALTERNATIVE = frozenset({SkipReason.COUNT_CAP, SkipReason.SIZE_CAP_TOTAL, SkipReason.TOKEN_EXPIRED})
+# After one of these, no other format of the same document could be stored either (a size
+# refusal is about that one format: a smaller alternate may still fit).
+NO_ALTERNATIVE = frozenset({SkipReason.COUNT_CAP, SkipReason.TOKEN_EXPIRED})
 
 
 class Stop(StrEnum):

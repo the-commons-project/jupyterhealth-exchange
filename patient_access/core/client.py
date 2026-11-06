@@ -38,7 +38,7 @@ class TokenExpired(Exception):
 
 
 class Unauthorized(Exception):
-    """The server answered 401: the token is gone and nothing else will work."""
+    """The EHR's own server answered 401 to the token: it is gone and nothing else will work."""
 
 
 class UrlRefusal(StrEnum):
@@ -64,16 +64,28 @@ def resolve_host(host: str) -> Sequence[str]:
     connection will fail on its own, as a network error."""
     try:
         return [str(info[4][0]) for info in socket.getaddrinfo(host, None)]
-    except socket.gaierror:
+    except (socket.gaierror, UnicodeError):  # no such name, or one the IDNA codec refuses
         return []
 
 
-def _is_private(address: str) -> bool:
+def _literal(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """The address a host names outright, if it is one: dotted or bracketed, or one of the
+    numeric spellings `inet_aton` accepts (`127.1`, `2130706433`, `0x7f000001`)."""
     try:
-        ip = ipaddress.ip_address(address)
+        return ipaddress.ip_address(host)
     except ValueError:
-        return False
-    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified
+        pass
+    try:
+        return ipaddress.ip_address(socket.inet_aton(host))
+    except (OSError, ValueError):
+        return None
+
+
+def _is_private(address: str) -> bool:
+    """Anything that is not a public internet address: private, loopback, link-local, the shared
+    address space, multicast, reserved, unspecified."""
+    ip = _literal(address)
+    return ip is not None and (not ip.is_global or ip.is_multicast)
 
 
 def origin(url: str) -> tuple[str, str, int | None]:
@@ -134,6 +146,7 @@ class FhirClient:
         self.http = http or http_session(profile.max_retries)
         self.lease = lease
         self.policy = policy
+        self._origin = origin(self.base)
         self._auth = {"Authorization": f"Bearer {token.get_secret_value()}"}
         self.requests = 0
 
@@ -166,7 +179,10 @@ class FhirClient:
             )
             location = r.headers.get("Location")
             if not (r.is_redirect and location):
-                if r.status_code == 401:
+                if r.status_code == 401 and "Authorization" in headers and origin(full) == self._origin:
+                    # The EHR itself refused our token: nothing else will work. A 401 from any
+                    # other host (a document server, storage after a token-less hop) is that
+                    # one request's answer, returned to the caller like any other status.
                     r.close()
                     raise Unauthorized()
                 return r

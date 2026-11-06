@@ -108,11 +108,6 @@ def index_groups(resource: JsonObject, source: DocumentSource, prefer: Sequence[
     return [[i] for i in range(len(items))]
 
 
-def chosen_indexes(resource: JsonObject, source: DocumentSource, prefer: Sequence[str]) -> list[int]:
-    """The preferred attachment index of each group."""
-    return [group[0] for group in index_groups(resource, source, prefer)]
-
-
 def attachments(resource: JsonObject, source: DocumentSource) -> list[JsonObject]:
     field = "content" if source is DocumentSource.DOCUMENT_REFERENCE else "presentedForm"
     items = resource.get(field)

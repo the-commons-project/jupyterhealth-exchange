@@ -210,6 +210,19 @@ def test_a_next_link_the_policy_refuses_ends_that_type_only(next_url, reason):
 
 
 @responses.activate
+def test_a_401_from_a_cross_host_next_link_ends_that_type_only():
+    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+    elsewhere = "https://elsewhere.example.org/fhir/Observation?page=2"
+    responses.add(responses.GET, f"{ISS}/Observation", json=search([obs(1)], next_url=elsewhere))
+    responses.add(responses.GET, elsewhere, status=401)
+    j = job()
+    fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(), lambda: None, LOG)
+    labs = next(o for o in j.outcomes if o.label == "Labs")
+    assert labs.status is OutcomeStatus.ERROR
+    assert next(o for o in j.outcomes if o.label == "Demographics").status is OutcomeStatus.OK
+
+
+@responses.activate
 def test_a_next_link_elsewhere_on_the_same_origin_is_followed():
     """Lenient on the path: some servers page through another base path on the same host."""
     other_path = "https://ehr.example.org/paging/Observation?page=2"

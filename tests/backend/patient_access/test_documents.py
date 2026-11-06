@@ -331,6 +331,17 @@ def test_a_budget_refusal_stops_the_group_since_no_alternative_could_help():
 
 
 @responses.activate
+def test_a_format_that_does_not_fit_the_remaining_total_falls_back_to_a_smaller_one():
+    responses.add(responses.GET, f"{ISS}/Binary/txt", body=b"x" * 50, content_type="text/plain")
+    responses.add(responses.GET, f"{ISS}/Binary/pdf", body=b"%PDF", content_type="application/pdf")
+    j = job()
+    caps = DocumentCaps(max_total_bytes=10)
+    fetch_documents(j, two_format_spool(), DocumentProfile(), caps, client(), lambda: None, LOG)
+    by_index = {r.attachment_index: r for r in j.documents.records}
+    assert by_index[1].reason is SkipReason.SIZE_CAP_TOTAL and by_index[0].result is DocumentResult.STORED
+
+
+@responses.activate
 def test_a_format_over_the_per_document_cap_falls_back_to_a_smaller_one():
     responses.add(responses.GET, f"{ISS}/Binary/txt", body=b"x" * 50, content_type="text/plain")
     responses.add(responses.GET, f"{ISS}/Binary/pdf", body=b"%PDF", content_type="application/pdf")
@@ -465,6 +476,41 @@ def test_a_redirect_to_storage_elsewhere_arrives_without_our_token():
 
 
 @responses.activate
+def test_a_401_from_another_host_is_one_skipped_document_not_a_dead_token():
+    """A document server or an expired signed storage URL saying 401 says nothing about our EHR
+    token: the document is skipped with its status, and the pull goes on."""
+    responses.add(responses.GET, "https://docs.example.com/x", status=401)
+    responses.add(responses.GET, f"{ISS}/Binary/b1", status=302, headers={"Location": "https://storage.example.com/s"})
+    responses.add(responses.GET, "https://storage.example.com/s", status=401)
+    direct = fetch_one(client(), MemorySpoolHandle("j"), cand(url="https://docs.example.com/x"), Budget(caps=BIG), BIG)
+    after_hop = fetch_one(client(), MemorySpoolHandle("j"), cand(), Budget(caps=BIG), BIG)
+    assert direct == Skipped(reason=SkipReason.HTTP_ERROR, detail="401")
+    assert after_hop == Skipped(reason=SkipReason.HTTP_ERROR, detail="401")
+
+
+@responses.activate
+def test_a_401_from_the_ehr_itself_means_the_token_is_dead():
+    from patient_access.core.client import Unauthorized
+
+    responses.add(responses.GET, f"{ISS}/Binary/b1", status=401)
+    with pytest.raises(Unauthorized):
+        fetch_one(client(), MemorySpoolHandle("j"), cand(), Budget(caps=BIG), BIG)
+
+
+def test_a_host_name_the_idna_codec_refuses_is_a_network_failure_not_a_crash():
+    from patient_access.core.client import resolve_host
+
+    assert resolve_host("x" * 64 + ".example.org") == []
+    assert resolve_host("a..b") == []
+
+
+@pytest.mark.parametrize("host", ["100.100.100.200", "224.0.0.1", "127.1", "2130706433", "0x7f000001"])
+def test_every_non_public_spelling_of_an_address_is_refused(host):
+    result = fetch_one(client(), MemorySpoolHandle("j"), cand(url=f"https://{host}/x"), Budget(caps=BIG), BIG)
+    assert result == Skipped(reason=SkipReason.URL_REFUSED, detail=UrlRefusal.PRIVATE_ADDRESS.value)
+
+
+@responses.activate
 def test_a_redirect_on_the_same_host_keeps_the_token():
     responses.add(responses.GET, f"{ISS}/Binary/b1", status=307, headers={"Location": "/fhir/r4/Binary/b1/content"})
     responses.add(responses.GET, f"{ISS}/Binary/b1/content", body=b"pdf", content_type="application/pdf")
@@ -502,10 +548,10 @@ def test_an_html_page_with_status_200_is_stored_as_what_was_served():
 
 @responses.activate
 def test_a_body_longer_than_its_content_length_is_never_stored():
-    """A declared length under the cap lets the download start; what arrives decides. urllib3
-    enforces the declared length (the mismatch is a decoding error, one skipped document) and the
-    cap is enforced on the bytes themselves, so a lying Content-Length cannot get an over-cap body
-    stored either way."""
+    """A declared length under the cap lets the download start; what arrives decides. Over a real
+    socket `http.client` reads at most the declared length (a silently truncated document); the
+    `responses` mock hands the whole body to urllib3, which refuses the mismatch. Either way the
+    cap is enforced on the bytes themselves, so nothing over it is ever stored."""
     body = b"x" * 2000
     responses.add(
         responses.GET,
@@ -518,8 +564,8 @@ def test_a_body_longer_than_its_content_length_is_never_stored():
     spool = MemorySpoolHandle("j")
     caps = DocumentCaps(max_bytes_each=1000, max_binary_json_bytes=1)
     result = fetch_one(client(), spool, cand(content_type="application/pdf"), Budget(caps=caps), caps)
-    assert isinstance(result, Skipped) and result.reason in {SkipReason.SIZE_CAP_EACH, SkipReason.NETWORK}
-    assert D1 not in spool.blobs
+    assert not isinstance(result, Stored) or result.meta.size <= 100
+    assert all(len(b"".join(spool.iter_blob(b))) <= 1000 for b in spool.blobs)
 
 
 @responses.activate

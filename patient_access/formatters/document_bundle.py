@@ -12,9 +12,10 @@ iterator, with everything a consumer needs inside it.
                       "Document content" section lists them, so every entry is reachable from
                       the Composition, as a document Bundle requires.
 
-An attachment with no Binary behind it (a document the caps refused, an alternate format not
-taken) never carries `data`: the EHR's inline bytes would otherwise slip past the caps. It keeps
-its `url`, `size` and `hash`.
+An attachment the pass tried and could not deliver (refused by the caps, failed to fetch,
+stored but corrupt) loses any inline `data`, so the EHR's inline bytes never slip past the caps;
+it keeps its `url`, `size` and `hash`. An attachment nobody tried (an alternate format whose
+sibling was stored) stays as the EHR sent it. Every url is made absolute.
 
 Two passes over the spool: the first collects ids (to rewrite references and list sections), the
 second emits entries. Nothing holds more than one resource at a time beyond the id index.
@@ -321,8 +322,8 @@ def _collect(spool: SpoolHandle, types: list[str]) -> _Index:
 def _empty_reason(outcomes: list[TypeOutcome]) -> EmptyReason:
     if any(o.status is OutcomeStatus.ERROR for o in outcomes):
         return EmptyReason.UNAVAILABLE
-    if outcomes and all(o.status.withheld for o in outcomes):
-        return EmptyReason.WITHHELD
+    if outcomes and all(o.status.withheld or o.status is OutcomeStatus.SKIPPED for o in outcomes):
+        return EmptyReason.WITHHELD  # not requested, not granted, or the scope not granted at all
     return EmptyReason.NILKNOWN
 
 
@@ -338,10 +339,12 @@ _WHY = {
 }
 
 
-def _generated_text(title: str, reason: EmptyReason, host: str) -> JsonObject:
+def _generated_text(title: str, reason: EmptyReason, host: str, why: str | None = None) -> JsonObject:
     """The narrative an empty section must carry (R4 cmp-1: text, entries or sub-sections). It is
     the module's own words, and says so, so no reader takes it for the EHR's."""
-    sentence = f"{title}: no records are included in this document ({_WHY[reason]}). " + GENERATED_BY.format(host=host)
+    sentence = f"{title}: no records are included in this document ({why or _WHY[reason]}). " + GENERATED_BY.format(
+        host=host
+    )
     return {"status": "generated", "div": f'<div xmlns="http://www.w3.org/1999/xhtml">{html.escape(sentence)}</div>'}
 
 
@@ -369,8 +372,14 @@ def _documents_section(job: Job[A], binaries: Mapping[str, str], base: str, host
     if binaries:
         section["entry"] = [{"reference": u} for u in binaries.values()]
     else:
-        reason = EmptyReason.UNAVAILABLE if job.documents.status is OutcomeStatus.ERROR else EmptyReason.NILKNOWN
-        section["text"] = _generated_text(title, reason, host)
+        tried = len(job.documents.records)
+        if tried:
+            reason = EmptyReason.UNAVAILABLE
+            why = f"{tried} documents were offered and none could be included; see the documents outcome"
+        else:
+            reason = EmptyReason.UNAVAILABLE if job.documents.status is OutcomeStatus.ERROR else EmptyReason.NILKNOWN
+            why = _WHY[reason]
+        section["text"] = _generated_text(title, reason, host, why)
         section["emptyReason"] = _empty(reason)
     return section
 

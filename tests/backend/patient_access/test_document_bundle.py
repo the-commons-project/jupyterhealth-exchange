@@ -266,6 +266,35 @@ def test_a_documents_pass_that_failed_reads_unavailable_not_none_known():
     assert "did not return them" in docs["text"]["div"]
 
 
+def test_the_documents_narrative_says_when_documents_were_offered_but_none_could_be_included():
+    j = job()
+    j.documents.status = OutcomeStatus.OK
+    j.documents.record(
+        DocumentRecord(
+            blob_id=NOTE_ID,
+            source=DocumentSource.DOCUMENT_REFERENCE,
+            referenced_by="DocumentReference/d1",
+            attachment_index=0,
+            content_type="text/plain",
+            result=DocumentResult.SKIPPED,
+            reason=SkipReason.HTTP_ERROR,
+            detail="503",
+        )
+    )
+    docs = render(j, MemorySpoolHandle("j"))["entry"][0]["resource"]["section"][-1]
+    assert docs["emptyReason"]["coding"][0]["code"] == "unavailable"
+    assert "1 documents were offered and none could be included" in docs["text"]["div"]
+
+
+def test_a_type_whose_scope_was_not_granted_at_all_reads_withheld():
+    j = job()
+    for o in j.outcomes:
+        if o.label == "Conditions":
+            o.status = OutcomeStatus.SKIPPED
+    sections = {s["code"]["text"]: s for s in render(j, MemorySpoolHandle("j"))["entry"][0]["resource"]["section"]}
+    assert sections["Condition"]["emptyReason"]["coding"][0]["code"] == "withheld"
+
+
 def test_every_section_has_text_or_entries_and_generated_text_says_it_is_ours():
     """R4 cmp-1: a section needs text, entries or sub-sections. An empty section's narrative is
     the module's own statement, marked as generated and saying so in words, under the host's name."""

@@ -7,9 +7,9 @@ parsed in memory, so that answer has its own, lower cap; the response buffer is 
 as it is parsed and the base64 is decoded slice by slice, so the peak is the buffer plus the
 parsed string, briefly. Either way the spool holds the document's raw bytes. The full served
 Content-Type is kept (a charset matters to whoever decodes the text); only its media type decides
-whether a body is JSON. A download that runs past `max_seconds_each` is abandoned. The token is
-never sent to another origin. TokenExpired and Unauthorized propagate: the pass decides what
-they mean.
+whether a body is JSON. A download that runs past `max_seconds_each` is abandoned. Every URL
+passes the client's policy (`RefusedUrl` is one skipped document). TokenExpired and Unauthorized
+propagate: the pass decides what they mean.
 """
 
 from __future__ import annotations
