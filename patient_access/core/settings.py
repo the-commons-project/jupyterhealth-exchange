@@ -16,7 +16,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 
 from .models import Value
 
-DEFAULT_LAYOUT = "{attrs.patient_id}/{attrs.fhir_source_id}/{created_at:%Y%m%dT%H%M%SZ}/bundle.json"
+DEFAULT_LAYOUT = "{attrs.patient_id}/{attrs.fhir_source_id}"  # the prefix; the pull's own part is appended
 DEFAULT_EXTENSION_BASE_URL = "https://jupyterhealth.org/fhir/StructureDefinition/"
 
 KiB = 1024

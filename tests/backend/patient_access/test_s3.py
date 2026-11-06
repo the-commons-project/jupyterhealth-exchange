@@ -15,7 +15,7 @@ from patient_access.destinations.s3 import S3Sink, boto3_client
 from .helpers import job, settings
 
 BUCKET = "pulls"
-KEY = "40001/7/20261104T120000Z/bundle.json"
+KEY = "40001/7/20261104T120000Z-job-1/bundle.json"
 
 
 @pytest.fixture
@@ -110,6 +110,22 @@ def test_a_failed_abort_keeps_the_original_error_and_the_record(s3, monkeypatch)
     with pytest.raises(RuntimeError, match="spool went away"):
         S3Sink(boto3_client, part_size=MIN_PART).put(job(), failing(), s3_settings(), progress)
     assert [e[0] for e in progress.events] == ["started"]  # still recorded, for the next attempt
+
+
+def test_a_record_that_fails_after_the_abort_keeps_the_original_error(s3):
+    """`ended()` runs inside the except; its own failure must not replace the stream's."""
+
+    class Unendable(Progress):
+        def ended(self, upload):
+            raise ConnectionError("database unreachable")
+
+    def failing():
+        yield from pieces(MIN_PART + 10)
+        raise RuntimeError("the spool went away")
+
+    with pytest.raises(RuntimeError, match="spool went away"):
+        S3Sink(boto3_client, part_size=MIN_PART).put(job(), failing(), s3_settings(), Unendable())
+    assert not s3.list_multipart_uploads(Bucket=BUCKET).get("Uploads")  # the abort itself happened
 
 
 def test_an_upload_a_dead_process_left_open_can_be_aborted(s3):

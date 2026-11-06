@@ -2,7 +2,8 @@
 
 Rows are read through the job model, not as raw JSON, so the pages show what the code means.
 A running job's row cannot be deleted (its worker would lose it mid-pull), and sign-in attempts
-are listed without their `state`, which is a live single-use secret until the callback spends it.
+are listed without their `state`, which is a live single-use secret until the callback spends it:
+no column, no change page and no bulk actions, since each of those would put it in the HTML.
 """
 
 from __future__ import annotations
@@ -46,7 +47,8 @@ class JobRecordAdmin(_ReadOnly):
     readonly_fields = ("failure",)
 
     def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        return obj is None or obj.status in _TERMINAL
+        """Django's own permission check, narrowed: never a job that is still running."""
+        return super().has_delete_permission(request, obj) and (obj is None or obj.status in _TERMINAL)
 
     @admin.display(description="health system")
     def brand(self, obj: JobRecord) -> str:
@@ -77,5 +79,6 @@ class JobRecordAdmin(_ReadOnly):
 class AuthAttemptRecordAdmin(_ReadOnly):
     list_display = ("participant_ref", "created_at", "expires_at", "used_at")
     list_display_links = None  # no change page: its URL would carry the state
+    actions = None  # no bulk-action checkboxes: their values are the rows' keys, the states
     search_fields = ("participant_ref",)
     exclude = ("code_verifier_enc", "state")

@@ -4,15 +4,16 @@ become core models: each row's `body` is the model's JSON; secrets are encrypted
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Generic, cast
 
 from django.db import transaction
 from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, Value
 from django.db.models.functions import Now
 from django.utils import timezone
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from patient_access.core.lease import Lease, LeaseLost
 from patient_access.core.models import (
@@ -28,6 +29,8 @@ from patient_access.core.vocab import FailureKind
 
 from .crypto import Crypto
 from .models import AuthAttemptRecord, JobRecord
+
+log = logging.getLogger("patient_access.stores")
 
 _TERMINAL = [s.value for s in TERMINAL_STATUSES]
 _RUNNING = [s.value for s in (JobStatus.QUEUED, JobStatus.FETCHING, JobStatus.FETCHED, JobStatus.DELIVERING)]
@@ -193,25 +196,51 @@ class OrmJobStore(Generic[A]):
         return int(mine.values_list("crashes", flat=True).get())
 
     def fail_crashed(self, lease: Lease, failure: str) -> None:
-        """The row's own columns plus three fields patched into the body as plain JSON: the body
-        may be exactly what fails to validate, so it is not loaded as a Job here."""
+        """Ends the job without loading it as a Job: the body may be exactly what fails to
+        validate. The body written back is the most that still reads as a failed job (`_ended`),
+        so the patient's list shows the failure rather than breaking on the row."""
         with transaction.atomic():
             row = JobRecord.objects.select_for_update().filter(id=lease.job_id, lease_owner=lease.worker).first()
             if row is None:
                 raise LeaseLost(lease.job_id)
-            body = dict(row.body) if isinstance(row.body, dict) else {}
-            body.update(
-                status=JobStatus.FAILED_TERMINAL.value,
-                failure=failure,
-                failure_kind=FailureKind.CONTACT_STUDY.value,
-            )
+            now = timezone.now()
             JobRecord.objects.filter(id=row.id).update(
                 status=JobStatus.FAILED_TERMINAL.value,
-                body=body,
+                body=self._ended(row, failure, now),
                 credentials_enc="",
-                finished_at=Now(),
-                updated_at=Now(),
+                finished_at=now,
+                updated_at=now,
             )
+
+    def _ended(self, row: JobRecord, failure: str, now: datetime) -> Mapping[str, object]:
+        """The row's body as a terminal failure. First the body as it is with the ending fields
+        patched in; if that no longer validates, the same ending over only the parts that still
+        do (participant, source, the row's own columns), progress dropped; if even those are
+        gone, the patched body as it is, which the list then leaves out (`for_participant`)."""
+        body = dict(row.body) if isinstance(row.body, dict) else {}
+        ending = {
+            "status": JobStatus.FAILED_TERMINAL.value,
+            "failure": failure,
+            "failure_kind": FailureKind.CONTACT_STUDY.value,
+            "finished_at": now.isoformat(),
+        }
+        patched = {**body, **ending}
+        skeleton = {
+            "id": row.id,
+            "participant": body.get("participant"),
+            "source": body.get("source"),
+            "spool_ref": row.spool_ref,
+            "runs": body.get("runs", 0),
+            "created_at": row.created_at.isoformat(),
+            **ending,
+        }
+        for candidate in (patched, skeleton):
+            try:
+                return self.model.model_validate(candidate).model_dump(mode="json")
+            except ValidationError:
+                continue
+        log.warning("job %s ended by the crash cap, but its row no longer reads as a job", row.id)
+        return patched
 
     def for_participant(self, ref: str, attrs: Mapping[str, str | int] | None = None, limit: int = 20) -> list[Job[A]]:
         """A participant's jobs, newest first (for the host's "your pulls" screens). `attrs`
@@ -219,7 +248,13 @@ class OrmJobStore(Generic[A]):
         rows = JobRecord.objects.filter(participant_ref=ref)
         for name, value in (attrs or {}).items():
             rows = rows.filter(**{f"body__participant__attrs__{name}": value})
-        return [self._job(row) for row in rows.order_by("-created_at")[:limit]]
+        out: list[Job[A]] = []
+        for row in rows.order_by("-created_at")[:limit]:
+            try:
+                out.append(self._job(row))
+            except ValidationError:  # a row the crash cap ended with nothing left to read
+                log.warning("job %s left out of the participant's list: its row no longer reads as a job", row.id)
+        return out
 
     def live_spool_refs(self) -> frozenset[str]:
         refs = (

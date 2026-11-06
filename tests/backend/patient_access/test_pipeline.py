@@ -1,6 +1,7 @@
 """run_job end to end over the in-memory plugs and a fake EHR: phases, resume, retries, the
 delivery guard, failure kinds, the lease fence, and what a terminal job leaves behind."""
 
+import base64
 import json
 from datetime import timedelta
 
@@ -10,6 +11,7 @@ import responses
 from patient_access.core.lease import Lease, LeaseLost
 from patient_access.core.models import DeliveryStatus, JobStatus, OutcomeStatus, PendingUpload
 from patient_access.core.pipeline import DeliveryRefused, Deps, run_job
+from patient_access.core.puller import plan_outcomes
 from patient_access.core.vocab import FailureKind
 from patient_access.formatters import render_bundle
 from patient_access.formatters.metadata import pull_metadata
@@ -17,7 +19,7 @@ from patient_access.testing.memory import MemoryDirectory, MemoryJobStore, Memor
 
 from .helpers import ISS, SELECTION, Clock, job, settings, source_settings
 
-KEY = "40001/7/20261104T120000Z/bundle.json"
+KEY = "40001/7/20261104T120000Z-job-1/bundle.json"
 
 
 @pytest.fixture
@@ -300,3 +302,48 @@ def test_a_document_whose_stored_copy_is_corrupt_is_left_out_not_the_pull():
     assert kept.result is DocumentResult.SKIPPED and kept.reason is SkipReason.SPOOL_CORRUPT
     bundle = json.loads(next(iter(w.sink.objects.values())))
     assert not any(e["resource"]["resourceType"] == "Binary" for e in bundle["entry"])
+
+
+def test_a_whole_pull_over_the_real_disk_spool_delivers_a_clean_bundle(tmp_path):
+    """The memory spool is a double. Over `LocalDiskSpool`, with a document, every entry must be
+    a resource (the spool's own files never surface), the document a Binary, each section a type."""
+    from patient_access.spool.local_disk import LocalDiskSpool
+
+    w = World(spool=LocalDiskSpool(tmp_path))
+    scopes = ("openid", "launch/patient", "patient/Patient.read", "patient/DocumentReference.read")
+    j = job(outcomes=plan_outcomes(source_settings(), scopes, scopes))
+    j.source = j.source.model_copy(update={"scopes_requested": scopes, "scopes_granted": scopes})
+    w.job = w.jobs.create(j)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+        rsps.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+        rsps.add(
+            responses.GET,
+            f"{ISS}/DocumentReference",
+            json={
+                "resourceType": "Bundle",
+                "entry": [
+                    {
+                        "resource": {
+                            "resourceType": "DocumentReference",
+                            "id": "d1",
+                            "subject": {"reference": "Patient/p1"},
+                            "content": [{"attachment": {"contentType": "text/plain", "url": "Binary/n1"}}],
+                        }
+                    }
+                ],
+            },
+        )
+        rsps.add(responses.GET, f"{ISS}/Binary/n1", body=b"the note", content_type="text/plain")
+        final = w.run()
+    assert final.status is JobStatus.DONE
+    bundle = json.loads(w.sink.objects[KEY])
+    entries = bundle["entry"]
+    assert all("resourceType" in e["resource"] for e in entries)
+    assert [e["resource"]["resourceType"] for e in entries].count("Binary") == 1
+    binary = next(e for e in entries if e["resource"]["resourceType"] == "Binary")
+    assert binary["resource"]["data"] == base64.b64encode(b"the note").decode()
+    doc = next(e["resource"] for e in entries if e["resource"]["resourceType"] == "DocumentReference")
+    assert doc["content"][0]["attachment"]["url"] == binary["fullUrl"]
+    sections = {s["code"]["text"] for s in entries[0]["resource"]["section"]}
+    assert "blobs" not in sections and "index" not in sections
+    assert all(("text" in s) != ("entry" in s) for s in entries[0]["resource"]["section"])

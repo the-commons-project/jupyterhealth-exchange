@@ -7,7 +7,7 @@ import pytest
 import responses
 from pydantic import SecretStr
 
-from patient_access.core.client import FhirClient
+from patient_access.core.client import FhirClient, UrlRefusal
 from patient_access.core.log import JobLog
 from patient_access.core.models import OutcomeStatus
 from patient_access.core.puller import FetchAborted, fetch_resources, plan_outcomes
@@ -174,18 +174,38 @@ def test_malformed_search_pages_are_unreadable(body):
     "next_url",
     [
         "https://elsewhere.example.org/fhir/Observation?page=2",  # another host
-        "http://ehr.example.org/fhir/Observation?page=2",  # downgraded to http
         "https://ehr.example.org:8443/fhir/Observation?page=2",  # another port
     ],
 )
 @responses.activate
-def test_a_next_link_on_another_origin_is_never_requested(next_url):
+def test_a_next_link_on_another_host_is_followed_with_the_token(next_url):
+    """The EHR wrote the link: cross-host paging is supported, token and all."""
+    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+    responses.add(responses.GET, f"{ISS}/Observation", json=search([obs(1)], next_url=next_url))
+    responses.add(responses.GET, next_url, json=search([obs(2)]))
+    j = job()
+    fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(), lambda: None, LOG)
+    assert next(o for o in j.outcomes if o.label == "Labs").count == 2
+    assert responses.calls[-1].request.headers["Authorization"] == "Bearer tok"
+
+
+@pytest.mark.parametrize(
+    ("next_url", "reason"),
+    [
+        ("http://ehr.example.org/fhir/Observation?page=2", UrlRefusal.NOT_HTTPS),
+        ("https://10.0.0.7/fhir/Observation?page=2", UrlRefusal.PRIVATE_ADDRESS),
+        ("https://ehr.example.org:abc/fhir/Observation?page=2", UrlRefusal.UNPARSEABLE),
+    ],
+)
+@responses.activate
+def test_a_next_link_the_policy_refuses_ends_that_type_only(next_url, reason):
     responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
     responses.add(responses.GET, f"{ISS}/Observation", json=search([obs(1)], next_url=next_url))
     j = job()
     fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(), lambda: None, LOG)
     labs = next(o for o in j.outcomes if o.label == "Labs")
-    assert labs.status is OutcomeStatus.ERROR and "another server" in labs.error
+    assert labs.status is OutcomeStatus.ERROR and labs.error.endswith(reason.value)
+    assert next(o for o in j.outcomes if o.label == "Demographics").status is OutcomeStatus.OK
     assert all(c.request.url.startswith(ISS) for c in responses.calls)
 
 
@@ -203,23 +223,27 @@ def test_a_next_link_elsewhere_on_the_same_origin_is_followed():
 
 @responses.activate
 def test_resume_resets_every_row_of_the_type_so_none_reads_as_a_stale_ok():
-    """Labs failed and Vital Signs was ok in an earlier run; the resume's token runs out at Labs.
-    Vital Signs must not keep its old "ok, 2": the type's spool was wiped for the refetch."""
+    """Labs failed and Vital Signs was ok in an earlier run; on the resume the token runs out
+    before the Observation type is even asked for (the Patient request uses the last of it), so
+    Labs' first request raises. Vital Signs must not keep its old "ok, 2": every row of the type
+    is reset before the refetch, not one by one as each is reached."""
     clock = Clock()
     j = job()
     for o in j.outcomes:
         if o.label == "Vital Signs":
             o.status, o.count = OutcomeStatus.OK, 2
-    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
 
-    def expire(request):
+    def last_of_the_token(request):
         clock.advance(hours=2)
-        return 500, {}, "{}"
+        return 200, {}, '{"resourceType": "Patient", "id": "p1"}'
 
-    responses.add_callback(responses.GET, f"{ISS}/Observation", callback=expire)
+    responses.add_callback(responses.GET, f"{ISS}/Patient/p1", callback=last_of_the_token)
     fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(clock), lambda: None, LOG)
+    labs = next(o for o in j.outcomes if o.label == "Labs")
     vitals = next(o for o in j.outcomes if o.label == "Vital Signs")
+    assert labs.status is OutcomeStatus.ERROR
     assert vitals.status is not OutcomeStatus.OK and vitals.count == 0
+    assert all(c.request.url.startswith(f"{ISS}/Patient") for c in responses.calls)  # nothing else was asked
 
 
 def test_a_retry_after_longer_than_the_cap_fails_the_row_instead_of_sleeping(monkeypatch):

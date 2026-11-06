@@ -1,21 +1,26 @@
 """Just enough FHIR REST for a patient pull: bearer GETs against one server, with the token's
-expiry checked before every request and the token never sent anywhere else.
+expiry checked before every request, and one policy for every URL the EHR hands us.
 
-"Anywhere else" is a different origin: scheme, host and port must all match the server's. The
-path may differ (some servers page through another base path on the same host). The check is
-inside `get` and `stream`, so no caller can skip it; a `next` link or a document URL on another
-origin raises `OutsideServer` before any request is made. HAPI FHIR's client and SMART's
-client-js follow such links with the token attached; we hold a patient's token unattended on a
-server, so we do not. Redirects are still followed: `requests` drops the Authorization header
-when a redirect leaves the host or downgrades to http (a document handed off to a signed storage
-URL arrives without our token going along).
+The EHR is trusted to say where its data is. A `next` link or an attachment URL on another host is
+fetched with the token, as US Core asks ("hosted on a server outside the FHIR server, it SHOULD be
+securely accessible using the same authorization credentials") and as SMART's client-js and HAPI
+do. What the EHR did not say is not trusted: redirects are followed by this client itself, and the
+token does not cross a change of host or an https-to-http downgrade (HAPI Core's CVE-2026-34359 is
+exactly that leak). Every URL, first request or redirect, passes `UrlPolicy`: it must parse, it
+must be https unless the dev switch allows http, and it must not name a private, loopback or
+link-local address, since this server follows URLs it did not choose. A refused URL raises
+`RefusedUrl` before any request is made; the caller records that one type or document and goes on.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import ipaddress
+import socket
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from urllib.parse import urlsplit
+from enum import StrEnum
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from pydantic import SecretStr
@@ -25,6 +30,7 @@ from .lease import Lease
 from .source_settings import FetchProfile
 
 EXPIRY_MARGIN = timedelta(seconds=30)
+MAX_REDIRECTS = 5
 
 
 class TokenExpired(Exception):
@@ -35,15 +41,78 @@ class Unauthorized(Exception):
     """The server answered 401: the token is gone and nothing else will work."""
 
 
-class OutsideServer(Exception):
-    """A URL on another origin than the server's. Never requested: the token would go with it."""
+class UrlRefusal(StrEnum):
+    UNPARSEABLE = "unparseable"
+    NOT_HTTPS = "not_https"
+    PRIVATE_ADDRESS = "private_address"
+    TOO_MANY_REDIRECTS = "too_many_redirects"
+
+
+class RefusedUrl(Exception):
+    """A URL the policy will not request. `reason` is recorded on the type or the document."""
+
+    def __init__(self, reason: UrlRefusal) -> None:
+        super().__init__(reason.value)
+        self.reason = reason
+
+
+Resolver = Callable[[str], Sequence[str]]
+
+
+def resolve_host(host: str) -> Sequence[str]:
+    """Every address a host name resolves to, as strings. Empty when it does not resolve: the
+    connection will fail on its own, as a network error."""
+    try:
+        return [str(info[4][0]) for info in socket.getaddrinfo(host, None)]
+    except socket.gaierror:
+        return []
+
+
+def _is_private(address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified
 
 
 def origin(url: str) -> tuple[str, str, int | None]:
-    """Scheme, host and port, with the scheme's default port made explicit."""
+    """Scheme, host and port, with the scheme's default port made explicit. Raises ValueError
+    for a URL whose port cannot be read."""
     parts = urlsplit(url)
     port = parts.port or {"https": 443, "http": 80}.get(parts.scheme)
     return parts.scheme.lower(), (parts.hostname or "").lower(), port
+
+
+@dataclass(frozen=True)
+class UrlPolicy:
+    """What an EHR-given URL must satisfy before it is requested. `allow_http` is the dev switch
+    for sandboxes on localhost: it also turns the private-address check off, since local is the
+    point. `resolver` is how host names are checked against private ranges; None checks literal
+    addresses only (a hostname is then left to the network)."""
+
+    allow_http: bool = False
+    resolver: Resolver | None = None
+
+    def check(self, url: str) -> str:
+        """`url`, or `RefusedUrl`."""
+        try:
+            scheme, host, _ = origin(url)
+        except ValueError:
+            raise RefusedUrl(UrlRefusal.UNPARSEABLE) from None
+        if not host:
+            raise RefusedUrl(UrlRefusal.UNPARSEABLE)
+        if scheme != "https" and not (scheme == "http" and self.allow_http):
+            raise RefusedUrl(UrlRefusal.NOT_HTTPS)
+        if not self.allow_http:
+            addresses = (
+                [host]
+                if _is_private(host) or host == "localhost"
+                else list(self.resolver(host) if self.resolver else [])
+            )
+            if host == "localhost" or any(_is_private(a) for a in addresses):
+                raise RefusedUrl(UrlRefusal.PRIVATE_ADDRESS)
+        return url
 
 
 class FhirClient:
@@ -56,6 +125,7 @@ class FhirClient:
         clock: Callable[[], datetime],
         http: requests.Session | None = None,
         lease: Lease | None = None,
+        policy: UrlPolicy = UrlPolicy(),
     ) -> None:
         self.base = base.rstrip("/")
         self.profile = profile
@@ -63,7 +133,7 @@ class FhirClient:
         self.clock = clock
         self.http = http or http_session(profile.max_retries)
         self.lease = lease
-        self._origin = origin(self.base)
+        self.policy = policy
         self._auth = {"Authorization": f"Bearer {token.get_secret_value()}"}
         self.requests = 0
 
@@ -73,43 +143,51 @@ class FhirClient:
         if self.expires_at is not None and self.clock() >= self.expires_at - EXPIRY_MARGIN:
             raise TokenExpired()
 
-    def absolute(self, url: str) -> str | None:
-        """`url` made absolute against the server, or None when it is on another origin."""
+    def absolute(self, url: str) -> str:
+        """`url` made absolute against the server and checked by the policy (`RefusedUrl`)."""
         full = url if "://" in url else f"{self.base}/{url.lstrip('/')}"
-        return full if origin(full) == self._origin else None
+        return self.policy.check(full)
 
-    def _checked(self, url: str) -> str:
+    def _get(self, url: str, params: Mapping[str, str] | None, accept: str, stream: bool) -> requests.Response:
+        """One GET with the token, following redirects itself: each hop passes the policy, and the
+        token stays behind when the host changes or https drops to http."""
         full = self.absolute(url)
-        if full is None:
-            raise OutsideServer()
-        return full
+        self.ensure_valid()
+        headers: dict[str, str] = {**self._auth, "Accept": accept}
+        for _ in range(MAX_REDIRECTS + 1):
+            self.requests += 1
+            r = self.http.get(
+                full,
+                params=params,
+                headers=headers,
+                timeout=self.profile.timeout_seconds,
+                stream=stream,
+                allow_redirects=False,
+            )
+            location = r.headers.get("Location")
+            if not (r.is_redirect and location):
+                if r.status_code == 401:
+                    r.close()
+                    raise Unauthorized()
+                return r
+            r.close()
+            params = None  # the redirect target carries its own query
+            target = self.policy.check(urljoin(full, location))
+            if _credentials_cross(full, target):
+                headers.pop("Authorization", None)
+            full = target
+        raise RefusedUrl(UrlRefusal.TOO_MANY_REDIRECTS)
 
     def get(self, url: str, params: Mapping[str, str] | None = None) -> requests.Response:
-        full = self._checked(url)
-        self.ensure_valid()
-        self.requests += 1
-        r = self.http.get(
-            full,
-            params=params,
-            headers={**self._auth, "Accept": "application/fhir+json"},
-            timeout=self.profile.timeout_seconds,
-        )
-        if r.status_code == 401:
-            raise Unauthorized()
-        return r
+        return self._get(url, params, "application/fhir+json", stream=False)
 
     def stream(self, url: str, accept: str) -> requests.Response:
         """A streamed GET for document content. The caller closes the response."""
-        full = self._checked(url)
-        self.ensure_valid()
-        self.requests += 1
-        r = self.http.get(
-            full,
-            headers={**self._auth, "Accept": accept},
-            timeout=self.profile.timeout_seconds,
-            stream=True,
-        )
-        if r.status_code == 401:
-            r.close()
-            raise Unauthorized()
-        return r
+        return self._get(url, None, accept, stream=True)
+
+
+def _credentials_cross(from_url: str, to_url: str) -> bool:
+    """Whether a redirect from one URL to the other leaves the host or downgrades the scheme:
+    the same rule `requests` applies, so a manual hop and an automatic one agree."""
+    a, b = origin(from_url), origin(to_url)
+    return a[1] != b[1] or (a[0] == "https" and b[0] == "http") or a[2] != b[2]

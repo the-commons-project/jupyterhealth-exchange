@@ -16,7 +16,7 @@ from urllib.parse import parse_qsl
 import requests
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation, ValidationError, field_validator
 
-from .client import FhirClient, OutsideServer, TokenExpired, Unauthorized
+from .client import FhirClient, RefusedUrl, TokenExpired, Unauthorized
 from .interfaces import SpoolHandle
 from .log import JobLog, sanitised
 from .models import A, Job, JsonObject, OutcomeStatus, TypeOutcome
@@ -250,8 +250,8 @@ def fetch_resources(
                 break
             except Unauthorized:
                 raise FetchAborted("The health system stopped accepting our access. Please connect again.") from None
-            except OutsideServer:
-                o.status, o.error = OutcomeStatus.ERROR, "the server's next page is on another server; not followed"
+            except RefusedUrl as e:
+                o.status, o.error = OutcomeStatus.ERROR, f"the server's next page was refused: {e.reason.value}"
             except requests.RequestException as e:
                 o.status, o.error = OutcomeStatus.ERROR, f"network: {type(e).__name__}"
             except (UnreadablePage, ValueError):

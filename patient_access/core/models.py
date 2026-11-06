@@ -294,7 +294,7 @@ class SkipReason(StrEnum):
     BINARY_JSON_CAP = "binary_json_cap"  # a FHIR Binary answer over the (lower) buffered cap
     NO_CONTENT = "no_content"  # neither data nor url
     BAD_INLINE_DATA = "bad_inline_data"
-    URL_OUTSIDE_SERVER = "url_outside_server"  # never send the EHR token to another host
+    URL_REFUSED = "url_refused"  # the URL policy refused it; `detail` names why (client.UrlRefusal)
     HTTP_ERROR = "http_error"
     NETWORK = "network"
     UNREADABLE_BINARY = "unreadable_binary"

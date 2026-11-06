@@ -8,7 +8,7 @@ import pytest
 
 from patient_access.core.lease import Lease, LeaseLost
 from patient_access.core.models import JobStatus
-from patient_access.core.runner import MAX_CRASHES, JobRunner, _Heartbeat, sweep
+from patient_access.core.runner import LAPSE_MARGIN, MAX_CRASHES, JobRunner, _Heartbeat, sweep
 from patient_access.core.vocab import FailureKind
 from patient_access.destinations.layout import LayoutError, TemplateLayout
 from patient_access.dispatch.thread import ThreadDispatcher
@@ -156,21 +156,26 @@ def test_the_heartbeat_cancels_at_once_when_the_row_has_a_new_owner():
     assert lease.cancelled
 
 
-def test_the_heartbeat_retries_a_failing_renewal_until_the_lease_would_lapse():
+def test_the_heartbeat_retries_a_failing_renewal_and_gives_up_a_margin_before_the_lease_lapses():
+    """A worker that cannot renew must stop before the database frees the lease, never after: a
+    new owner may share its spool directory. With a 1.2 s lease the renewals come at 0.4 and 0.8 s
+    and the margin is at 1.0 s."""
     failures = []
 
     def unreachable(*args):
         failures.append(time.monotonic())
         raise ConnectionError("database down")
 
-    beat, lease = _beat(unreachable, timedelta(seconds=0.3))
+    period = timedelta(seconds=1.2)
+    beat, lease = _beat(unreachable, period)
     started = time.monotonic()
     with beat:
         while not lease.cancelled and time.monotonic() < started + 3:
-            time.sleep(0.01)
+            time.sleep(0.005)
+    cancelled_after = time.monotonic() - started
     assert lease.cancelled
     assert len(failures) >= 2  # retried, not given up on the first failure
-    assert time.monotonic() - started >= 0.3  # and only once the lease would really have lapsed
+    assert period.total_seconds() * (1 - LAPSE_MARGIN) - 0.05 <= cancelled_after < period.total_seconds()
 
 
 def test_drain_runs_every_runnable_job_once():
@@ -226,36 +231,44 @@ def test_sweep_deletes_unreferenced_spools_and_old_attempts():
 # --- the layout ----------------------------------------------------------------------------
 
 
-def test_the_default_layout_renders_attrs_and_the_pull_time():
-    layout = TemplateLayout("{attrs.patient_id}/{attrs.fhir_source_id}/{created_at:%Y%m%dT%H%M%SZ}/bundle.json")
-    assert layout.render(job()) == "40001/7/20261104T120000Z/bundle.json"
+def test_the_default_layout_is_a_prefix_and_the_module_appends_the_pulls_part():
+    layout = TemplateLayout("{attrs.patient_id}/{attrs.fhir_source_id}")
+    assert layout.render(job()) == "40001/7/20261104T120000Z-job-1/bundle.json"
+
+
+def test_two_pulls_never_share_a_key_whatever_the_prefix():
+    """The appended part carries the start time and the job id, so even an empty prefix or one
+    naming only the patient keeps every pull."""
+    a, b = job(job_id="aaaaaaaa-1"), job(job_id="bbbbbbbb-2")
+    for template in ("", "{attrs.patient_id}", "static"):
+        assert TemplateLayout(template).render(a) != TemplateLayout(template).render(b)
+    assert TemplateLayout("").render(a) == "20261104T120000Z-aaaaaaaa/bundle.json"
 
 
 def test_values_cannot_escape_their_segment():
     j = job()
     j.source = j.source.model_copy(update={"brand_name": "../../etc/passwd"})
-    key = TemplateLayout("{source.brand_name}/{job.id}.json").render(j)
-    assert key == ".._.._etc_passwd/job-1.json" and len(key.split("/")) == 2
+    key = TemplateLayout("{source.brand_name}").render(j)
+    assert key.startswith(".._.._etc_passwd/") and len(key.split("/")) == 3
     j.source = j.source.model_copy(update={"brand_name": ".."})
-    assert TemplateLayout("{source.brand_name}/{job.id}.json").render(j) == "_/job-1.json"
+    assert TemplateLayout("{source.brand_name}").render(j).startswith("_/")
 
 
 @pytest.mark.parametrize(
     ("template", "message"),
     [
-        ("{attrs.patient_id}/bundle.json", "per-pull"),
-        ("{attrs.patient_id}/{created_at:%Y}/bundle.json", "per-pull"),  # one pull a year
-        ("{attrs.patient_id}/{created_at:%Y%m%d}/bundle.json", "per-pull"),  # one a day
-        ("{secrets.key}/{job.id}", "unknown"),
-        ("{job.status}/{job.id}", "unknown"),
-        ("a//{job.id}", "empty segment"),
-        ("", "empty"),
-        ("{job.id", "not a valid template"),
-        ("{job.__init__.__globals__}/{job.id}", "private"),
-        ("{job._secret}/{job.id}", "private"),
-        ("{attrs[patient_id]}/{job.id}", "index"),
-        ("{job.id!r}", "conversion"),
-        ("{job.id:>40}", "only created_at"),
+        ("{job.id}", "appended by the module"),
+        ("{attrs.patient_id}/{created_at:%Y}", "appended by the module"),
+        ("{created_at}", "appended by the module"),
+        ("{secrets.key}", "unknown"),
+        ("{job.status}", "unknown"),
+        ("a//b", "empty segment"),
+        ("{attrs.patient_id", "not a valid template"),
+        ("{job.__init__.__globals__}", "private"),
+        ("{job._secret}", "private"),
+        ("{attrs[patient_id]}", "index"),
+        ("{source.id!r}", "conversion"),
+        ("{source.id:>40}", "format"),
     ],
 )
 def test_bad_layouts_are_refused_with_a_reason(template, message):
@@ -263,21 +276,58 @@ def test_bad_layouts_are_refused_with_a_reason(template, message):
         TemplateLayout(template)
 
 
-@pytest.mark.parametrize(
-    "template",
-    ["{created_at:%Y%m%dT%H%M%SZ}/bundle.json", "{created_at}/b.json", "{created_at:%Y-%m-%dT%T}/b.json", "{job.id}"],
-)
-def test_a_per_pull_part_is_the_job_id_or_a_time_to_the_second(template):
-    TemplateLayout(template)
-
-
 def test_the_traversal_that_reached_the_environment_is_refused():
     """The review's demonstration: a template walking from the job to os.environ."""
-    template = "{job.__init__.__globals__[sys].modules[os].environ[PATIENT_ACCESS_ENCRYPTION_KEYS]}/{job.id}"
+    template = "{job.__init__.__globals__[sys].modules[os].environ[PATIENT_ACCESS_ENCRYPTION_KEYS]}"
     with pytest.raises(LayoutError):
         TemplateLayout(template)
 
 
 def test_a_field_the_job_lacks_fails_at_render():
     with pytest.raises(LayoutError, match="not available"):
-        TemplateLayout("{attrs.study}/{job.id}").render(job())
+        TemplateLayout("{attrs.study}").render(job())
+
+
+def test_two_workers_on_one_job_at_once_run_it_exactly_once():
+    """The lease is the only shared structure: whichever claims first runs, the other is told no."""
+    jobs = MemoryJobStore(Clock())
+    j = jobs.create(job())
+    gate = threading.Event()
+    ran = []
+
+    def slow(lease):
+        ran.append(lease.worker)
+        gate.wait(2)
+        return jobs.get(lease.job_id)
+
+    results = {}
+
+    def run_as(name):
+        results[name] = JobRunner(jobs, slow, lease=timedelta(seconds=60), worker=lambda: name).run(j.id)
+
+    threads = [threading.Thread(target=run_as, args=(name,)) for name in ("a", "b")]
+    for t in threads:
+        t.start()
+    time.sleep(0.1)
+    gate.set()
+    for t in threads:
+        t.join(timeout=5)
+    assert sorted(results.values()) == [False, True] and len(ran) == 1
+
+
+def test_runner_lines_carry_the_job_id_for_structured_handlers(caplog):
+    """Every line the runner writes goes through JobLog: the job id in `extra` and the message."""
+    import logging
+
+    jobs = MemoryJobStore(Clock())
+    j = jobs.create(job())
+
+    def explode(lease):
+        raise RuntimeError("bug")
+
+    with caplog.at_level(logging.INFO, logger="patient_access"):
+        JobRunner(jobs, explode, lease=timedelta(seconds=60), worker=lambda: "w").run(j.id)
+    lines = [r for r in caplog.records if r.name.startswith("patient_access")]
+    assert lines
+    assert all(getattr(r, "job_id", None) == j.id for r in lines)
+    assert all(r.getMessage().startswith(f"job {j.id} [lease]") for r in lines)

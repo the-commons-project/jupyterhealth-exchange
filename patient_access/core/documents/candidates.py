@@ -1,8 +1,9 @@
 """Where the documents are: DocumentReference content and DiagnosticReport renderings.
 
-A DocumentReference often offers one document in several formats; one is taken, by the vendor's
-preference order. A DiagnosticReport's `presentedForm` items are distinct renderings; each is
-taken. Blob ids are derived from the resource, so the formatter finds the same blob the
+A DocumentReference often offers one document in several formats: they form one group, ranked by
+the vendor's preference order, and the pass takes the first that can be fetched (best effort: if
+the preferred format fails, the next is tried). A DiagnosticReport's `presentedForm` items are
+distinct renderings; each is its own group of one. Blob ids are derived from the resource, so the formatter finds the same blob the
 downloader stored without any table between them: the type, a hash of the resource's id and the
 attachment's index. A hash, not the id cleaned up: two ids that clean to the same text (`a:b`,
 `a;b`, or long ids sharing a prefix) would collide, and the id would sit in a file name.
@@ -84,17 +85,32 @@ def _candidate(resource: JsonObject, key: str, source: DocumentSource, index: in
     )
 
 
-def chosen_indexes(resource: JsonObject, source: DocumentSource, prefer: Sequence[str]) -> list[int]:
-    """The attachment indexes of a resource that are candidates. Shared with the formatter."""
+def ranked(content_types: Sequence[str | None], prefer: Sequence[str]) -> list[int]:
+    """Every index, best first: `prefer` order, earliest on ties, unknown types last."""
+
+    def rank(i: int) -> tuple[int, int]:
+        mt = media_type(content_types[i])
+        return (prefer.index(mt) if mt in prefer else len(prefer), i)
+
+    return sorted(range(len(content_types)), key=rank)
+
+
+def index_groups(resource: JsonObject, source: DocumentSource, prefer: Sequence[str]) -> list[list[int]]:
+    """A resource's attachments as groups of alternatives: one group, ranked, for a
+    DocumentReference's formats; one group per rendering of a DiagnosticReport."""
     field = "content" if source is DocumentSource.DOCUMENT_REFERENCE else "presentedForm"
     items = resource.get(field)
     if not isinstance(items, list) or not items:
         return []
     if source is DocumentSource.DOCUMENT_REFERENCE:
         types = [_attachment(item, source).get("contentType") for item in items]
-        best = preferred([t if isinstance(t, str) else None for t in types], prefer)
-        return [] if best is None else [best]
-    return list(range(len(items)))
+        return [ranked([t if isinstance(t, str) else None for t in types], prefer)]
+    return [[i] for i in range(len(items))]
+
+
+def chosen_indexes(resource: JsonObject, source: DocumentSource, prefer: Sequence[str]) -> list[int]:
+    """The preferred attachment index of each group."""
+    return [group[0] for group in index_groups(resource, source, prefer)]
 
 
 def attachments(resource: JsonObject, source: DocumentSource) -> list[JsonObject]:
@@ -103,10 +119,17 @@ def attachments(resource: JsonObject, source: DocumentSource) -> list[JsonObject
     return [_attachment(item, source) for item in items] if isinstance(items, list) else []
 
 
-def candidates(spool: SpoolHandle, profile: DocumentProfile) -> Iterator[Candidate]:
+def candidate_groups(spool: SpoolHandle, profile: DocumentProfile) -> Iterator[tuple[Candidate, ...]]:
+    """Every document as its group of alternatives, best first."""
     for source in sorted(profile.sources):
         for position, resource in enumerate(spool.iter_type(source.resource_type)):
             key = resource_key(resource, position)
             atts = attachments(resource, source)
-            for i in chosen_indexes(resource, source, profile.prefer):
-                yield _candidate(resource, key, source, i, atts[i])
+            for group in index_groups(resource, source, profile.prefer):
+                yield tuple(_candidate(resource, key, source, i, atts[i]) for i in group)
+
+
+def candidates(spool: SpoolHandle, profile: DocumentProfile) -> Iterator[Candidate]:
+    """The preferred candidate of every document."""
+    for group in candidate_groups(spool, profile):
+        yield group[0]

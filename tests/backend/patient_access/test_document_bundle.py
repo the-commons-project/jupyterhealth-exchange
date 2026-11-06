@@ -11,7 +11,7 @@ from patient_access.core.models import DocumentRecord, DocumentResult, DocumentS
 from patient_access.core.settings import BundleSettings
 from patient_access.core.vocab import TypeChoice
 from patient_access.formatters import render_bundle
-from patient_access.formatters.document_bundle import DOCUMENTS_SECTION_CODE, binary_urn, urn
+from patient_access.formatters.document_bundle import DOCUMENTS_SECTION_CODE, GENERATED_BY, binary_urn, urn
 from patient_access.formatters.metadata import NotAPullBundle, pull_metadata
 from patient_access.testing.memory import MemorySpoolHandle
 
@@ -181,6 +181,40 @@ def test_no_attachment_carries_data_without_a_binary_behind_it():
     assert refused["size"] == 500  # what the EHR said about it is kept
 
 
+def test_an_inline_alternate_nobody_tried_is_delivered_as_the_ehr_sent_it():
+    """Only attachments the pass tried and could not deliver lose their inline data. A format
+    that was never a candidate (its sibling was stored) stays, bytes and all."""
+    spool = spool_with_records()
+    inline = base64.b64encode(b"%PDF-alt").decode()
+    spool.append(
+        "DocumentReference",
+        {
+            "resourceType": "DocumentReference",
+            "id": "d2",
+            "content": [
+                {"attachment": {"contentType": "text/plain", "url": "Binary/t2"}},
+                {"attachment": {"contentType": "application/pdf", "data": inline, "size": 8}},
+            ],
+        },
+    )
+    j = finished_job()
+    tried = blob_id("DocumentReference", "d2", 0)
+    j.documents.record(
+        DocumentRecord(
+            blob_id=tried,
+            source=DocumentSource.DOCUMENT_REFERENCE,
+            referenced_by="DocumentReference/d2",
+            attachment_index=0,
+            content_type="text/plain",
+            result=DocumentResult.SKIPPED,
+            reason=SkipReason.NETWORK,
+        )
+    )
+    d2 = next(e for e in render(j, spool)["entry"] if e["resource"].get("id") == "d2")["resource"]
+    assert d2["content"][0]["attachment"]["url"] == f"{ISS}/Binary/t2" and "data" not in d2["content"][0]["attachment"]
+    assert d2["content"][1]["attachment"]["data"] == inline
+
+
 def test_provenance_reads_back():
     meta = pull_metadata(render(finished_job(), spool_with_records()))
     assert meta.job_id == "job-1" and meta.participant_ref == "40001" and meta.finished == NOW.isoformat()
@@ -216,6 +250,7 @@ def test_sections_carry_outcomes_and_empty_reasons():
     assert len(sections["Observation"]["entry"]) == 2
     assert len(sections["Observation"]["extension"]) == 2  # Labs and Vital Signs
     assert sections["Condition"]["emptyReason"]["coding"][0]["code"] == "withheld"
+    assert "text" not in sections["Observation"]  # a section with entries carries no generated text
     docs = sections[DOCUMENTS_SECTION_CODE]
     assert docs["entry"] == [{"reference": binary_urn(NOTE_ID)}, {"reference": binary_urn(PDF_ID)}]
     outcome = {e["url"]: e for e in docs["extension"][0]["extension"]}
@@ -228,6 +263,38 @@ def test_a_documents_pass_that_failed_reads_unavailable_not_none_known():
     j.documents.status, j.documents.error = OutcomeStatus.ERROR, "authorization ended"
     docs = render(j, MemorySpoolHandle("j"))["entry"][0]["resource"]["section"][-1]
     assert docs["emptyReason"]["coding"][0]["code"] == "unavailable"
+    assert "did not return them" in docs["text"]["div"]
+
+
+def test_every_section_has_text_or_entries_and_generated_text_says_it_is_ours():
+    """R4 cmp-1: a section needs text, entries or sub-sections. An empty section's narrative is
+    the module's own statement, marked as generated and saying so in words, under the host's name."""
+    settings = BundleSettings(
+        extension_base_url="https://jupyterhealth.org/fhir/StructureDefinition/", host_name="Example Host"
+    )
+    bundle = json.loads(b"".join(render_bundle(finished_job(), spool_with_records(), settings, NOW)))
+    sections = bundle["entry"][0]["resource"]["section"]
+    assert all(("text" in s) != ("entry" in s) for s in sections)  # one or the other, never both
+    empty = [s for s in sections if "entry" not in s]
+    assert empty
+    for s in empty:
+        assert s["text"]["status"] == "generated"
+        assert s["text"]["div"].startswith('<div xmlns="http://www.w3.org/1999/xhtml">')
+        assert GENERATED_BY.format(host="Example Host") in s["text"]["div"]
+        assert s["title"] in s["text"]["div"]
+    condition = next(s for s in empty if s["code"]["text"] == "Condition")
+    assert "not requested by the patient, or not granted" in condition["text"]["div"]
+
+
+def test_the_generated_text_is_xhtml_safe():
+    j = finished_job()
+    j.source = j.source.model_copy(update={"brand_name": "<b>Ex&Co</b>"})
+    settings = BundleSettings(
+        extension_base_url="https://jupyterhealth.org/fhir/StructureDefinition/", host_name="A <Host> & Co"
+    )
+    bundle = json.loads(b"".join(render_bundle(j, spool_with_records(), settings, NOW)))
+    div = next(s for s in bundle["entry"][0]["resource"]["section"] if "entry" not in s)["text"]["div"]
+    assert "&lt;Host&gt; &amp; Co" in div and "<Host>" not in div
 
 
 def test_reading_something_that_is_not_a_pull_bundle_says_so():

@@ -38,10 +38,14 @@ def worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}:{threading.get_ident()}"
 
 
+LAPSE_MARGIN = 1 / 6  # of the lease: a worker gives up this much before the database would
+
+
 class _Heartbeat:
     """Renews one lease every `period / 3` until stopped. A renewal that fails (the database
-    unreachable) is retried until the lease would really have lapsed; only then, or as soon as
-    the row turns out to belong to another worker, is the lease cancelled."""
+    unreachable) is retried, and the lease is cancelled a margin before it would really lapse
+    (never after: a stale worker must be stopped before a new owner can start, since the two
+    may share a spool directory), or as soon as the row turns out to belong to another worker."""
 
     def __init__(
         self,
@@ -68,19 +72,25 @@ class _Heartbeat:
         monotonic: Callable[[], float],
     ) -> None:
         log = lease_log(lease.job_id)
+        seconds = period.total_seconds()
+        give_up_after = seconds * (1 - LAPSE_MARGIN)
         renewed_at = monotonic()
+        wait = seconds / 3
         try:
-            while not self._stop.wait(period.total_seconds() / 3):
+            while not self._stop.wait(wait):
                 try:
                     held = jobs.renew(lease.job_id, lease.worker, period)
-                except Exception as e:  # noqa: BLE001 - retried below until the lease would lapse
-                    if monotonic() - renewed_at >= period.total_seconds():
+                except Exception as e:  # noqa: BLE001 - retried below until the margin
+                    unrenewed = monotonic() - renewed_at
+                    if unrenewed >= give_up_after:
                         log_failure(log, "lease could not be renewed in time; stopping", e)
                         lease.cancel()
                         return
                     log.warning("lease renewal failed (%s); retrying", type(e).__name__)
                     on_thread_exit()  # drop a broken connection, so the retry opens a fresh one
+                    wait = min(seconds / 3, give_up_after - unrenewed)  # wake at the margin, not past it
                     continue
+                wait = seconds / 3
                 if not held:
                     log.warning("lease taken by another worker; stopping")
                     lease.cancel()

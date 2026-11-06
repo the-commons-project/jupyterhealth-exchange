@@ -91,7 +91,13 @@ class S3Sink(Generic[A]):
             except Exception as abort_error:  # noqa: BLE001 - must not replace the original error
                 log.warning("abort of an upload failed (%s); left for the next attempt", type(abort_error).__name__)
             else:
-                progress.ended(upload)
+                try:
+                    progress.ended(upload)
+                except Exception as record_error:  # noqa: BLE001 - likewise; the record stays, harmlessly
+                    log.warning(
+                        "an aborted upload stays recorded (%s); the next attempt aborts it again",
+                        type(record_error).__name__,
+                    )
             raise
         progress.ended(upload)
         return S3Receipt(

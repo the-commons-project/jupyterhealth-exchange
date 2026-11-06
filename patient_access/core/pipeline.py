@@ -26,7 +26,7 @@ from typing import Generic
 import requests
 from pydantic import SecretStr, ValidationError
 
-from .client import FhirClient
+from .client import FhirClient, UrlPolicy
 from .documents.run import fetch_documents
 from .interfaces import Directory, JobStore, ObjectSink, Spool, SpoolHandle
 from .lease import Lease, LeaseLost
@@ -84,6 +84,7 @@ class Deps(Generic[A]):
     clock: Callable[[], datetime] = utcnow
     http: requests.Session | None = None  # None: one per fetch, with the profile's retries
     max_attempts: int = 3
+    url_policy: UrlPolicy = UrlPolicy()
 
 
 def run_job(lease: Lease, deps: Deps[A]) -> Job[A]:
@@ -177,7 +178,14 @@ def _fetch(job: Job[A], handle: SpoolHandle, settings: PatientAccessSettings, de
     job.status = JobStatus.FETCHING
     deps.jobs.save(job, lease)
     client = FhirClient(
-        job.source.iss, token, source_settings.fetch, job.token_expires_at, deps.clock, deps.http, lease
+        job.source.iss,
+        token,
+        source_settings.fetch,
+        job.token_expires_at,
+        deps.clock,
+        deps.http,
+        lease,
+        deps.url_policy,
     )
     save = lambda: deps.jobs.save(job, lease)  # noqa: E731 - a closure over the job, passed down
     try:

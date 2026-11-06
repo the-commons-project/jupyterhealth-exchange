@@ -155,6 +155,26 @@ def test_a_crashing_job_is_ended_even_when_its_body_no_longer_loads(crypto):
     assert row.body["failure_kind"] == FailureKind.CONTACT_STUDY.value and row.body["not"] == "a job any more"
     with pytest.raises(LeaseLost):
         store.record_crash(Lease(job_id=j.id, worker="someone else"))
+    # Nothing of the job survives on that row, so the participant's list leaves it out, not 500s.
+    assert [x.id for x in store.for_participant(participant().ref)] == []
+
+
+def test_a_crash_capped_job_whose_progress_no_longer_loads_still_reads_as_a_failure(crypto):
+    """The common breakage: participant and source are fine, a progress record is not (a schema
+    change, an odd value). The patient's list then shows "delivery failed", not nothing."""
+    store = OrmJobStore(HostAttrs, crypto)
+    j = store.create(job(job_id=""))
+    body = dict(JobRecord.objects.get(id=j.id).body)
+    body["outcomes"] = [{"label": "Labs", "status": "no such status"}]
+    JobRecord.objects.filter(id=j.id).update(body=body)
+    with pytest.raises(ValidationError):
+        store.get(j.id)
+    store.fail_crashed(leased(store, j.id), "stopped after 3 runs that failed unexpectedly")
+    ended = store.get(j.id)
+    assert ended.status is JobStatus.FAILED_TERMINAL and ended.failure_kind is FailureKind.CONTACT_STUDY
+    assert ended.outcomes == [] and ended.finished_at is not None
+    assert ended.source.brand_name == j.source.brand_name and ended.participant.ref == j.participant.ref
+    assert [x.id for x in store.for_participant(j.participant.ref)] == [j.id]
 
 
 def test_a_participants_jobs_narrow_by_attribute_before_the_limit(crypto):
@@ -245,3 +265,56 @@ def test_a_crash_on_an_unloadable_row_logs_where_not_what(crypto, caplog):
     assert "ValidationError" in caplog.text and "source.ehr_patient_id" in caplog.text
     assert "Jane" not in caplog.text and "Quinn" not in caplog.text
     assert JobRecord.objects.get(id=j.id).crashes == 1
+
+
+# --- the admin -----------------------------------------------------------------------------
+
+
+class _User:
+    """A request user as the admin sees it: `has_perm` is all the base check asks."""
+
+    is_active = True
+    is_staff = True
+    is_superuser = False
+
+    def __init__(self, allowed: bool) -> None:
+        self.allowed = allowed
+
+    def has_perm(self, perm: str) -> bool:
+        return self.allowed
+
+
+def test_the_admin_lets_only_a_user_with_the_permission_delete_and_never_a_running_job(crypto):
+    """Django's own permission check first, then our narrowing. (In JHE a staff user who is not
+    a superuser holds no model permissions, so `has_perm` is stubbed rather than granted.)"""
+    from django.contrib.admin.sites import AdminSite
+    from django.test import RequestFactory
+
+    from patient_access.django_app.admin import JobRecordAdmin
+
+    store = OrmJobStore(HostAttrs, crypto)
+    done = JobRecord.objects.get(id=store.create(job(job_id="", status=JobStatus.DONE)).id)
+    running = JobRecord.objects.get(id=store.create(job(job_id="", status=JobStatus.FETCHING)).id)
+    model_admin = JobRecordAdmin(JobRecord, AdminSite())
+    request = RequestFactory().get("/")
+    request.user = _User(allowed=False)
+    assert model_admin.has_delete_permission(request) is False
+    assert model_admin.has_delete_permission(request, done) is False
+    request.user = _User(allowed=True)
+    assert model_admin.has_delete_permission(request, done) is True
+    assert model_admin.has_delete_permission(request, running) is False
+
+
+def test_the_attempts_admin_page_never_carries_a_live_state(crypto):
+    from django.test import Client
+    from django.urls import reverse
+
+    from core.models import JheUser
+
+    a = attempt(expires_at=timezone.now() + timedelta(minutes=10))
+    OrmAuthAttemptStore(LaunchAttrs, crypto).create(a)
+    superuser = Client()
+    superuser.force_login(JheUser.objects.create_superuser(email="root@example.org", password="pw"))
+    page = superuser.get(reverse("admin:pa_jobs_authattemptrecord_changelist"))
+    assert page.status_code == 200
+    assert a.state not in page.content.decode()

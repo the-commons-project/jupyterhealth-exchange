@@ -1,4 +1,7 @@
-"""The documents pass: every candidate through the budget and the downloader, one record each.
+"""The documents pass: every document's candidates through the budget and the downloader, one
+record per attempt. A document's formats are tried best first until one is stored; a budget
+refusal (the count or the total) stops the group, since no alternative could help, as does the
+end of the EHR's authorization.
 
 Returns whether it completed. When the EHR's authorization ends part-way (the token expires, or
 the server answers 401), the remaining candidates are recorded as skipped without a request and
@@ -18,11 +21,13 @@ from ..models import A, DocumentRecord, DocumentResult, Job, OutcomeStatus, Skip
 from ..settings import DocumentCaps
 from ..source_settings import DocumentProfile
 from .budget import Budget
-from .candidates import Candidate, candidates
+from .candidates import Candidate, candidate_groups
 from .downloader import FetchResult, Skipped, Stored, fetch_one
 
 SAVE_EVERY = 10
 CAP_REASONS = frozenset({SkipReason.COUNT_CAP, SkipReason.SIZE_CAP_EACH, SkipReason.SIZE_CAP_TOTAL})
+# After one of these, no other format of the same document could be stored either.
+NO_ALTERNATIVE = frozenset({SkipReason.COUNT_CAP, SkipReason.SIZE_CAP_TOTAL, SkipReason.TOKEN_EXPIRED})
 
 
 class Stop(StrEnum):
@@ -75,34 +80,37 @@ def fetch_documents(
     budget = Budget(caps=caps, count=len(stored), bytes=sum(r.size or 0 for r in stored.values()))
     stopped: Stop | None = None  # why the rest are skipped without a request
 
-    for n, cand in enumerate(candidates(spool, profile), start=1):
-        if cand.blob_id in stored:
+    attempts = 0
+    for group in candidate_groups(spool, profile):
+        if any(cand.blob_id in stored for cand in group):
             continue
-        if (meta := spool.blob_meta(cand.blob_id)) is not None:
-            # Committed by a run that died before saving its record, or earlier in this pass by a
-            # candidate with the same blob (read live: a snapshot would not have it).
-            out.record(record(cand, Stored(meta=meta)))
-            budget = budget.spend(meta.size)
-            continue
-        if stopped is not None:
-            out.record(record(cand, Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)))
-            continue
-        if refusal := budget.refusal():
-            out.record(record(cand, Skipped(reason=refusal)))
-            continue
-        try:
-            result = fetch_one(client, spool, cand, budget, caps)
-        except TokenExpired:
-            stopped = Stop.EXPIRED
-            result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)
-        except Unauthorized:
-            stopped = Stop.UNAUTHORIZED
-            result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)
-        out.record(record(cand, result))
-        if isinstance(result, Stored):
-            budget = budget.spend(result.meta.size)
-        if n % SAVE_EVERY == 0:
-            save()
+        for cand in group:
+            if (meta := spool.blob_meta(cand.blob_id)) is not None:
+                # Committed by a run that died before saving its record, or earlier in this pass
+                # by a candidate with the same blob (read live: a snapshot would not have it).
+                result: FetchResult = Stored(meta=meta)
+            elif stopped is not None:
+                result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)
+            elif refusal := budget.refusal():
+                result = Skipped(reason=refusal)
+            else:
+                attempts += 1
+                try:
+                    result = fetch_one(client, spool, cand, budget, caps)
+                except TokenExpired:
+                    stopped = Stop.EXPIRED
+                    result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)
+                except Unauthorized:
+                    stopped = Stop.UNAUTHORIZED
+                    result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)
+                if attempts % SAVE_EVERY == 0:
+                    save()
+            out.record(record(cand, result))
+            if isinstance(result, Stored):
+                budget = budget.spend(result.meta.size)
+                break
+            if result.reason in NO_ALTERNATIVE:
+                break
 
     if stopped is not None:
         out.status, out.error = OutcomeStatus.ERROR, "authorization ended during document download"

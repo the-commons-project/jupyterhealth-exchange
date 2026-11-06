@@ -22,7 +22,7 @@ from collections.abc import Callable, Iterable, Iterator
 
 import requests
 
-from ..client import FhirClient
+from ..client import FhirClient, RefusedUrl
 from ..interfaces import BlobWriter, SpoolHandle
 from ..models import BlobMeta, SkipReason, Value
 from ..settings import DocumentCaps
@@ -147,9 +147,10 @@ def fetch_one(
         return _store(spool, cand, _decoded_inline(cand.data), cand.content_type or OCTET_STREAM, budget, None)
     if cand.url is None:
         return Skipped(reason=SkipReason.NO_CONTENT)
-    url = client.absolute(cand.url)
-    if url is None:
-        return Skipped(reason=SkipReason.URL_OUTSIDE_SERVER)
+    try:
+        url = client.absolute(cand.url)
+    except RefusedUrl as e:
+        return Skipped(reason=SkipReason.URL_REFUSED, detail=e.reason.value)
     deadline = time.monotonic() + caps.max_seconds_each
 
     def overdue() -> bool:
@@ -157,6 +158,8 @@ def fetch_one(
 
     try:
         response = client.stream(url, cand.content_type or "*/*")
+    except RefusedUrl as e:  # a redirect the policy refused
+        return Skipped(reason=SkipReason.URL_REFUSED, detail=e.reason.value)
     except requests.RequestException as e:
         return Skipped(reason=SkipReason.NETWORK, detail=type(e).__name__)
     with response:

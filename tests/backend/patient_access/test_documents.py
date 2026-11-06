@@ -9,9 +9,9 @@ import logging
 import pytest
 import responses
 
-from patient_access.core.client import FhirClient
+from patient_access.core.client import MAX_REDIRECTS, FhirClient, UrlPolicy, UrlRefusal
 from patient_access.core.documents.budget import Budget
-from patient_access.core.documents.candidates import Candidate, blob_id, candidates, preferred
+from patient_access.core.documents.candidates import Candidate, blob_id, candidate_groups, candidates, preferred
 from patient_access.core.documents.downloader import Skipped, Stored, fetch_one
 from patient_access.core.documents.run import fetch_documents
 from patient_access.core.log import JobLog
@@ -95,6 +95,28 @@ def test_candidates_take_one_format_per_document_reference_and_every_rendering()
     assert found[0].data == "eA==" and found[2].url == "Binary/2"
 
 
+def test_a_document_references_formats_form_one_ranked_group_and_renderings_one_each():
+    spool = MemorySpoolHandle("j")
+    spool.append(
+        "DocumentReference",
+        {
+            "resourceType": "DocumentReference",
+            "id": "d1",
+            "content": [
+                {"attachment": {"contentType": "application/pdf", "url": "Binary/1"}},
+                {"attachment": {"contentType": "text/plain", "url": "Binary/2"}},
+                {"attachment": {"contentType": "image/tiff", "url": "Binary/3"}},
+            ],
+        },
+    )
+    spool.append(
+        "DiagnosticReport",
+        {"resourceType": "DiagnosticReport", "id": "r1", "presentedForm": [{"data": "eA=="}, {"url": "Binary/3"}]},
+    )
+    groups = list(candidate_groups(spool, DocumentProfile()))
+    assert [[c.attachment_index for c in g] for g in groups] == [[0], [1], [1, 0, 2]]
+
+
 # --- the downloader ------------------------------------------------------------------------
 
 BIG = DocumentCaps()
@@ -145,15 +167,48 @@ def test_over_the_cap_mid_stream_discards_the_partial_blob():
     assert not spool.has_blob(D1)
 
 
-def test_a_url_on_another_host_is_never_fetched():
-    result = fetch_one(
-        client(),
-        MemorySpoolHandle("j"),
-        cand(url="https://evil.example.com/x"),
-        Budget(caps=BIG),
-        DocumentCaps(max_binary_json_bytes=1),
-    )
-    assert result == Skipped(reason=SkipReason.URL_OUTSIDE_SERVER)
+@responses.activate
+def test_a_url_on_another_host_is_fetched_with_the_token():
+    """The EHR said where the document is (US Core: the same credentials should work there)."""
+    responses.add(responses.GET, "https://docs.example.com/x", body=b"pdf", content_type="application/pdf")
+    result = fetch_one(client(), MemorySpoolHandle("j"), cand(url="https://docs.example.com/x"), Budget(caps=BIG), BIG)
+    assert isinstance(result, Stored)
+    assert responses.calls[0].request.headers["Authorization"] == "Bearer tok"
+
+
+@pytest.mark.parametrize(
+    ("url", "reason"),
+    [
+        ("http://ehr.example.org/fhir/r4/Binary/b1", UrlRefusal.NOT_HTTPS),
+        ("https://ehr.example.org:abc/Binary/b1", UrlRefusal.UNPARSEABLE),
+        ("https://ehr.example.org:99999/Binary/b1", UrlRefusal.UNPARSEABLE),
+        ("https://169.254.169.254/latest/meta-data", UrlRefusal.PRIVATE_ADDRESS),
+        ("https://10.0.0.7/Binary/b1", UrlRefusal.PRIVATE_ADDRESS),
+        ("https://[::1]/Binary/b1", UrlRefusal.PRIVATE_ADDRESS),
+        ("https://localhost/Binary/b1", UrlRefusal.PRIVATE_ADDRESS),
+    ],
+)
+def test_a_url_the_policy_refuses_is_one_skipped_document(url, reason):
+    """Never a failed pull: the record names the refusal, and nothing was requested."""
+    result = fetch_one(client(), MemorySpoolHandle("j"), cand(url=url), Budget(caps=BIG), BIG)
+    assert result == Skipped(reason=SkipReason.URL_REFUSED, detail=reason.value)
+
+
+def test_a_host_that_resolves_to_a_private_address_is_refused():
+    policy = UrlPolicy(resolver=lambda host: ["10.1.2.3"] if host == "internal.example.org" else ["93.184.216.34"])
+    c = client()
+    c.policy = policy
+    result = fetch_one(c, MemorySpoolHandle("j"), cand(url="https://internal.example.org/x"), Budget(caps=BIG), BIG)
+    assert result == Skipped(reason=SkipReason.URL_REFUSED, detail=UrlRefusal.PRIVATE_ADDRESS.value)
+
+
+@responses.activate
+def test_the_dev_switch_allows_http_and_local_addresses():
+    responses.add(responses.GET, "http://127.0.0.1:8080/Binary/b1", body=b"x", content_type="text/plain")
+    c = client()
+    c.policy = UrlPolicy(allow_http=True)
+    result = fetch_one(c, MemorySpoolHandle("j"), cand(url="http://127.0.0.1:8080/Binary/b1"), Budget(caps=BIG), BIG)
+    assert isinstance(result, Stored)
 
 
 @responses.activate
@@ -219,6 +274,71 @@ def docs_spool(n: int) -> MemorySpoolHandle:
             {"resourceType": "DocumentReference", "id": f"d{i}", "content": [{"attachment": {"url": f"Binary/{i}"}}]},
         )
     return spool
+
+
+def two_format_spool(inline_alternate: bool = False) -> MemorySpoolHandle:
+    """One note offered as text (preferred, by URL) and as PDF (by URL, or inline)."""
+    spool = MemorySpoolHandle("j")
+    pdf = (
+        {"contentType": "application/pdf", "data": base64.b64encode(b"%PDF").decode()}
+        if inline_alternate
+        else {
+            "contentType": "application/pdf",
+            "url": "Binary/pdf",
+        }
+    )
+    spool.append(
+        "DocumentReference",
+        {
+            "resourceType": "DocumentReference",
+            "id": "d1",
+            "content": [{"attachment": pdf}, {"attachment": {"contentType": "text/plain", "url": "Binary/txt"}}],
+        },
+    )
+    return spool
+
+
+@pytest.mark.parametrize("inline_alternate", [False, True])
+@responses.activate
+def test_when_the_preferred_format_fails_the_next_is_tried_and_every_attempt_is_recorded(inline_alternate):
+    """Best effort: take what can be got. The alternate may be by URL or inline."""
+    responses.add(responses.GET, f"{ISS}/Binary/txt", status=503)
+    responses.add(responses.GET, f"{ISS}/Binary/pdf", body=b"%PDF", content_type="application/pdf")
+    j = job()
+    fetch_documents(j, two_format_spool(inline_alternate), DocumentProfile(), BIG, client(), lambda: None, LOG)
+    by_index = {r.attachment_index: r for r in j.documents.records}
+    assert by_index[1].result is DocumentResult.SKIPPED and by_index[1].reason is SkipReason.HTTP_ERROR
+    assert by_index[0].result is DocumentResult.STORED and by_index[0].size == 4
+    assert len(j.documents.records) == 2
+
+
+@responses.activate
+def test_a_stored_preferred_format_means_the_alternate_is_never_asked_for():
+    responses.add(responses.GET, f"{ISS}/Binary/txt", body=b"note", content_type="text/plain")
+    j = job()
+    fetch_documents(j, two_format_spool(), DocumentProfile(), BIG, client(), lambda: None, LOG)
+    assert [r.attachment_index for r in j.documents.records] == [1]
+    assert all("Binary/pdf" not in c.request.url for c in responses.calls)
+
+
+@responses.activate
+def test_a_budget_refusal_stops_the_group_since_no_alternative_could_help():
+    j = job()
+    caps = DocumentCaps(max_count=0)
+    fetch_documents(j, two_format_spool(), DocumentProfile(), caps, client(), lambda: None, LOG)
+    assert [(r.attachment_index, r.reason) for r in j.documents.records] == [(1, SkipReason.COUNT_CAP)]
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_a_format_over_the_per_document_cap_falls_back_to_a_smaller_one():
+    responses.add(responses.GET, f"{ISS}/Binary/txt", body=b"x" * 50, content_type="text/plain")
+    responses.add(responses.GET, f"{ISS}/Binary/pdf", body=b"%PDF", content_type="application/pdf")
+    j = job()
+    caps = DocumentCaps(max_bytes_each=10)
+    fetch_documents(j, two_format_spool(), DocumentProfile(), caps, client(), lambda: None, LOG)
+    by_index = {r.attachment_index: r for r in j.documents.records}
+    assert by_index[1].reason is SkipReason.SIZE_CAP_EACH and by_index[0].result is DocumentResult.STORED
 
 
 @responses.activate
@@ -333,13 +453,73 @@ def test_the_served_content_type_is_kept_whole():
 
 @responses.activate
 def test_a_redirect_to_storage_elsewhere_arrives_without_our_token():
+    """The token does not cross a change of host (HAPI Core's CVE-2026-34359 was exactly this)."""
     responses.add(
         responses.GET, f"{ISS}/Binary/b1", status=302, headers={"Location": "https://storage.example.com/signed"}
     )
     responses.add(responses.GET, "https://storage.example.com/signed", body=b"pdf", content_type="application/pdf")
     result = fetch_one(client(), MemorySpoolHandle("j"), cand(), Budget(caps=BIG), DocumentCaps())
     assert isinstance(result, Stored)
+    assert responses.calls[0].request.headers["Authorization"] == "Bearer tok"
     assert "Authorization" not in responses.calls[-1].request.headers
+
+
+@responses.activate
+def test_a_redirect_on_the_same_host_keeps_the_token():
+    responses.add(responses.GET, f"{ISS}/Binary/b1", status=307, headers={"Location": "/fhir/r4/Binary/b1/content"})
+    responses.add(responses.GET, f"{ISS}/Binary/b1/content", body=b"pdf", content_type="application/pdf")
+    result = fetch_one(client(), MemorySpoolHandle("j"), cand(), Budget(caps=BIG), DocumentCaps())
+    assert isinstance(result, Stored)
+    assert responses.calls[-1].request.headers["Authorization"] == "Bearer tok"
+
+
+@responses.activate
+def test_a_redirect_the_policy_refuses_is_one_skipped_document():
+    responses.add(responses.GET, f"{ISS}/Binary/b1", status=302, headers={"Location": "http://ehr.example.org/plain"})
+    result = fetch_one(client(), MemorySpoolHandle("j"), cand(), Budget(caps=BIG), DocumentCaps())
+    assert result == Skipped(reason=SkipReason.URL_REFUSED, detail=UrlRefusal.NOT_HTTPS.value)
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_a_redirect_loop_is_cut():
+    responses.add(responses.GET, f"{ISS}/Binary/b1", status=302, headers={"Location": f"{ISS}/Binary/b1"})
+    result = fetch_one(client(), MemorySpoolHandle("j"), cand(), Budget(caps=BIG), DocumentCaps())
+    assert result == Skipped(reason=SkipReason.URL_REFUSED, detail=UrlRefusal.TOO_MANY_REDIRECTS.value)
+    assert len(responses.calls) == MAX_REDIRECTS + 1
+
+
+@responses.activate
+def test_an_html_page_with_status_200_is_stored_as_what_was_served():
+    """A sign-in page instead of the document: stored as served, with the served type recorded, so
+    the mismatch is visible in the bundle rather than a PDF label on an HTML body."""
+    page = b"<html><body>Please sign in</body></html>"
+    responses.add(responses.GET, f"{ISS}/Binary/b1", body=page, content_type="text/html; charset=utf-8")
+    result = fetch_one(client(), MemorySpoolHandle("j"), cand(content_type="application/pdf"), Budget(caps=BIG), BIG)
+    assert isinstance(result, Stored)
+    assert result.meta.content_type == "text/html; charset=utf-8" and result.meta.size == len(page)
+
+
+@responses.activate
+def test_a_body_longer_than_its_content_length_is_never_stored():
+    """A declared length under the cap lets the download start; what arrives decides. urllib3
+    enforces the declared length (the mismatch is a decoding error, one skipped document) and the
+    cap is enforced on the bytes themselves, so a lying Content-Length cannot get an over-cap body
+    stored either way."""
+    body = b"x" * 2000
+    responses.add(
+        responses.GET,
+        f"{ISS}/Binary/b1",
+        body=body,
+        content_type="application/pdf",
+        headers={"Content-Length": "100"},
+        auto_calculate_content_length=False,
+    )
+    spool = MemorySpoolHandle("j")
+    caps = DocumentCaps(max_bytes_each=1000, max_binary_json_bytes=1)
+    result = fetch_one(client(), spool, cand(content_type="application/pdf"), Budget(caps=caps), caps)
+    assert isinstance(result, Skipped) and result.reason in {SkipReason.SIZE_CAP_EACH, SkipReason.NETWORK}
+    assert D1 not in spool.blobs
 
 
 @responses.activate

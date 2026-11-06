@@ -18,6 +18,7 @@ from django.db import connection, transaction
 from django.utils.module_loading import import_string
 from pydantic import BaseModel
 
+from patient_access.core.client import UrlPolicy, resolve_host
 from patient_access.core.credentials import PUBLIC_ONLY, Keyring
 from patient_access.core.http import session as http_session
 from patient_access.core.interfaces import Directory, JobDispatcher
@@ -124,6 +125,7 @@ def build_module(config: ModuleConfig, clock: Callable[[], datetime] = utcnow) -
         render=render_bundle,
         clock=clock,
         max_attempts=config.max_attempts,
+        url_policy=UrlPolicy(allow_http=config.allow_http, resolver=resolve_host),
     )
     runner = JobRunner(
         jobs,
