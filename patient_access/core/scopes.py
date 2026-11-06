@@ -131,8 +131,11 @@ class ResourceScope(Value):
         )
 
     def grants(self, access: Access) -> bool:
+        """A `user/` scope covers a `patient/` access too: in a patient's own standalone launch
+        the user is the patient, and every query is pinned to the patient's id, so it can only
+        ever widen what we fetch to what the server granted."""
         return (
-            self.context is access.context
+            (self.context is access.context or (self.context is Context.USER and access.context is Context.PATIENT))
             and self.resource_type in (access.resource_type, WILDCARD_TYPE)
             and access.permission in self.permissions
             and all(any(c.satisfied_by(p) for p in access.parameters) for c in self.constraints)

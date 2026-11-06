@@ -4,14 +4,17 @@ become core models: each row's `body` is the model's JSON; secrets are encrypted
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Generic, cast
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import DateTimeField, DurationField, ExpressionWrapper, F, Q, Value
+from django.db.models.functions import Now
 from django.utils import timezone
 from pydantic import SecretStr
 
+from patient_access.core.lease import Lease, LeaseLost
 from patient_access.core.models import (
     TERMINAL_STATUSES,
     A,
@@ -21,12 +24,19 @@ from patient_access.core.models import (
     JobId,
     JobStatus,
 )
+from patient_access.core.vocab import FailureKind
 
 from .crypto import Crypto
 from .models import AuthAttemptRecord, JobRecord
 
 _TERMINAL = [s.value for s in TERMINAL_STATUSES]
 _RUNNING = [s.value for s in (JobStatus.QUEUED, JobStatus.FETCHING, JobStatus.FETCHED, JobStatus.DELIVERING)]
+
+
+def _db_now_plus(delta: timedelta) -> ExpressionWrapper:
+    """The database's clock plus `delta`. Lease times use one clock, the database's, so web and
+    cron on different machines agree on when a lease has lapsed."""
+    return ExpressionWrapper(Now() + Value(delta, output_field=DurationField()), output_field=DateTimeField())
 
 
 class OrmAuthAttemptStore(Generic[A]):
@@ -82,6 +92,10 @@ class OrmJobStore(Generic[A]):
             spool_key=SecretStr(values["spool_key"]) if values.get("spool_key") else None,
         )
 
+    def view(self, row: JobRecord) -> Job[A]:
+        """The row's job without its credentials: for read-only screens (the admin)."""
+        return self.model.model_validate(row.body)
+
     def _job(self, row: JobRecord) -> Job[A]:
         job = self.model.model_validate(row.body)
         job.credentials = self._credentials(row.credentials_enc)
@@ -114,11 +128,12 @@ class OrmJobStore(Generic[A]):
         except JobRecord.DoesNotExist:
             raise KeyError(job_id) from None
 
-    def save(self, job: Job[A]) -> None:
-        """An UPDATE of the job's columns only: the lease columns belong to claim / renew / release."""
+    def save(self, job: Job[A], lease: Lease) -> None:
+        """An UPDATE of the job's columns only, fenced by the lease: the lease columns belong to
+        claim / renew / release, and a worker that lost the row writes nothing."""
         now = timezone.now()
         row = self._write(job, JobRecord(id=job.id))
-        updated = JobRecord.objects.filter(id=job.id).update(
+        updated = JobRecord.objects.filter(id=job.id, lease_owner=lease.worker).update(
             status=row.status,
             participant_ref=row.participant_ref,
             body=row.body,
@@ -128,47 +143,83 @@ class OrmJobStore(Generic[A]):
             updated_at=now,
         )
         if not updated:
+            if JobRecord.objects.filter(id=job.id).exists():
+                raise LeaseLost(job.id)
             raise KeyError(job.id)
         job.updated_at = now
 
     def claim(self, job_id: JobId, worker: str, lease: timedelta) -> bool:
-        now = timezone.now()
         return bool(
             JobRecord.objects.filter(id=job_id)
             .exclude(status__in=_TERMINAL)
-            .filter(Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lt=now) | Q(lease_owner=worker))
-            .update(lease_owner=worker, lease_expires_at=now + lease)
+            .filter(Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lt=Now()) | Q(lease_owner=worker))
+            .update(lease_owner=worker, lease_expires_at=_db_now_plus(lease))
         )
 
-    def claim_next(self, worker: str, lease: timedelta, retry_after: timedelta) -> JobId | None:
-        now = timezone.now()
-        runnable = Q(status__in=_RUNNING) | Q(status=JobStatus.FAILED.value, updated_at__lt=now - retry_after)
-        free = Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lt=now)
+    def claim_next(
+        self, worker: str, lease: timedelta, retry_after: timedelta, exclude: frozenset[JobId] = frozenset()
+    ) -> JobId | None:
+        retry_due = ExpressionWrapper(
+            Now() - Value(retry_after, output_field=DurationField()), output_field=DateTimeField()
+        )
+        runnable = Q(status__in=_RUNNING) | Q(status=JobStatus.FAILED.value, updated_at__lt=retry_due)
+        free = Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lt=Now())
         with transaction.atomic():
             row = (
                 JobRecord.objects.select_for_update(skip_locked=True)
                 .filter(runnable & free)
+                .exclude(id__in=exclude)
                 .order_by("created_at")
                 .only("id")
                 .first()
             )
             if row is None:
                 return None
-            JobRecord.objects.filter(id=row.id).update(lease_owner=worker, lease_expires_at=now + lease)
+            JobRecord.objects.filter(id=row.id).update(lease_owner=worker, lease_expires_at=_db_now_plus(lease))
             return str(row.id)
 
     def renew(self, job_id: JobId, worker: str, lease: timedelta) -> bool:
         return bool(
-            JobRecord.objects.filter(id=job_id, lease_owner=worker).update(lease_expires_at=timezone.now() + lease)
+            JobRecord.objects.filter(id=job_id, lease_owner=worker).update(lease_expires_at=_db_now_plus(lease))
         )
 
     def release(self, job_id: JobId, worker: str) -> None:
         JobRecord.objects.filter(id=job_id, lease_owner=worker).update(lease_owner=None, lease_expires_at=None)
 
-    def for_participant(self, ref: str, limit: int = 20) -> list[Job[A]]:
-        """A participant's jobs, newest first (for the host's "your pulls" screens)."""
-        rows = JobRecord.objects.filter(participant_ref=ref).order_by("-created_at")[:limit]
-        return [self._job(row) for row in rows]
+    def record_crash(self, lease: Lease) -> int:
+        mine = JobRecord.objects.filter(id=lease.job_id, lease_owner=lease.worker)
+        if not mine.update(crashes=F("crashes") + 1):
+            raise LeaseLost(lease.job_id)
+        return int(mine.values_list("crashes", flat=True).get())
+
+    def fail_crashed(self, lease: Lease, failure: str) -> None:
+        """The row's own columns plus three fields patched into the body as plain JSON: the body
+        may be exactly what fails to validate, so it is not loaded as a Job here."""
+        with transaction.atomic():
+            row = JobRecord.objects.select_for_update().filter(id=lease.job_id, lease_owner=lease.worker).first()
+            if row is None:
+                raise LeaseLost(lease.job_id)
+            body = dict(row.body) if isinstance(row.body, dict) else {}
+            body.update(
+                status=JobStatus.FAILED_TERMINAL.value,
+                failure=failure,
+                failure_kind=FailureKind.CONTACT_STUDY.value,
+            )
+            JobRecord.objects.filter(id=row.id).update(
+                status=JobStatus.FAILED_TERMINAL.value,
+                body=body,
+                credentials_enc="",
+                finished_at=Now(),
+                updated_at=Now(),
+            )
+
+    def for_participant(self, ref: str, attrs: Mapping[str, str | int] | None = None, limit: int = 20) -> list[Job[A]]:
+        """A participant's jobs, newest first (for the host's "your pulls" screens). `attrs`
+        narrows to jobs whose participant attributes have these values; the limit applies after."""
+        rows = JobRecord.objects.filter(participant_ref=ref)
+        for name, value in (attrs or {}).items():
+            rows = rows.filter(**{f"body__participant__attrs__{name}": value})
+        return [self._job(row) for row in rows.order_by("-created_at")[:limit]]
 
     def live_spool_refs(self) -> frozenset[str]:
         refs = (

@@ -14,19 +14,15 @@ backlog row 5).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from enum import StrEnum
+from dataclasses import dataclass
 from typing import Protocol, Self
 
 from pydantic import model_validator
 
 from .models import JsonObject, Value
+from .vocab import AuthMethodName
 
-
-class AuthMethodName(StrEnum):
-    PUBLIC = "public"
-    CLIENT_SECRET_BASIC = "client_secret_basic"
-    CLIENT_SECRET_POST = "client_secret_post"
-    PRIVATE_KEY_JWT = "private_key_jwt"
+__all__ = ["PUBLIC", "PUBLIC_ONLY", "AuthMethod", "AuthMethodName", "CredentialError", "Keyring"]
 
 
 class CredentialError(Exception):
@@ -80,12 +76,14 @@ class AuthMethod(Value):
 PUBLIC = AuthMethod(method=AuthMethodName.PUBLIC)
 
 
+@dataclass(frozen=True)
 class Keyring:
-    """The deployment's signing keys and secrets, passed together to the flow."""
+    """The deployment's signing keys and secrets, passed together to the flow. A frozen
+    dataclass, not a pydantic model: it holds two Protocol implementations, nothing to validate
+    or serialise (like `Deps`)."""
 
-    def __init__(self, keys: SigningKeys, secrets: SecretStore) -> None:
-        self.keys = keys
-        self.secrets = secrets
+    keys: SigningKeys
+    secrets: SecretStore
 
     def choose(self, methods: tuple[AuthMethod, ...]) -> AuthMethod:
         """The first method this deployment can satisfy."""

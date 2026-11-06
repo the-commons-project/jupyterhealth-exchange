@@ -9,8 +9,11 @@ record a reader verifies.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any, Generic
+from typing import Generic
+
+from botocore.exceptions import ClientError
 
 from patient_access.core.interfaces import DeliveryProgress
 from patient_access.core.models import A, Job, PendingUpload, S3Receipt
@@ -21,6 +24,9 @@ from .layout import TemplateLayout
 from .multipart import DEFAULT_PART, MultipartUploader, S3Client
 
 FHIR_JSON = "application/fhir+json"
+NO_SUCH_UPLOAD = "NoSuchUpload"
+
+log = logging.getLogger(__name__)
 
 ClientFactory = Callable[[S3Settings], S3Client]
 
@@ -69,17 +75,25 @@ class S3Sink(Generic[A]):
             sse=sse_arguments(settings),
             part_size=self.part_size,
         )
-        upload_id = uploader.start()
-        progress.started(PendingUpload(bucket=settings.bucket, key=key, upload_id=upload_id))
+        upload = PendingUpload(bucket=settings.bucket, key=key, upload_id=uploader.start())
         digest = Digest(chunks)
         try:
+            # Recorded first, inside the try: if recording fails, the upload is still aborted.
+            progress.started(upload)
             parts = uploader.upload(digest)
             etag, version = uploader.complete()
         except BaseException:
-            uploader.abort()
-            progress.ended()
+            # The original error is what the caller sees. An abort that fails is logged and the
+            # upload stays recorded on the job, so the next attempt aborts it; only an abort
+            # that succeeded clears the record.
+            try:
+                uploader.abort()
+            except Exception as abort_error:  # noqa: BLE001 - must not replace the original error
+                log.warning("abort of an upload failed (%s); left for the next attempt", type(abort_error).__name__)
+            else:
+                progress.ended(upload)
             raise
-        progress.ended()
+        progress.ended(upload)
         return S3Receipt(
             bucket=settings.bucket,
             key=key,
@@ -91,9 +105,9 @@ class S3Sink(Generic[A]):
         )
 
     def abort(self, upload: PendingUpload, settings: S3Settings) -> None:
-        client: Any = self.client_factory(settings)
+        client = self.client_factory(settings)
         try:
             client.abort_multipart_upload(Bucket=upload.bucket, Key=upload.key, UploadId=upload.upload_id)
-        except Exception as e:  # noqa: BLE001 - an upload that is already gone is the goal
-            if "NoSuchUpload" not in str(e):
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != NO_SUCH_UPLOAD:  # already gone is the goal
                 raise

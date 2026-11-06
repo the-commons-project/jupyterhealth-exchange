@@ -20,9 +20,11 @@ from collections import Counter
 from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SecretStr
+
+from .vocab import AuthMethodName, FailureKind, ScopeVersion, TypeChoice
 
 JobId = str
 JsonObject = dict[str, Any]
@@ -39,9 +41,10 @@ class Value(BaseModel):
 
 
 class Record(BaseModel):
-    """Base for mutable progress records."""
+    """Base for mutable progress records. Assignments are validated, so a wrong value is caught
+    where it is written, not when the row is next loaded."""
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=False)
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
 # --- who and where ---------------------------------------------------------------------------
@@ -124,10 +127,11 @@ class AuthAttempt(Value, Generic[A]):
     created_at: datetime
     expires_at: datetime
     # How the launch authenticated, so the callback does the same. Never the credential.
-    auth_method: str
+    auth_method: AuthMethodName
     key_id: str | None = None
-    scope_version: str
+    scope_version: ScopeVersion
     pkce_advertised: bool = True
+    type_choice: TypeChoice = TypeChoice.HOST
 
 
 class TokenResponse(Value):
@@ -135,8 +139,6 @@ class TokenResponse(Value):
     expires_at: datetime
     scopes_granted: tuple[str, ...]
     patient: str
-    token_type: str = "Bearer"
-    refresh_token_issued: bool = False
 
 
 # --- the job ---------------------------------------------------------------------------------
@@ -195,8 +197,10 @@ class Source(Value):
     scopes_requested: tuple[str, ...]
     scopes_granted: tuple[str, ...]
     scopes_declined: tuple[str, ...] = ()
-    auth_method: str
+    auth_method: AuthMethodName
     key_id: str | None = None
+    pkce_advertised: bool = True  # whether discovery listed S256 (we send PKCE regardless)
+    type_choice: TypeChoice = TypeChoice.HOST  # who chose the record types: our checklist or the EHR
 
     @classmethod
     def of(cls, attempt: AuthAttempt[A], token: TokenResponse) -> Source:
@@ -219,6 +223,8 @@ class Source(Value):
             scopes_declined=attempt.scopes_declined,
             auth_method=attempt.auth_method,
             key_id=attempt.key_id,
+            pkce_advertised=attempt.pkce_advertised,
+            type_choice=attempt.type_choice,
         )
 
     @property
@@ -317,6 +323,9 @@ class DocumentOutcome(Record):
     status: OutcomeStatus = OutcomeStatus.PENDING
     records: list[DocumentRecord] = Field(default_factory=list)
     error: str | None = None
+    seconds: float = 0.0
+    capped: bool = False  # a count or size cap refused at least one document
+    _positions: dict[str, int] | None = PrivateAttr(default=None)
 
     @property
     def stored(self) -> list[DocumentRecord]:
@@ -331,8 +340,21 @@ class DocumentOutcome(Record):
         return sum(r.size or 0 for r in self.stored)
 
     def record(self, rec: DocumentRecord) -> None:
-        """Add or replace the record for a blob id (a resumed pass replaces its earlier record)."""
-        self.records = [r for r in self.records if r.blob_id != rec.blob_id] + [rec]
+        """Add or replace the record for a blob id (a resumed pass replaces its earlier record).
+        Constant time: the pass records up to the count cap (10,000) one by one."""
+        if self._positions is None:
+            self._positions = {r.blob_id: i for i, r in enumerate(self.records)}
+        at = self._positions.get(rec.blob_id)
+        if at is None:
+            self._positions[rec.blob_id] = len(self.records)
+            self.records.append(rec)
+        else:
+            self.records[at] = rec
+
+    def forget(self, blob_ids: frozenset[str]) -> None:
+        """Drop the records for these blobs (their content was lost and will be fetched again)."""
+        self.records = [r for r in self.records if r.blob_id not in blob_ids]
+        self._positions = None
 
 
 # --- delivery --------------------------------------------------------------------------------
@@ -374,7 +396,9 @@ class Delivery(Record):
     attempts: int = 0
     receipt: S3Receipt | None = None
     failure: str | None = None
-    pending_upload: PendingUpload | None = None
+    # Every upload started and not yet completed or aborted. A list, not one slot: when an abort
+    # fails, the next attempt's upload must not overwrite the record of the earlier one.
+    pending_uploads: list[PendingUpload] = Field(default_factory=list)
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -392,7 +416,13 @@ class Credentials(Record):
         self.spool_key = None
 
 
+JOB_SCHEMA_VERSION: Literal[1] = 1
+"""The version of the job's JSON shape. Bumped on an incompatible change, so a loader can tell an
+old row from a corrupt one."""
+
+
 class Job(Record, Generic[A]):
+    schema_version: Literal[1] = JOB_SCHEMA_VERSION
     id: JobId
     participant: Participant[A]
     source: Source
@@ -403,7 +433,8 @@ class Job(Record, Generic[A]):
     documents: DocumentOutcome = Field(default_factory=DocumentOutcome)
     delivery: Delivery = Field(default_factory=Delivery)
     spool_ref: str | None = None
-    failure: str | None = None
+    failure: str | None = None  # what went wrong, for the operator (the host words it for patients)
+    failure_kind: FailureKind | None = None
     runs: int = 0  # how many times a worker has picked the job up
     created_at: datetime
     updated_at: datetime | None = None

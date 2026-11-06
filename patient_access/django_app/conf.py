@@ -15,6 +15,10 @@ URL) are not here: the host's settings provider supplies them per job attempt.
         "DELIVERY_GUARD": "host.module.guard",               # (Job) -> None, raises DeliveryRefused
         "S3_CLIENT_FACTORY": "patient_access.destinations.s3.boto3_client",
         "PART_SIZE": 33554432,
+        "HTTP_DEBUG_LOGGING": False,       # True: leave the HTTP library's request lines (they
+                                           # carry patient ids in query strings) to the host's
+                                           # log level; for local debugging only
+        "ALLOW_HTTP": False,               # True: accept http EHR endpoints (development only)
     }
 
 Empty `ENCRYPTION_KEYS` (the variable unset) leaves the module off: a deployment that does not
@@ -57,6 +61,8 @@ class ModuleConfig(BaseModel):
     delivery_guard: str
     s3_client_factory: str = "patient_access.destinations.s3.boto3_client"
     part_size: int = Field(default=DEFAULT_PART, ge=MIN_PART)
+    http_debug_logging: bool = False
+    allow_http: bool = False
 
 
 def project_settings() -> Mapping[str, Any]:

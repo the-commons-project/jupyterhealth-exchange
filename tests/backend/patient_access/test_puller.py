@@ -139,3 +139,121 @@ def test_resume_refetches_an_unsettled_type_from_scratch():
     spool.append("Observation", obs(99))  # what a dead run left behind
     fetch_resources(j, spool, source_settings(), make_client(), lambda: None, LOG)
     assert [r["id"] for r in spool.iter_type("Observation")] == ["o1"]
+
+
+@responses.activate
+def test_a_page_that_is_not_a_search_bundle_fails_only_its_own_row():
+    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+    responses.add(responses.GET, f"{ISS}/Observation", json=[])  # a 200 that is not an object
+    j = job()
+    assert fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(), lambda: None, LOG)
+    labs = next(o for o in j.outcomes if o.label == "Labs")
+    assert labs.status is OutcomeStatus.ERROR and labs.error == "unreadable response"
+    assert next(o for o in j.outcomes if o.label == "Demographics").status is OutcomeStatus.OK
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"resourceType": "Patient"},  # not a Bundle
+        {"resourceType": "Bundle", "entry": ["text"]},  # an entry that is not an object
+        {"resourceType": "Bundle", "entry": [{"resource": "text"}]},  # a resource that is not one
+        {"resourceType": "Bundle", "entry": [{"resource": {"id": "o1"}}]},  # a resource without a type
+    ],
+)
+@responses.activate
+def test_malformed_search_pages_are_unreadable(body):
+    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+    responses.add(responses.GET, f"{ISS}/Observation", json=body)
+    j = job()
+    fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(), lambda: None, LOG)
+    assert next(o for o in j.outcomes if o.label == "Labs").error == "unreadable response"
+
+
+@pytest.mark.parametrize(
+    "next_url",
+    [
+        "https://elsewhere.example.org/fhir/Observation?page=2",  # another host
+        "http://ehr.example.org/fhir/Observation?page=2",  # downgraded to http
+        "https://ehr.example.org:8443/fhir/Observation?page=2",  # another port
+    ],
+)
+@responses.activate
+def test_a_next_link_on_another_origin_is_never_requested(next_url):
+    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+    responses.add(responses.GET, f"{ISS}/Observation", json=search([obs(1)], next_url=next_url))
+    j = job()
+    fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(), lambda: None, LOG)
+    labs = next(o for o in j.outcomes if o.label == "Labs")
+    assert labs.status is OutcomeStatus.ERROR and "another server" in labs.error
+    assert all(c.request.url.startswith(ISS) for c in responses.calls)
+
+
+@responses.activate
+def test_a_next_link_elsewhere_on_the_same_origin_is_followed():
+    """Lenient on the path: some servers page through another base path on the same host."""
+    other_path = "https://ehr.example.org/paging/Observation?page=2"
+    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+    responses.add(responses.GET, f"{ISS}/Observation", json=search([obs(1)], next_url=other_path))
+    responses.add(responses.GET, other_path, json=search([obs(2)]))
+    j = job()
+    fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(), lambda: None, LOG)
+    assert next(o for o in j.outcomes if o.label == "Labs").count == 2
+
+
+@responses.activate
+def test_resume_resets_every_row_of_the_type_so_none_reads_as_a_stale_ok():
+    """Labs failed and Vital Signs was ok in an earlier run; the resume's token runs out at Labs.
+    Vital Signs must not keep its old "ok, 2": the type's spool was wiped for the refetch."""
+    clock = Clock()
+    j = job()
+    for o in j.outcomes:
+        if o.label == "Vital Signs":
+            o.status, o.count = OutcomeStatus.OK, 2
+    responses.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+
+    def expire(request):
+        clock.advance(hours=2)
+        return 500, {}, "{}"
+
+    responses.add_callback(responses.GET, f"{ISS}/Observation", callback=expire)
+    fetch_resources(j, MemorySpoolHandle("j"), source_settings(), make_client(clock), lambda: None, LOG)
+    vitals = next(o for o in j.outcomes if o.label == "Vital Signs")
+    assert vitals.status is not OutcomeStatus.OK and vitals.count == 0
+
+
+def test_a_retry_after_longer_than_the_cap_fails_the_row_instead_of_sleeping(monkeypatch):
+    from patient_access.core import http
+
+    slept = []
+    monkeypatch.setattr(http.Retry, "sleep_for_retry", lambda self, response=None: slept.append(1) or True)
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+        rsps.add(responses.GET, f"{ISS}/Patient/p1", json={"resourceType": "Patient", "id": "p1"})
+        rsps.add(responses.GET, f"{ISS}/Observation", status=429, headers={"Retry-After": "3600"})
+        j = job()
+        client = FhirClient(ISS, SecretStr("tok"), source_settings().fetch, None, Clock(), http.session())
+        fetch_resources(j, MemorySpoolHandle("j"), source_settings(), client, lambda: None, LOG)
+    labs = next(o for o in j.outcomes if o.label == "Labs")
+    assert labs.status is OutcomeStatus.ERROR and slept == []
+
+
+def test_the_retry_cap_refuses_long_waits_and_allows_short_ones(monkeypatch):
+    import time as time_module
+
+    from urllib3 import HTTPResponse
+
+    from patient_access.core.http import MAX_RETRY_AFTER, CappedRetry, RetryAfterTooLong
+
+    waits = []
+    monkeypatch.setattr(time_module, "sleep", waits.append)
+    retry = CappedRetry(total=3, respect_retry_after_header=True)
+    with pytest.raises(RetryAfterTooLong):
+        retry.sleep_for_retry(HTTPResponse(status=429, headers={"Retry-After": str(int(MAX_RETRY_AFTER) + 1)}))
+    assert retry.sleep_for_retry(HTTPResponse(status=429, headers={"Retry-After": "5"}))
+    assert waits == [5.0]
+
+
+def test_outcomes_are_planned_with_their_status_not_patched_after():
+    outcomes = plan_outcomes(source_settings(), ("patient/Observation.read",), ("patient/Observation.read",))
+    statuses = {o.label: o.status for o in outcomes}
+    assert statuses["Labs"] is OutcomeStatus.PENDING and statuses["Allergies"] is OutcomeStatus.NOT_REQUESTED

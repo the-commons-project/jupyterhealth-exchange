@@ -8,6 +8,8 @@ import uuid
 
 from django.db import models
 
+from patient_access.core.models import JobStatus
+
 
 def _uuid() -> str:
     return uuid.uuid4().hex
@@ -36,7 +38,7 @@ class JobRecord(models.Model):
     """One pull, from the callback to the end of delivery."""
 
     id = models.CharField(primary_key=True, max_length=32, default=_uuid)
-    status = models.CharField(max_length=20, db_index=True)
+    status = models.CharField(max_length=20, db_index=True, choices=[(s.value, s.value) for s in JobStatus])
     participant_ref = models.CharField(max_length=64, db_index=True)
     body = models.JSONField()  # the Job, minus its credentials
     credentials_enc = models.TextField(blank=True, default="")  # EHR token and spool key, encrypted
@@ -47,6 +49,9 @@ class JobRecord(models.Model):
     # The runner's lease: written only by claim / renew / release, never by save.
     lease_owner = models.CharField(max_length=200, null=True, blank=True)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
+    # Runs that raised out of the pipeline. Kept on the row, not in the body, so it counts even
+    # when the body is what fails to load; the runner ends the job after MAX_CRASHES.
+    crashes = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         verbose_name = "patient access job"

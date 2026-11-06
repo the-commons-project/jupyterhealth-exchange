@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from patient_access.core.credentials import PUBLIC_ONLY, Keyring
 from patient_access.core.http import session as http_session
 from patient_access.core.interfaces import Directory, JobDispatcher
-from patient_access.core.models import Job, JobId
+from patient_access.core.models import JobId
 from patient_access.core.pipeline import DeliveryGuard, Deps, SettingsProvider, run_job, utcnow
 from patient_access.core.runner import JobRunner
 from patient_access.destinations.s3 import ClientFactory, S3Sink
@@ -64,7 +64,9 @@ class SweepOnly:
 @dataclass(frozen=True)
 class Module:
     """Everything a host needs. Attribute types are the generic plugs over `BaseModel`: the host
-    knows its own attrs classes (named in the config) and builds participants with them."""
+    knows its own attrs classes (named in the config) and builds participants with them. A frozen
+    dataclass, not a pydantic model: it holds stores, Protocol implementations and callables,
+    nothing to validate or serialise (like `Deps`)."""
 
     config: ModuleConfig
     launch_attrs: type[BaseModel]
@@ -79,9 +81,6 @@ class Module:
     dispatcher: JobDispatcher
     http: requests.Session
     clock: Callable[[], datetime]
-
-    def run(self, job_id: JobId) -> Job[BaseModel]:
-        return run_job(job_id, self.deps)
 
 
 def _load(path: str, what: str) -> object:
@@ -128,7 +127,7 @@ def build_module(config: ModuleConfig, clock: Callable[[], datetime] = utcnow) -
     )
     runner = JobRunner(
         jobs,
-        lambda job_id: run_job(job_id, deps),
+        lambda lease: run_job(lease, deps),
         lease=timedelta(seconds=config.lease_seconds),
         on_thread_exit=close_db_connection,
     )

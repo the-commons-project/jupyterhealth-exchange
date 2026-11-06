@@ -12,16 +12,10 @@ settings the host reads once per attempt (`settings.py`).
 
 from __future__ import annotations
 
-from enum import StrEnum
-
 from .credentials import PUBLIC, AuthMethod
 from .models import DocumentSource, Value
 from .scopes import Access, Context, Permission, ScopeSet, constraints_of
-
-
-class ScopeVersion(StrEnum):
-    V1 = "v1"  # patient/X.read
-    V2 = "v2"  # patient/X.rs
+from .vocab import ScopeVersion, TypeChoice
 
 
 def to_v2(scope: str) -> str:
@@ -99,6 +93,7 @@ class ClientRegistration(Value):
 class SourceSettings(Value):
     registration: ClientRegistration
     fetch: FetchProfile
+    type_choice: TypeChoice = TypeChoice.HOST  # where the patient picks record types (vendor knowledge)
 
     def scopes(self, resource_scopes: list[str] | tuple[str, ...] | None = None) -> tuple[str, ...]:
         """Base scopes plus the resource scopes asked for (every row's, when None)."""

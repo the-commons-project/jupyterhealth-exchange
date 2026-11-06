@@ -1,13 +1,18 @@
 """Phase 3 as plain functions over values; every web layer is a thin adapter.
 
-The launch is one step. The callback is three, which the host composes inside one transaction
-with its own checks in between:
+The launch is one step. The callback is three, which the host composes with its own checks in
+between:
 
     attempt = begin_callback(state, attempts)            consumes the attempt (single use)
         host: the session's patient is the attempt's participant, else stop (the code is unspent)
     token = exchange_code(attempt, code=..., ...)        the only call to the EHR
-        host: its own records for the pull, and the job's participant
+        host, in one transaction with the next step: its own records for the pull, and the
+        job's participant
     job = create_job(attempt, token, participant, ...)   the job row; dispatched after commit
+
+`begin_callback` must commit on its own, before the session check: in a transaction with the
+later steps, any later failure would roll the consume back and make the attempt usable again.
+Only the host's records and `create_job` share a transaction.
 
 Every failure raises `FlowError`, whose message is safe to show the patient and whose `kind`
 says what happened.
@@ -62,8 +67,10 @@ def start_upstream_auth(
     attempts: AuthAttemptStore[LA],
     http: requests.Session,
     clock: Callable[[], datetime],
+    allow_http: bool = False,
 ) -> str:
-    """Discover, record the attempt, return the authorize URL to send the browser to."""
+    """Discover, record the attempt, return the authorize URL to send the browser to.
+    `allow_http`: accept an http authorize endpoint (development only)."""
     try:
         selection = directory.selection(selection_id)
     except KeyError:
@@ -75,7 +82,7 @@ def start_upstream_auth(
             FlowErrorKind.NOT_CONFIGURED, f"{selection.brand.name} is not available for connection yet."
         ) from None
     try:
-        config = discover(selection.endpoint.iss, http, settings.fetch.timeout_seconds)
+        config = discover(selection.endpoint.iss, http, settings.fetch.timeout_seconds, allow_http)
         method = choose_method(settings.registration, keyring, config)
     except SmartError as e:
         raise FlowError(FlowErrorKind.SIGN_IN_UNAVAILABLE, str(e)) from e
@@ -96,6 +103,7 @@ def start_upstream_auth(
         key_id=method.kid,
         scope_version=settings.registration.scope_version,
         pkce_advertised=config.pkce_s256,
+        type_choice=settings.type_choice,
     )
     attempts.create(attempt)
     # The URL itself is never logged (its query carries the state and the PKCE challenge); what

@@ -8,13 +8,14 @@ so a type is refetched from its first page unless every row for it settled.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
-from typing import Any
+from collections.abc import Callable
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl
 
 import requests
+from pydantic import BaseModel, ConfigDict, Field, SkipValidation, ValidationError, field_validator
 
-from .client import FhirClient, TokenExpired, Unauthorized
+from .client import FhirClient, OutsideServer, TokenExpired, Unauthorized
 from .interfaces import SpoolHandle
 from .log import JobLog, sanitised
 from .models import A, Job, JsonObject, OutcomeStatus, TypeOutcome
@@ -39,14 +40,66 @@ def plan_outcomes(settings: SourceSettings, requested: tuple[str, ...], granted:
     fetchable = {q.label for q in settings.queries_for(granted)}
 
     def outcome(q: QuerySpec) -> TypeOutcome:
-        o = TypeOutcome(label=q.label, resource_type=q.resource_type, query=q.query)
-        if q.label not in asked:
-            o.status, o.error = OutcomeStatus.NOT_REQUESTED, "not selected by the patient"
-        elif q.label not in fetchable:
-            o.status, o.error = OutcomeStatus.NOT_GRANTED, "the organization did not grant access to this type"
-        return o
+        status, error = (
+            (OutcomeStatus.NOT_REQUESTED, "not selected by the patient")
+            if q.label not in asked
+            else (OutcomeStatus.NOT_GRANTED, "the organization did not grant access to this type")
+            if q.label not in fetchable
+            else (OutcomeStatus.PENDING, None)
+        )
+        return TypeOutcome(label=q.label, resource_type=q.resource_type, query=q.query, status=status, error=error)
 
     return [outcome(q) for q in settings.fetch.queries]
+
+
+def _resource(value: Any) -> JsonObject:
+    """The resource itself, uncopied, once it is known to be an object naming its type. Only the
+    shape is checked: resources pass through as the EHR sent them, and copying each one here
+    would double the work of the fetch's hottest loop."""
+    if not (isinstance(value, dict) and isinstance(value.get("resourceType"), str)):
+        raise ValueError("not a FHIR resource")
+    return value
+
+
+class _Link(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    relation: str
+    url: str
+
+
+class _Entry(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    resource: Annotated[JsonObject, SkipValidation] | None = None
+
+    @field_validator("resource", mode="before")
+    @classmethod
+    def _object(cls, value: Any) -> JsonObject | None:
+        return None if value is None else _resource(value)
+
+
+class SearchPage(BaseModel):
+    """The envelope of one search page: a Bundle whose entries are objects. The resources are
+    passed through as parsed; only their shape is checked, never their content."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    resource_type: Literal["Bundle"] = Field(alias="resourceType")
+    entry: list[_Entry] = Field(default_factory=list)
+    link: list[_Link] = Field(default_factory=list)
+
+    @property
+    def resources(self) -> list[JsonObject]:
+        return [e.resource for e in self.entry if e.resource is not None]
+
+    @property
+    def next_url(self) -> str | None:
+        return next((link.url for link in self.link if link.relation == "next"), None)
+
+
+class UnreadablePage(Exception):
+    """A 200 whose body is not the shape a FHIR search or read returns."""
 
 
 def search_url(base: str, spec: QuerySpec, patient: str, page_size: int | None) -> tuple[str, dict[str, str]]:
@@ -74,12 +127,15 @@ def error_text(r: requests.Response) -> str:
     return f"{r.status_code} {r.reason}"
 
 
-def _next_link(body: Mapping[str, Any]) -> str | None:
-    for link in body.get("link") or []:
-        if link.get("relation") == "next":
-            url = link.get("url")
-            return url if isinstance(url, str) else None
-    return None
+def _page(body: Any, single: bool) -> tuple[list[JsonObject], str | None]:
+    """The resources a response holds and the next page's URL. Raises UnreadablePage."""
+    try:
+        if single:
+            return [_resource(body)], None
+        page = SearchPage.model_validate(body)
+    except ValidationError:
+        raise UnreadablePage() from None
+    return page.resources, page.next_url
 
 
 def _pull(
@@ -104,12 +160,9 @@ def _pull(
         if r.status_code != 200:
             outcome.status, outcome.error = OutcomeStatus.ERROR, error_text(r)
             return
-        body: JsonObject = r.json()
+        resources, url = _page(r.json(), spec.single)
         outcome.pages += 1
-        entries: list[JsonObject] = (
-            [body] if spec.single else [e.get("resource") or {} for e in body.get("entry") or []]
-        )
-        for resource in entries:
+        for resource in resources:
             if resource.get("resourceType") != spec.resource_type:
                 continue  # OperationOutcome warnings, _include'd resources
             rid = resource.get("id")
@@ -119,7 +172,6 @@ def _pull(
                 seen.add(rid)
             outcome.bytes += spool.append(spec.resource_type, resource)
             outcome.count += 1
-        url = None if spec.single else _next_link(body)
         if outcome.pages % SAVE_EVERY_PAGES == 0:
             save()
     outcome.status = OutcomeStatus.OK
@@ -134,8 +186,8 @@ def fetch_resources(
     save: Callable[[], None],
     log: JobLog,
 ) -> bool:
-    """Fill the spool type by type. Returns False when the token expired part-way, so the
-    documents pass is not attempted. Raises FetchAborted on a 401."""
+    """Fill the spool type by type. Returns False when the token expired part-way: the pipeline
+    then fails the job rather than deliver part of the record. Raises FetchAborted on a 401."""
     patient = job.source.ehr_patient_id
     specs = {q.label: q for q in settings.queries_for(job.source.scopes_granted)}
     by_type: dict[str, list[TypeOutcome]] = {}
@@ -151,12 +203,16 @@ def fetch_resources(
                 if not o.status.withheld:
                     o.status, o.error = OutcomeStatus.ERROR, "authorization expired before this was downloaded"
             continue
+        # The type's spool is refetched from its first page, so every row of the type starts
+        # again: an interrupted type can only read as an error, never as an earlier run's "ok".
         spool.reset_type(resource_type)
+        for o in outcomes:
+            if not o.status.withheld:
+                o.reset()
         seen: set[str] = set()
         for o in outcomes:
             if o.status.withheld:
                 continue
-            o.reset()
             spec = specs.get(o.label)
             if spec is None:
                 o.status, o.error = OutcomeStatus.SKIPPED, "scope not granted"
@@ -169,9 +225,11 @@ def fetch_resources(
                 break
             except Unauthorized:
                 raise FetchAborted("The health system stopped accepting our access. Please connect again.") from None
+            except OutsideServer:
+                o.status, o.error = OutcomeStatus.ERROR, "the server's next page is on another server; not followed"
             except requests.RequestException as e:
                 o.status, o.error = OutcomeStatus.ERROR, f"network: {type(e).__name__}"
-            except ValueError:
+            except (UnreadablePage, ValueError):
                 o.status, o.error = OutcomeStatus.ERROR, "unreadable response"
             if o.status is OutcomeStatus.ERROR:
                 log.warning("%s: %s", o.label, sanitised(o.error), extra={"resource_type": resource_type})

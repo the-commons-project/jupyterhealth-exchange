@@ -10,6 +10,7 @@ from typing import Generic
 from uuid import uuid4
 
 from patient_access.core.interfaces import DeliveryProgress
+from patient_access.core.lease import Lease, LeaseLost
 from patient_access.core.models import (
     TERMINAL_STATUSES,
     A,
@@ -27,6 +28,7 @@ from patient_access.core.models import (
 )
 from patient_access.core.settings import S3Settings
 from patient_access.core.source_settings import SourceSettings
+from patient_access.core.vocab import FailureKind
 from patient_access.destinations.layout import TemplateLayout
 from patient_access.formatters.stream import Digest
 
@@ -78,6 +80,8 @@ class MemoryJobStore(Generic[A]):
         self.clock = clock
         self._jobs: dict[JobId, Job[A]] = {}
         self._leases: dict[JobId, tuple[str, datetime]] = {}
+        self._owners: dict[JobId, str] = {}  # the last worker to claim each job, like the row's column
+        self.crashes: dict[JobId, int] = {}
         self._lock = threading.Lock()
         self.saves = 0
 
@@ -96,10 +100,21 @@ class MemoryJobStore(Generic[A]):
     def get(self, job_id: JobId) -> Job[A]:
         return self._copy(self._jobs[job_id])
 
-    def save(self, job: Job[A]) -> None:
-        self.saves += 1
-        job.updated_at = self.clock()
-        self._jobs[job.id] = self._copy(job)
+    def save(self, job: Job[A], lease: Lease) -> None:
+        with self._lock:
+            if job.id not in self._jobs:
+                raise KeyError(job.id)
+            if self._owners.get(job.id) != lease.worker:
+                raise LeaseLost(job.id)
+            self.saves += 1
+            job.updated_at = self.clock()
+            self._jobs[job.id] = self._copy(job)
+
+    def lease_for(self, job_id: JobId, worker: str = "test", lease: timedelta = timedelta(minutes=10)) -> Lease:
+        """Claim a job and return its lease: for tests that drive the pipeline without a runner."""
+        if not self.claim(job_id, worker, lease):
+            raise AssertionError(f"job {job_id} could not be claimed by {worker}")
+        return Lease(job_id=job_id, worker=worker)
 
     def _leased_elsewhere(self, job_id: JobId, worker: str) -> bool:
         lease = self._leases.get(job_id)
@@ -111,17 +126,21 @@ class MemoryJobStore(Generic[A]):
             if job is None or job.status in TERMINAL_STATUSES or self._leased_elsewhere(job_id, worker):
                 return False
             self._leases[job_id] = (worker, self.clock() + lease)
+            self._owners[job_id] = worker
             return True
 
-    def claim_next(self, worker: str, lease: timedelta, retry_after: timedelta) -> JobId | None:
+    def claim_next(
+        self, worker: str, lease: timedelta, retry_after: timedelta, exclude: frozenset[JobId] = frozenset()
+    ) -> JobId | None:
         with self._lock:
             now = self.clock()
             for job in sorted(self._jobs.values(), key=lambda j: j.created_at):
-                if job.status in TERMINAL_STATUSES or self._leased_elsewhere(job.id, worker):
+                if job.id in exclude or job.status in TERMINAL_STATUSES or self._leased_elsewhere(job.id, worker):
                     continue
                 if job.status is JobStatus.FAILED and (job.updated_at or now) > now - retry_after:
                     continue
                 self._leases[job.id] = (worker, now + lease)
+                self._owners[job.id] = worker
                 return job.id
             return None
 
@@ -138,6 +157,32 @@ class MemoryJobStore(Generic[A]):
             held = self._leases.get(job_id)
             if held is not None and held[0] == worker:
                 del self._leases[job_id]
+                self._owners.pop(job_id, None)
+
+    def record_crash(self, lease: Lease) -> int:
+        with self._lock:
+            if self._owners.get(lease.job_id) != lease.worker:
+                raise LeaseLost(lease.job_id)
+            self.crashes[lease.job_id] = self.crashes.get(lease.job_id, 0) + 1
+            return self.crashes[lease.job_id]
+
+    def fail_crashed(self, lease: Lease, failure: str) -> None:
+        with self._lock:
+            if self._owners.get(lease.job_id) != lease.worker:
+                raise LeaseLost(lease.job_id)
+            job = self._jobs[lease.job_id]
+            job.status, job.failure, job.failure_kind = JobStatus.FAILED_TERMINAL, failure, FailureKind.CONTACT_STUDY
+            job.credentials.clear()
+            job.finished_at = self.clock()
+
+    def for_participant(self, ref: str, attrs: dict[str, str | int] | None = None, limit: int = 20) -> list[Job[A]]:
+        found = [
+            j
+            for j in sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
+            if j.participant.ref == ref
+            and all(getattr(j.participant.attrs, k, None) == v for k, v in (attrs or {}).items())
+        ]
+        return [self._copy(j) for j in found[:limit]]
 
     def live_spool_refs(self) -> frozenset[str]:
         return frozenset(j.spool_ref for j in self._jobs.values() if j.spool_ref and not j.status.terminal)
@@ -239,14 +284,15 @@ class MemorySink(Generic[A]):
 
     def put(self, job: Job[A], chunks: Iterable[bytes], settings: S3Settings, progress: DeliveryProgress) -> S3Receipt:
         key = TemplateLayout(settings.layout).render(job)
-        progress.started(PendingUpload(bucket=settings.bucket, key=key, upload_id=f"upload-{len(self.objects)}"))
+        upload = PendingUpload(bucket=settings.bucket, key=key, upload_id=f"upload-{len(self.objects)}")
+        progress.started(upload)
         digest = Digest(chunks)
         data = b"".join(digest)
         if self.fail_times:
             self.fail_times -= 1
             raise ConnectionError("simulated outage")
         self.objects[key] = data
-        progress.ended()
+        progress.ended(upload)
         return S3Receipt(bucket=settings.bucket, key=key, etag="etag", bytes=digest.size, sha256=digest.sha256, parts=1)
 
     def abort(self, upload: PendingUpload, settings: S3Settings) -> None:

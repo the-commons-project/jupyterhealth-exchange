@@ -1,8 +1,15 @@
-"""The documents pass: every candidate through the budget and the downloader, one record each."""
+"""The documents pass: every candidate through the budget and the downloader, one record each.
+
+Returns whether it completed. When the EHR's authorization ends part-way (the token expires, or
+the server answers 401), the remaining candidates are recorded as skipped without a request and
+the pass returns False: the pipeline then fails the job rather than deliver part of the record.
+"""
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
+from enum import StrEnum
 
 from ..client import FhirClient, TokenExpired, Unauthorized
 from ..interfaces import SpoolHandle
@@ -15,6 +22,14 @@ from .candidates import Candidate, candidates
 from .downloader import FetchResult, Skipped, Stored, fetch_one
 
 SAVE_EVERY = 10
+CAP_REASONS = frozenset({SkipReason.COUNT_CAP, SkipReason.SIZE_CAP_EACH, SkipReason.SIZE_CAP_TOTAL})
+
+
+class Stop(StrEnum):
+    """Why the pass stopped making requests."""
+
+    EXPIRED = "expired"  # the token reached its expiry
+    UNAUTHORIZED = "401"  # the server refused the token
 
 
 def record(cand: Candidate, result: FetchResult) -> DocumentRecord:
@@ -51,14 +66,15 @@ def fetch_documents(
     client: FhirClient,
     save: Callable[[], None],
     log: JobLog,
-) -> None:
+) -> bool:
+    started = time.monotonic()
     out = job.documents
     out.status, out.error = OutcomeStatus.PENDING, None
     # Resume: what earlier runs stored is already spent.
     stored = {r.blob_id: r for r in out.stored if spool.has_blob(r.blob_id)}
     budget = Budget(caps=caps, count=len(stored), bytes=sum(r.size or 0 for r in stored.values()))
     index = spool.index()
-    stopped: str | None = None  # why the rest are skipped without a request
+    stopped: Stop | None = None  # why the rest are skipped without a request
 
     for n, cand in enumerate(candidates(spool, profile), start=1):
         if cand.blob_id in stored:
@@ -70,7 +86,7 @@ def fetch_documents(
             budget = budget.spend(meta.size)
             continue
         if stopped is not None:
-            out.record(record(cand, Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped)))
+            out.record(record(cand, Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)))
             continue
         if refusal := budget.refusal():
             out.record(record(cand, Skipped(reason=refusal)))
@@ -78,11 +94,11 @@ def fetch_documents(
         try:
             result = fetch_one(client, spool, cand, budget, caps.max_binary_json_bytes)
         except TokenExpired:
-            stopped = "expired"
-            result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped)
+            stopped = Stop.EXPIRED
+            result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)
         except Unauthorized:
-            stopped = "401"
-            result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped)
+            stopped = Stop.UNAUTHORIZED
+            result = Skipped(reason=SkipReason.TOKEN_EXPIRED, detail=stopped.value)
         out.record(record(cand, result))
         if isinstance(result, Stored):
             budget = budget.spend(result.meta.size)
@@ -93,5 +109,8 @@ def fetch_documents(
         out.status, out.error = OutcomeStatus.ERROR, "authorization ended during document download"
     else:
         out.status = OutcomeStatus.OK
+    out.capped = any(reason in CAP_REASONS for reason in out.skipped)
+    out.seconds = round(time.monotonic() - started, 2)
     log.info("documents: %d stored, %d skipped, %d bytes", len(out.stored), sum(out.skipped.values()), out.bytes)
     save()
+    return stopped is None

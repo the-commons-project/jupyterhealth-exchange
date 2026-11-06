@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, SecretStr
 
-from patient_access.core.credentials import AuthMethodName
 from patient_access.core.models import (
     AuthAttempt,
     Brand,
@@ -23,6 +22,7 @@ from patient_access.core.puller import plan_outcomes
 from patient_access.core.settings import PatientAccessSettings, S3Settings
 from patient_access.core.source_settings import SourceSettings
 from patient_access.core.vendors import VENDORS, VendorKey
+from patient_access.core.vocab import AuthMethodName, ScopeVersion
 
 ISS = "https://ehr.example.org/fhir/r4"
 NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
@@ -85,7 +85,7 @@ def attempt(**overrides: object) -> AuthAttempt[LaunchAttrs]:
         "created_at": NOW,
         "expires_at": NOW + timedelta(minutes=10),
         "auth_method": AuthMethodName.PUBLIC,
-        "scope_version": "v1",
+        "scope_version": ScopeVersion.V1,
     } | overrides
     return AuthAttempt[LaunchAttrs].model_validate(values)
 
@@ -141,8 +141,8 @@ def host_settings() -> PatientAccessSettings:
     return settings()
 
 
-def host_guard(job: Job[HostAttrs]) -> None:
-    return None
+def host_guard(job: Job[HostAttrs]) -> HostAttrs:
+    return job.participant.attrs
 
 
 HELPERS = "backend.patient_access.helpers"

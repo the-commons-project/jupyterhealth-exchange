@@ -19,6 +19,7 @@ from collections.abc import Iterable, Iterator
 from datetime import timedelta
 from typing import Protocol
 
+from .lease import Lease
 from .models import (
     A,
     AuthAttempt,
@@ -70,7 +71,8 @@ class AuthAttemptStore(Protocol[A]):
 class JobStore(Protocol[A]):
     """Where jobs live from the callback to the end of delivery. The pipeline saves after every
     step, so a worker that dies leaves an honest row to resume from. Claiming is here too: a
-    lease on the row is what stops the thread and the cron sweep running the same job."""
+    lease on the row is what stops the thread and the cron sweep running the same job, and every
+    write by a worker is fenced by its lease (see `lease.py`)."""
 
     def create(self, job: Job[A]) -> Job[A]:
         """Persist a new job and return it with its id assigned."""
@@ -80,17 +82,20 @@ class JobStore(Protocol[A]):
         """Raises KeyError."""
         ...
 
-    def save(self, job: Job[A]) -> None:
-        """Write the whole record back, credentials included (encrypted)."""
+    def save(self, job: Job[A], lease: Lease) -> None:
+        """Write the whole record back, credentials included (encrypted), only while `lease`'s
+        worker still owns the row. Raises LeaseLost otherwise."""
         ...
 
     def claim(self, job_id: JobId, worker: str, lease: timedelta) -> bool:
         """Lease one named job, only if it is not terminal and not leased by someone else."""
         ...
 
-    def claim_next(self, worker: str, lease: timedelta, retry_after: timedelta) -> JobId | None:
-        """Lease the oldest runnable job: queued, abandoned mid-run (no lease, or an expired
-        one), or failed and last touched longer than `retry_after` ago."""
+    def claim_next(
+        self, worker: str, lease: timedelta, retry_after: timedelta, exclude: frozenset[JobId] = frozenset()
+    ) -> JobId | None:
+        """Lease the oldest runnable job not in `exclude`: queued, abandoned mid-run (no lease, or
+        an expired one), or failed and last touched longer than `retry_after` ago."""
         ...
 
     def renew(self, job_id: JobId, worker: str, lease: timedelta) -> bool:
@@ -98,6 +103,16 @@ class JobStore(Protocol[A]):
         ...
 
     def release(self, job_id: JobId, worker: str) -> None: ...
+
+    def record_crash(self, lease: Lease) -> int:
+        """Count a run that raised out of the pipeline; returns the count. Works on the row's own
+        columns, so it holds even when the job body cannot be loaded."""
+        ...
+
+    def fail_crashed(self, lease: Lease, failure: str) -> None:
+        """End a job that keeps crashing: terminal, credentials cleared, without loading the body
+        (which may be what is broken). The sweep deletes its spool."""
+        ...
 
     def live_spool_refs(self) -> frozenset[str]:
         """Spool refs of jobs that are not terminal: the spools the sweep must keep."""
@@ -175,7 +190,9 @@ class DeliveryProgress(Protocol):
 
     def started(self, upload: PendingUpload) -> None: ...
 
-    def ended(self) -> None: ...
+    def ended(self, upload: PendingUpload) -> None:
+        """The upload completed or was aborted: nothing is left to clean up."""
+        ...
 
 
 class ObjectSink(Protocol[A]):

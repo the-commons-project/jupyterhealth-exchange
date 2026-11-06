@@ -38,8 +38,8 @@ class Progress:
     def started(self, upload):
         self.events.append(("started", upload))
 
-    def ended(self):
-        self.events.append(("ended",))
+    def ended(self, upload):
+        self.events.append(("ended", upload))
 
 
 def pieces(total: int, size: int = 1024 * 1024):
@@ -83,7 +83,33 @@ def test_a_failure_mid_stream_leaves_no_object_and_no_parts(s3):
         S3Sink(boto3_client, part_size=MIN_PART).put(job(), failing(), s3_settings(), progress)
     assert s3.list_objects_v2(Bucket=BUCKET).get("KeyCount") == 0
     assert not s3.list_multipart_uploads(Bucket=BUCKET).get("Uploads")
-    assert progress.events[-1] == ("ended",)
+    (started, upload), (ended, same) = progress.events
+    assert (started, ended) == ("started", "ended") and same == upload
+
+
+def test_an_upload_whose_recording_fails_is_still_aborted(s3):
+    class Unrecordable(Progress):
+        def started(self, upload):
+            raise ConnectionError("database unreachable")
+
+    with pytest.raises(ConnectionError):
+        S3Sink(boto3_client).put(job(), [b"{}"], s3_settings(), Unrecordable())
+    assert not s3.list_multipart_uploads(Bucket=BUCKET).get("Uploads")
+
+
+def test_a_failed_abort_keeps_the_original_error_and_the_record(s3, monkeypatch):
+    def failing():
+        yield from pieces(MIN_PART + 10)
+        raise RuntimeError("the spool went away")
+
+    def abort_fails(self):
+        raise ConnectionError("S3 unreachable")
+
+    monkeypatch.setattr(MultipartUploader, "abort", abort_fails)
+    progress = Progress()
+    with pytest.raises(RuntimeError, match="spool went away"):
+        S3Sink(boto3_client, part_size=MIN_PART).put(job(), failing(), s3_settings(), progress)
+    assert [e[0] for e in progress.events] == ["started"]  # still recorded, for the next attempt
 
 
 def test_an_upload_a_dead_process_left_open_can_be_aborted(s3):

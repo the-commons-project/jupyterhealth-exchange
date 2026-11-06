@@ -139,3 +139,13 @@ def test_outcomes_under_epic_grants_split_unticked_from_withheld():
     assert outcomes["Immunizations"] is OutcomeStatus.NOT_GRANTED  # withheld at the EHR
     assert outcomes["Labs"] is OutcomeStatus.PENDING
     assert outcomes["Demographics"] is OutcomeStatus.PENDING
+
+
+def test_a_user_grant_covers_a_patient_access():
+    """In a patient's own launch the user is the patient; every query is pinned to their id."""
+    settings = epic_settings()
+    assert len(settings.queries_for(("user/*.read",))) == len(EPIC_PROFILE.queries)
+    assert ScopeSet.parse(("user/Observation.rs",)).withheld(("patient/Observation.read",)) == ()
+    assert ScopeSet.parse(("patient/Observation.rs",)).withheld(("user/Observation.read",)) == (
+        "user/Observation.read",
+    )  # but not the other way round

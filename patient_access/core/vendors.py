@@ -14,26 +14,13 @@ from types import MappingProxyType
 from .credentials import PUBLIC, AuthMethod
 from .models import Value
 from .profiles import EPIC_PROFILE, SMART_REFERENCE_PROFILE
-from .source_settings import ClientRegistration, FetchProfile, ScopeVersion, SourceSettings
+from .source_settings import ClientRegistration, FetchProfile, SourceSettings
+from .vocab import ScopeVersion, TypeChoice
 
 
 class VendorKey(StrEnum):
     EPIC = "epic"
     SMART_REFERENCE = "smart-reference"  # the SMART Health IT sandbox: dev and end-to-end runs
-
-
-class TypeChoice(StrEnum):
-    """Where the patient chooses which record types to share.
-
-    HOST: the host shows its own checklist and narrows the requested scopes to the ticked types.
-    EHR: the vendor's authorization screen asks per type itself, from the app registration, and
-    ignores the narrowing (Epic, observed 2026-11-04: every registered category is listed, ticked,
-    whatever the request asked for). The host should not ask twice: it requests every type and
-    the patient's choice shows up as scopes the EHR did not grant.
-    """
-
-    HOST = "host"
-    EHR = "ehr"
 
 
 class Vendor(Value):
@@ -55,6 +42,7 @@ class Vendor(Value):
                 scope_version=self.scope_version,
             ),
             fetch=self.fetch,
+            type_choice=self.type_choice,
         )
 
 

@@ -14,12 +14,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import math
 import secrets
 import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from pydantic import SecretStr
@@ -53,11 +54,22 @@ class SmartConfiguration(Value):
         return "S256" in self.code_challenge_methods
 
     @classmethod
-    def parse(cls, iss: str, raw: JsonObject) -> SmartConfiguration:
+    def parse(cls, iss: str, raw: JsonObject, allow_http: bool = False) -> SmartConfiguration:
+        """The discovery document. The authorization server may be on another host than the FHIR
+        server (SMART allows it), so the endpoints are trusted as published; but the patient is
+        sent to the authorize endpoint, so it must be an absolute https URL (http only when the
+        host allows it, i.e. in development)."""
+
         def strings(key: str) -> frozenset[str]:
             v = raw.get(key)
             return frozenset(x for x in v if isinstance(x, str)) if isinstance(v, list) else frozenset()
 
+        for key in ("authorization_endpoint", "token_endpoint"):
+            url = raw.get(key)
+            parts = urlsplit(url) if isinstance(url, str) else None
+            schemes = ("https", "http") if allow_http else ("https",)
+            if parts is None or parts.scheme not in schemes or not parts.netloc:
+                raise ValueError(f"{key} is not an absolute {' or '.join(schemes)} URL")
         return cls(
             issuer=iss,
             authorization_endpoint=str(raw["authorization_endpoint"]),
@@ -72,7 +84,9 @@ _cache: dict[str, tuple[float, SmartConfiguration]] = {}
 _cache_lock = threading.Lock()
 
 
-def discover(iss: str, http: requests.Session, timeout: float = DEFAULT_TIMEOUT) -> SmartConfiguration:
+def discover(
+    iss: str, http: requests.Session, timeout: float = DEFAULT_TIMEOUT, allow_http: bool = False
+) -> SmartConfiguration:
     """`.well-known/smart-configuration`, cached per base URL for a day."""
     key = iss.rstrip("/")
     now = time.monotonic()
@@ -84,7 +98,7 @@ def discover(iss: str, http: requests.Session, timeout: float = DEFAULT_TIMEOUT)
     try:
         r = http.get(f"{key}/.well-known/smart-configuration", headers={"Accept": "application/json"}, timeout=timeout)
         r.raise_for_status()
-        config = SmartConfiguration.parse(iss, r.json())
+        config = SmartConfiguration.parse(iss, r.json(), allow_http)
     except (requests.RequestException, ValueError, KeyError, TypeError) as e:
         raise SmartError(f"Could not reach this organization's sign-in service ({type(e).__name__}).") from e
     with _cache_lock:
@@ -135,7 +149,10 @@ def authorize_url(
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     }
-    return f"{config.authorization_endpoint}?{urlencode(params)}"
+    # Merged into any query the endpoint already has (a tenant parameter, say), ours winning.
+    parts = urlsplit(config.authorization_endpoint)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True)) | params
+    return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 def assertion_claims(client_id: str, token_endpoint: str, now: int) -> dict[str, str | int]:
@@ -219,20 +236,36 @@ def exchange(
         body = r.json()
     except ValueError:
         raise SmartError("The organization's sign-in service sent an unreadable answer.") from None
+    if not isinstance(body, dict):
+        raise SmartError("The organization's sign-in service sent an unreadable answer.")
     access_token, patient = body.get("access_token"), body.get("patient")
-    if not isinstance(access_token, str) or not access_token or patient in (None, ""):
+    if not isinstance(access_token, str) or not access_token or not isinstance(patient, str) or not patient:
         raise SmartError("The organization did not return patient access.")
+    token_type = body.get("token_type")
+    if not isinstance(token_type, str) or token_type.lower() != "bearer":
+        raise SmartError("The organization returned a kind of access this service cannot use.")
     scope = body.get("scope")
     granted = tuple((scope if isinstance(scope, str) else " ".join(attempt.scopes)).split())
-    expires_in = body.get("expires_in")
-    seconds = int(expires_in) if isinstance(expires_in, int | float | str) and str(expires_in).isdigit() else 3600
     # Refresh and id tokens are dropped here: offline access is not requested, and a token we do
     # not use must not be stored or logged.
     return TokenResponse(
         access_token=SecretStr(access_token),
-        expires_at=clock() + timedelta(seconds=seconds),
+        expires_at=clock() + timedelta(seconds=_expires_in(body.get("expires_in"))),
         scopes_granted=granted,
-        patient=str(patient),
-        token_type=str(body.get("token_type") or "Bearer"),
-        refresh_token_issued="refresh_token" in body,
+        patient=patient,
     )
+
+
+DEFAULT_EXPIRES_IN = 3600  # seconds, when the server does not say (RFC 6749 makes it optional)
+
+
+def _expires_in(value: object) -> float:
+    """`expires_in` as a number of seconds: an int, a float, or either as a string. A missing or
+    unreadable value is the default; a non-positive one is taken as expired at once."""
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        return DEFAULT_EXPIRES_IN
+    try:
+        seconds = float(value)
+    except ValueError:
+        return DEFAULT_EXPIRES_IN
+    return max(seconds, 0.0) if math.isfinite(seconds) else DEFAULT_EXPIRES_IN
