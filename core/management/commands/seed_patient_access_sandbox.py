@@ -19,12 +19,35 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
+from pydantic import BaseModel, ConfigDict
 
 from core.models import EhrBrand, EhrBrandLocation, EhrVendor, JheSetting
 from core.services.jhe_settings import SettingValueType
 from patient_access.testing.smart_sandbox import SandboxConfig
 
 DEFAULT_FILE = Path("core") / "data" / "patient_access_sandbox.json"
+
+
+class SandboxBrand(BaseModel):
+    """One sandbox "hospital" in the file: its name and address, and the sandbox launch options
+    its iss encodes (the fields of `SandboxConfig`)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    line: str
+    city: str
+    state: str
+    postal: str
+    launch: dict[str, Any]
+
+
+class SandboxSpec(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    vendor: str
+    client_id: str
+    brands: tuple[SandboxBrand, ...]
 
 
 def _set(key: str, value_type: SettingValueType, value: Any) -> None:
@@ -41,35 +64,35 @@ class Command(BaseCommand):
         parser.add_argument("--file", default=str(DEFAULT_FILE), help="Sandbox brands JSON (default: %(default)s).")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        spec = json.loads(Path(options["file"]).read_text())
+        spec = SandboxSpec.model_validate(json.loads(Path(options["file"]).read_text()))
         self.seed_brands(spec)
         self.seed_s3_settings()
 
     @transaction.atomic
-    def seed_brands(self, spec: dict[str, Any]) -> None:
-        vendor, _ = EhrVendor.objects.get_or_create(name=spec["vendor"])
-        vendor.ehr_client_id = spec["client_id"]  # the sandbox accepts any client id
+    def seed_brands(self, spec: SandboxSpec) -> None:
+        vendor, _ = EhrVendor.objects.get_or_create(name=spec.vendor)
+        vendor.ehr_client_id = spec.client_id  # the sandbox accepts any client id
         vendor.supported_scopes = " ".join(EhrVendor.SUPPORTED_SCOPES)
         vendor.save()
-        names = [b["name"] for b in spec["brands"]]
+        names = [b.name for b in spec.brands]
         EhrBrand.objects.filter(vendor=vendor).exclude(name__in=names).delete()
-        for b in spec["brands"]:
-            iss = SandboxConfig(client_id=spec["client_id"], **b["launch"]).iss()
+        for b in spec.brands:
+            iss = SandboxConfig(client_id=spec.client_id, **b.launch).iss()
             brand, _ = EhrBrand.objects.update_or_create(
-                vendor=vendor, name=b["name"], defaults={"fhir_base_url": iss, "fhir_version": "4.0.1"}
+                vendor=vendor, name=b.name, defaults={"fhir_base_url": iss, "fhir_version": "4.0.1"}
             )
             EhrBrandLocation.objects.update_or_create(
                 brand=brand,
-                name=b["name"],
+                name=b.name,
                 defaults={
-                    "address_text": f"{b['line']}, {b['city']}, {b['state']} {b['postal']}",
-                    "city": b["city"],
-                    "state": b["state"],
-                    "postal_code": b["postal"],
+                    "address_text": f"{b.line}, {b.city}, {b.state} {b.postal}",
+                    "city": b.city,
+                    "state": b.state,
+                    "postal_code": b.postal,
                     "country": "US",
                 },
             )
-            self.stdout.write(f"{b['name']} ({vendor.name})")
+            self.stdout.write(f"{b.name} ({vendor.name})")
 
     def seed_s3_settings(self) -> None:
         bucket = os.getenv("PATIENT_ACCESS_DEV_S3_BUCKET")

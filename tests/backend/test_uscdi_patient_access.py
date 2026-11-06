@@ -42,6 +42,7 @@ from core.patient_access.settings import read_patient_access_settings
 from core.views.uscdi_patient_access import FLOW_ERROR_KEY
 from patient_access.core.models import JobStatus
 from patient_access.core.pipeline import DeliveryRefused
+from patient_access.core.settings import DEFAULT_LAYOUT
 from patient_access.core.smart import clear_discovery_cache
 from patient_access.django_app.models import AuthAttemptRecord, JobRecord
 from patient_access.django_app.wiring import get_module
@@ -479,17 +480,56 @@ def test_a_dead_token_never_falls_through_to_the_session(world):
     assert browser.get("/api/v1/uscdi-patient-access/profile", **dead).status_code in (401, 403)
 
 
-def test_a_practitioner_who_is_also_a_patient_gets_nothing_by_session(world, user, organization):
-    """Even through the client's own invitation link: a dual-role user is never 'the patient' here."""
+def test_a_practitioner_who_is_also_a_patient_uses_their_link_like_any_patient(world, user, organization):
+    """The mark says whose session this is; what else the user is does not matter. Through the
+    link they get this client's routes for their own patient, and nothing else by that session."""
     dual = Patient.objects.create(jhe_user=user, name_family="Dual", name_given="D")
     add_patient_to_study(dual, world["study"])
     browser = patient_browser(dict(world, patient=dual))
-    for route in ("profile", "consents", "fhir-sources", "brands"):
-        assert browser.get(f"/api/v1/uscdi-patient-access/{route}").status_code in (401, 403), route
+    assert browser.get("/api/v1/uscdi-patient-access/profile").json()["patient"]["id"] == dual.id
+    for route in ("consents", "fhir-sources", "brands"):
+        assert browser.get(f"/api/v1/uscdi-patient-access/{route}").status_code == 200, route
     assert browser.get(f"/api/v1/patients/{world['patient'].id}/consents").status_code in (401, 403)
+    assert browser.get(f"/api/v1/patients/{dual.id}/consents").status_code in (401, 403)  # shared: token-only
     allauth = Client()
     allauth.force_login(user)  # the ordinary practitioner login: no mark at all
     assert allauth.get("/api/v1/uscdi-patient-access/consents").status_code in (401, 403)
+
+
+def test_a_failed_link_ends_whatever_session_the_browser_had(world):
+    """A shared device: patient A used it, patient B's link is dead. Back from the error screen
+    must not open A's hub."""
+    browser = patient_browser(world)
+    assert browser.get("/api/v1/uscdi-patient-access/profile").status_code == 200
+    r = browser.get(CONNECT, {"code": "testserver_nope"})
+    assert r["Location"].endswith("?route=error")
+    assert "_auth_user_id" not in browser.session
+    assert browser.get("/api/v1/uscdi-patient-access/profile").status_code in (401, 403)
+    assert flow_error(browser)["title"] == "This invitation link isn't valid"
+
+
+def test_the_authorize_page_refuses_the_invitation_session(world, user):
+    """The session is the link's, for this client's routes: it can never be exchanged for a
+    token, for any application. A practitioner's own login is unaffected."""
+    query = {
+        "client_id": world["app"].client_id,
+        "response_type": "code",
+        "redirect_uri": "http://testserver/auth/callback",
+        "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        "code_challenge_method": "S256",
+    }
+    browser = patient_browser(world)
+    assert browser.get("/o/authorize/", query).status_code == 403
+    assert browser.post("/o/authorize/", query).status_code == 403
+    allauth = Client()
+    allauth.force_login(user)
+    assert allauth.get("/o/authorize/", query).status_code != 403
+
+
+def test_a_malformed_source_filter_is_a_400_not_a_500(world):
+    browser = patient_browser(world)
+    assert browser.get("/api/v1/uscdi-patient-access/jobs", {"source": "\u00b2"}).status_code == 400
+    assert browser.get("/api/v1/uscdi-patient-access/jobs", {"source": "abc"}).status_code == 400
 
 
 def test_a_link_cannot_reset_a_patients_consents(world):
@@ -540,10 +580,10 @@ def set_setting(key, value_type, value):
 @pytest.mark.parametrize(
     ("key", "value_type", "value", "message"),
     [
-        ("patient_access.s3.layout", "string", "{attrs.patient_id}/bundle.json", "per-pull"),
-        ("patient_access.s3.layout", "string", "{attrs.ssn}/{job.id}", "not available"),
-        ("patient_access.s3.layout", "string", "{attrs.patient_id}/{created_at:%Y}/b.json", "per-pull"),
-        ("patient_access.s3.layout", "string", "{job.__init__}/{job.id}", "private"),
+        ("patient_access.s3.layout", "string", "{job.id}/{attrs.patient_id}", "appended by the module"),
+        ("patient_access.s3.layout", "string", "{attrs.ssn}", "not available"),
+        ("patient_access.s3.layout", "string", "{attrs.patient_id}/{created_at:%Y}", "appended by the module"),
+        ("patient_access.s3.layout", "string", "{job.__init__}", "private"),
         ("patient_access.s3.bucket", "string", "Not A Bucket", "bucket name"),
         ("patient_access.s3.encryption", "string", "rot13", "one of"),
         ("patient_access.fhir.extension_base_url", "string", "http://x.org/sd", "https URL ending in /"),
@@ -560,13 +600,41 @@ def test_settings_are_validated_when_saved(superuser, key, value_type, value, me
     assert message in json.dumps(r.json())
 
 
+@pytest.mark.parametrize(("debug", "status"), [(False, 400), (True, 201)])
+def test_an_http_endpoint_is_accepted_only_in_debug(superuser, debug, status):
+    api = APIClient()
+    api.default_format = "json"
+    api.force_authenticate(superuser)
+    with override_settings(DEBUG=debug):
+        r = api.post(
+            "/api/v1/jhe_settings",
+            {"key": "patient_access.s3.endpoint_url", "valueType": "string", "value": "http://s3:9000"},
+        )
+    assert r.status_code == status, r.content
+    if not debug:
+        assert "https" in json.dumps(r.json())
+
+
+def test_other_clients_invitations_still_redeem_for_a_grant(world):
+    """The generic endpoint refuses only this client's invitations; the EHR Patient Portal's and
+    the rest keep working as before."""
+    other = get_application_model().objects.create(
+        name="Other", client_type="public", authorization_grant_type="authorization-code"
+    )
+    invitation = PatientInvitation.issue(world["patient"], other)
+    r = Client().post(f"/api/v1/invitation/{invitation.token}")
+    assert r.status_code == 200, r.content
+    assert r.json()["grant"]["code"] and r.json()["grant"]["client_id"] == other.client_id
+    assert PatientInvitation.objects.get(id=invitation.id).status == PatientInvitation.Status.REDEEMED
+
+
 def test_the_settings_provider_reads_rows_with_defaults(db):
     with pytest.raises(ValueError, match="bucket"):
         read_patient_access_settings()
     set_setting("patient_access.s3.bucket", "string", "pulls")
     set_setting("patient_access.s3.endpoint_url", "string", "")
     s = read_patient_access_settings()
-    assert s.s3.bucket == "pulls" and s.s3.endpoint_url is None and "{created_at" in s.s3.layout
+    assert s.s3.bucket == "pulls" and s.s3.endpoint_url is None and s.s3.layout == DEFAULT_LAYOUT
     assert s.bundle.extension_base_url == "https://jupyterhealth.org/fhir/StructureDefinition/"
 
 
