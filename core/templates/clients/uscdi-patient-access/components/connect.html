@@ -13,10 +13,10 @@
       <div id="hospital-results" aria-live="polite"></div>
     </div>
   </div>
-  <!-- The launch: a real form post. The server records the attempt and redirects to the EHR's
-       sign-in; the search box stays outside it so Enter there never submits. -->
-  <form id="launch-form" method="post" action="{{launchUrl}}">
-    <input type="hidden" name="csrfmiddlewaretoken" value="{{csrfToken}}" />
+  <!-- The launch's fields: submitting sends them to the server's launch (upaLaunch), which
+       answers with the EHR's sign-in URL. The search box stays outside so Enter there never
+       submits. -->
+  <form id="launch-form">
     <input type="hidden" name="data_source_id" value="{{dataSourceId}}" />
     <input type="hidden" name="location_id" id="launch-location" value="" />
     <fieldset id="scope-picker" hidden style="border: 0; margin: 0; padding: 0; min-width: 0">

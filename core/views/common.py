@@ -1,6 +1,5 @@
 import logging
 import secrets
-from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import jwt
@@ -11,7 +10,7 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login
 from django.contrib.auth import logout as django_logout
 from django.contrib.auth.views import LoginView as BaseLoginView
-from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -20,12 +19,11 @@ from django.utils.http import urlsafe_base64_decode
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from oauth2_provider.models import get_access_token_model
-from oauth2_provider.views import AuthorizationView, TokenView
+from oauth2_provider.views import TokenView
 from oauthlib.common import Request
 
 from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
 from core.models import Practitioner
-from core.patient_access.authentication import session_mark
 from core.services.jhe_settings import get_setting
 from core.views.patient_facing import patient_facing_config
 
@@ -234,17 +232,6 @@ def json_error(msg, status_code=400):
     response = JsonResponse({"error": msg})
     response.status_code = status_code
     return response
-
-
-class JheAuthorizationView(AuthorizationView):
-    """DOT's authorize page, refused to a USCDI Patient Access session. That session is the
-    invitation link's, for that client's own routes; it is not a login that may be exchanged for
-    a token, for any application."""
-
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        if session_mark(request) is not None:
-            return HttpResponseForbidden("This session cannot authorize applications.")
-        return super().dispatch(request, *args, **kwargs)
 
 
 class JheTokenView(TokenView):

@@ -25,7 +25,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
-from core.views.common import JheAuthorizationView, JheTokenView
+from core.views.common import JheTokenView
 
 # Relative form of settings.OAUTH_MOUNT_PATH ("/o/" -> "o/"), which is what path() takes.
 _OAUTH_MOUNT = settings.OAUTH_MOUNT_PATH.lstrip("/")
@@ -35,8 +35,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # Override DOT's token endpoint to return JSON on errors (#192) before the include.
     path(f"{_OAUTH_MOUNT}token/", JheTokenView.as_view(), name="token"),
-    # And the authorize page, which refuses a USCDI Patient Access session (see the view).
-    path(f"{_OAUTH_MOUNT}authorize/", JheAuthorizationView.as_view(), name="authorize"),
     path(_OAUTH_MOUNT, include("oauth2_provider.urls", namespace="oauth2_provider")),
     path("accounts/", include("django.contrib.auth.urls")),
     path("allauth/", include("allauth.urls")),

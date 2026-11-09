@@ -121,26 +121,17 @@ urlpatterns = [
         uscdi_patient_access.callback,
         name="uscdi-patient-access-callback",
     ),
-    path("clients/uscdi-patient-access/launch", uscdi_patient_access.launch, name="uscdi-patient-access-launch"),
-    path(
-        "clients/uscdi-patient-access/sign-out",
-        uscdi_patient_access.sign_out,
-        name="uscdi-patient-access-sign-out",
-    ),
-    # The shell's calls, on this client's own routes (JHE's shared ones stay token-only).
-    path("api/v1/uscdi-patient-access/profile", uscdi_patient_access.profile, name="uscdi-patient-access-profile"),
-    path("api/v1/uscdi-patient-access/consents", uscdi_patient_access.consents, name="uscdi-patient-access-consents"),
-    path(
-        "api/v1/uscdi-patient-access/fhir-sources",
-        uscdi_patient_access.fhir_sources,
-        name="uscdi-patient-access-fhir-sources",
-    ),
-    path("api/v1/uscdi-patient-access/brands", uscdi_patient_access.brands, name="uscdi-patient-access-brands"),
+    path("api/v1/uscdi-patient-access/launch", uscdi_patient_access.launch, name="uscdi-patient-access-launch"),
     path("api/v1/uscdi-patient-access/jobs", uscdi_patient_access.jobs, name="uscdi-patient-access-jobs"),
     path(
         "api/v1/uscdi-patient-access/jobs/<str:job_id>",
         uscdi_patient_access.job,
         name="uscdi-patient-access-job",
+    ),
+    path(
+        "api/v1/uscdi-patient-access/sign-out",
+        uscdi_patient_access.sign_out,
+        name="uscdi-patient-access-sign-out",
     ),
     path(
         "api/v1/ehr-patient-portal/identifier",

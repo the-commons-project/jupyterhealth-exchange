@@ -421,7 +421,7 @@ class Command(BaseCommand):
             },
             {
                 # USCDI Patient Access: the server-side counterpart of the EHR Patient Portal.
-                # The invitation link starts a patient session; the EHR returns to
+                # The shell redeems the invitation link for a token; the EHR returns to
                 # /clients/uscdi-patient-access/callback, registered on each vendor's app.
                 "name": "USCDI Patient Access",
                 "invitation_url": f"{settings.SITE_URL}/clients/uscdi-patient-access/?code=CODE",

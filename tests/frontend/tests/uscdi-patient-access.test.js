@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, beforeEach, jest } from "@jest/globals";
+import { describe, test, expect, beforeAll, beforeEach, afterEach, jest } from "@jest/globals";
 const fs = require("fs");
 const path = require("path");
 
@@ -22,6 +22,21 @@ function renderShell() {
 
 function jsonResponse(body, ok = true) {
   return Promise.resolve({ ok: ok, status: ok ? 200 : 400, json: () => Promise.resolve(body) });
+}
+
+function respond(status, body) {
+  return Promise.resolve({ ok: status < 400, status: status, json: () => Promise.resolve(body) });
+}
+
+// Let the promise chains a click or a submit started run to the end.
+function settle() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+const AUTHORIZE = "https://ehr.example.org/authorize?state=s";
+
+function launchCalls() {
+  return global.fetch.mock.calls.filter((c) => String(c[0]).endsWith("/api/v1/uscdi-patient-access/launch"));
 }
 
 const JOB = {
@@ -53,71 +68,44 @@ beforeEach(() => {
   global.fetch = jest.fn();
   sessionStorage.clear();
   global.PATIENT_FACING_CONFIG = {
-    auth: "session",
-    csrfToken: "csrf-1",
-    launchUrl: "/clients/uscdi-patient-access/launch",
     dataSourceIds: [5],
     sourceLabels: { 5: "USCDI Patient Access" },
     pageUrl: "/clients/uscdi-patient-access/",
     siteTitle: "T",
     expectedResourceTypes: ["Condition", "Observation"],
-    flowError: null,
+    available: true,
+    allowHttpSignIn: false,
   };
+  window.storeToken("tok");
   global.CONSTANTS = { EHR_SUPPORTED_SCOPES: { "patient/Observation.read": "Labs & Vital Signs" } };
   renderShell();
 });
 
-// The connect step as the shell renders it, with the launch form's submissions captured instead of
-// followed (jsdom cannot navigate): `posted` collects each submission's fields.
-async function connectStep() {
-  global.fetch = jest.fn(() => jsonResponse({ results: [] }));
-  await window.pfClient.connect({ id: 5 });
-  const form = document.getElementById("launch-form");
-  const posted = [];
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    posted.push(new FormData(form));
-  });
-  return { form, posted };
-}
-
-describe("the shell in session mode", () => {
-  test("sends no bearer token and the CSRF token on writes only", async () => {
-    global.fetch = jest.fn(() => jsonResponse({}));
-    await window.pfApi("GET", "users/profile");
-    await window.pfApi("POST", "patients/1/consents", { a: 1 });
-    const [, getOpts] = global.fetch.mock.calls[0];
-    const [, postOpts] = global.fetch.mock.calls[1];
-    expect(getOpts.headers.Authorization).toBeUndefined();
-    expect(getOpts.headers["X-CSRFToken"]).toBeUndefined();
-    expect(postOpts.headers["X-CSRFToken"]).toBe("csrf-1");
-    expect(postOpts.credentials).toBe("same-origin");
-  });
-
-  test("other clients keep their bearer token", async () => {
-    global.PATIENT_FACING_CONFIG.auth = undefined;
-    window.storeToken("tok");
-    global.fetch = jest.fn(() => jsonResponse({}));
-    await window.pfApi("PATCH", "patients/1/consents", {});
-    const [, opts] = global.fetch.mock.calls[0];
-    expect(opts.headers.Authorization).toBe("Bearer tok");
-    expect(opts.headers["X-CSRFToken"]).toBeUndefined();
-  });
-
-  test("the stored-token gate does not apply", async () => {
-    window.PF_ROUTES.hub = jest.fn();
-    await window.patientApp();
-    expect(document.getElementById("pf_main").textContent).not.toContain("Your session has ended");
-    expect(window.PF_ROUTES.hub).toHaveBeenCalled();
-  });
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
+// The connect step as the shell renders it. The launch answers with an authorize URL, and the page
+// going there is captured instead of followed (jsdom cannot navigate).
+async function connectStep(launchAnswer = () => respond(200, { authorizeUrl: AUTHORIZE })) {
+  global.fetch = jest.fn((url) => (String(url).includes("/launch") ? launchAnswer() : jsonResponse({ results: [] })));
+  await window.pfClient.connect({ id: 5 });
+  const go = jest.spyOn(window.upaBrowser, "go").mockImplementation(() => {});
+  return { form: document.getElementById("launch-form"), go };
+}
+
+function launched(i = 0) {
+  const [, options] = launchCalls()[i];
+  return { headers: options.headers, body: JSON.parse(options.body) };
+}
+
 describe("the picker and the launch", () => {
-  test("searches the brands through the client's own route", async () => {
+  test("searches the brands on the EHR Patient Portal's route, with the token", async () => {
     const rows = [{ id: 9, brandName: "Example Health", facilityName: "Clinic", addressText: "1 Main" }];
     global.fetch = jest.fn(() => jsonResponse({ results: rows }));
     expect(await window.upaSearchBrands("example")).toEqual(rows);
-    expect(global.fetch.mock.calls[0][0]).toContain("/api/v1/uscdi-patient-access/brands?q=example");
+    expect(global.fetch.mock.calls[0][0]).toContain("/api/v1/ehr-patient-portal/brands?q=example");
+    expect(global.fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer tok");
   });
 
   test("a failed search is an empty list", async () => {
@@ -125,14 +113,56 @@ describe("the picker and the launch", () => {
     expect(await window.upaSearchBrands("x")).toEqual([]);
   });
 
-  test("the connect step is a real form posting to the launch, with the search box outside it", async () => {
+  test("the connect form posts nowhere itself, and the search box stays outside it", async () => {
     const { form } = await connectStep();
-    expect(form.getAttribute("method")).toBe("post");
-    expect(form.getAttribute("action")).toBe("/clients/uscdi-patient-access/launch");
-    const fields = new FormData(form);
-    expect(fields.get("csrfmiddlewaretoken")).toBe("csrf-1");
-    expect(fields.get("data_source_id")).toBe("5");
+    expect(form.getAttribute("method")).toBeNull();
+    expect(form.getAttribute("action")).toBeNull();
+    expect(new FormData(form).get("data_source_id")).toBe("5");
     expect(form.contains(document.getElementById("hospital-search"))).toBe(false);
+    const submit = new Event("submit", { cancelable: true });
+    form.dispatchEvent(submit);
+    expect(submit.defaultPrevented).toBe(true); // never a native submit
+  });
+
+  test("the launch sends JSON with the token, then goes to the authorize URL", async () => {
+    const { go } = await connectStep();
+    document.getElementById("launch-location").value = "9";
+    await window.upaLaunch(document.getElementById("launch-form"));
+    const { headers, body } = launched();
+    expect(headers.Authorization).toBe("Bearer tok");
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(body).toEqual({ location_id: "9", data_source_id: "5", scopes: [] });
+    expect(go).toHaveBeenCalledWith(AUTHORIZE);
+  });
+
+  test("only an https authorize URL is followed, unless the server allows http", async () => {
+    expect(window.upaSafeSignInUrl("https://ehr.example.org/a")).toBe(true);
+    expect(window.upaSafeSignInUrl("http://ehr.example.org/a")).toBe(false);
+    expect(window.upaSafeSignInUrl("javascript:alert(1)")).toBe(false);
+    expect(window.upaSafeSignInUrl(undefined)).toBe(false);
+    global.PATIENT_FACING_CONFIG.allowHttpSignIn = true;
+    expect(window.upaSafeSignInUrl("http://localhost:9000/a")).toBe(true);
+    global.PATIENT_FACING_CONFIG.allowHttpSignIn = false;
+    const { go } = await connectStep(() => respond(200, { authorizeUrl: "http://ehr.example.org/a" }));
+    await window.upaLaunch(document.getElementById("launch-form"));
+    expect(go).not.toHaveBeenCalled();
+    expect(document.getElementById("pf_main").textContent).toContain("We couldn't reach your healthcare organization");
+  });
+
+  test("a refused launch shows its reason's copy, never the server's text", async () => {
+    const { go } = await connectStep(() => respond(400, { reason: "no_types", detail: "Server words" }));
+    await window.upaLaunch(document.getElementById("launch-form"));
+    const text = document.getElementById("pf_main").textContent;
+    expect(text).toContain("Please choose at least one kind of record to share.");
+    expect(text).not.toContain("Server words");
+    expect(go).not.toHaveBeenCalled();
+    expect(window.location.search).toContain("reason=no_types");
+  });
+
+  test("a launch whose token has died says the session has ended", async () => {
+    await connectStep(() => respond(401, { detail: "Authentication credentials were not provided." }));
+    await window.upaLaunch(document.getElementById("launch-form"));
+    expect(document.getElementById("pf_main").textContent).toContain("Your session has ended");
   });
 
   test("a vendor whose own screen asks per type submits straight away, without the checklist", async () => {
@@ -140,26 +170,29 @@ describe("the picker and the launch", () => {
     expect(window.upaTypeChoice({ vendorName: "Epic Sandbox" })).toBe("ehr");
     expect(window.upaTypeChoice({ vendorName: "SMART Sandbox" })).toBe("host");
     expect(window.upaTypeChoice({ vendorName: "Unknown" })).toBe("host");
-    const { posted } = await connectStep();
+    const { go } = await connectStep();
     window.upaAfterHospital({ id: 9, vendorName: "Epic Sandbox", supportedScopes: "patient/Patient.read patient/Observation.read" });
-    expect(posted.length).toBe(1);
-    expect(posted[0].get("location_id")).toBe("9");
-    expect(posted[0].getAll("scopes")).toEqual([]); // the server requests every type for this vendor
+    await settle();
+    expect(launchCalls().length).toBe(1);
+    expect(launched().body.location_id).toBe("9");
+    expect(launched().body.scopes).toEqual([]); // the server requests every type for this vendor
     expect(document.getElementById("scope-picker").hidden).toBe(true);
+    expect(go).toHaveBeenCalledWith(AUTHORIZE);
   });
 
-  test("a vendor without its own per-type screen gets the checklist; Continue posts the ticked types", async () => {
+  test("a vendor without its own per-type screen gets the checklist; Continue launches with the ticked types", async () => {
     global.PATIENT_FACING_CONFIG.typeChoiceByVendor = { "SMART Sandbox": "host" };
     global.CONSTANTS.EHR_SUPPORTED_SCOPES["patient/Patient.read"] = "Demographics";
-    const { posted } = await connectStep();
+    await connectStep();
     window.upaAfterHospital({ id: 9, vendorName: "SMART Sandbox", supportedScopes: "patient/Patient.read patient/Observation.read" });
-    expect(posted.length).toBe(0);
+    await settle();
+    expect(launchCalls().length).toBe(0);
     expect(document.getElementById("scope-picker").hidden).toBe(false);
     document.querySelector('#scope-picker-list input[value="patient/Patient.read"]').checked = false;
     document.getElementById("scope-picker-continue").click();
-    expect(posted.length).toBe(1);
-    expect(posted[0].get("location_id")).toBe("9");
-    expect(posted[0].getAll("scopes")).toEqual(["patient/Observation.read"]);
+    await settle();
+    expect(launchCalls().length).toBe(1);
+    expect(launched().body).toEqual({ location_id: "9", data_source_id: "5", scopes: ["patient/Observation.read"] });
   });
 
   test("the checklist offers the vendor's known scopes as ticked form fields", () => {
@@ -282,41 +315,37 @@ describe("hub and manage", () => {
   });
 });
 
-describe("errors carried by the server", () => {
-  test("a carried error is shown instead of the app", () => {
-    global.PATIENT_FACING_CONFIG.flowError = { title: "This invitation link isn't valid", message: "Ask for a new link." };
-    window.upaStart();
-    const text = document.getElementById("pf_main").textContent;
-    expect(text).toContain("This invitation link isn't valid");
-    expect(text).toContain("Ask for a new link.");
-  });
-
-  test("without one, the error route falls back to the query string", () => {
-    window.upaError({ title: "Something", message: "From the URL" });
-    expect(document.getElementById("pf_main").textContent).toContain("From the URL");
-  });
-});
-
-describe("the shell's calls and signing out", () => {
-  test("the shell's own calls go to the client's routes when it maps them", async () => {
-    global.PATIENT_FACING_CONFIG.apiPaths = { profile: "uscdi-patient-access/profile" };
-    expect(window.pfPath("profile", "users/profile")).toBe("uscdi-patient-access/profile");
-    expect(window.pfPath("fhirSources", "fhir_sources")).toBe("fhir_sources");
-    global.PATIENT_FACING_CONFIG.apiPaths = undefined;
-    expect(window.pfPath("profile", "users/profile")).toBe("users/profile"); // every other client
-  });
-
-  test("hub, done and manage carry a sign-out form posting with the CSRF token", () => {
-    global.PATIENT_FACING_CONFIG.signOutUrl = "/clients/uscdi-patient-access/sign-out";
+describe("signing out", () => {
+  test("hub, done and manage carry one Sign out button", () => {
     document.getElementById("pf_main").innerHTML = "<p>hub</p>";
     window.upaAppendSignOut();
     window.upaAppendSignOut(); // once only
-    const forms = document.querySelectorAll("#pf_main form.upa-sign-out");
-    expect(forms.length).toBe(1);
-    expect(forms[0].getAttribute("action")).toBe("/clients/uscdi-patient-access/sign-out");
-    expect(new FormData(forms[0]).get("csrfmiddlewaretoken")).toBe("csrf-1");
+    expect(document.querySelectorAll("#pf_main .upa-sign-out button").length).toBe(1);
   });
 
+  test("Sign out revokes the token on the server, forgets it, and says so", async () => {
+    global.fetch = jest.fn(() => respond(204, null));
+    document.getElementById("pf_main").innerHTML = "<p>hub</p>";
+    window.upaAppendSignOut();
+    document.querySelector("#pf_main .upa-sign-out button").click();
+    await settle();
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toContain("/api/v1/uscdi-patient-access/sign-out");
+    expect(options.method).toBe("POST");
+    expect(options.headers.Authorization).toBe("Bearer tok");
+    expect(window.getStoredToken()).toBeNull();
+    expect(document.getElementById("pf_main").textContent).toContain("You're signed out");
+  });
+
+  test("a revoke that fails still signs out here", async () => {
+    global.fetch = jest.fn(() => Promise.reject(new Error("offline")));
+    await window.upaSignOut();
+    expect(window.getStoredToken()).toBeNull();
+    expect(document.getElementById("pf_main").textContent).toContain("You're signed out");
+  });
+});
+
+describe("the checklist", () => {
   test("Continue is disabled while nothing is ticked", async () => {
     global.PATIENT_FACING_CONFIG.typeChoiceByVendor = { "SMART Sandbox": "host" };
     await connectStep();
@@ -362,18 +391,107 @@ describe("back from the EHR", () => {
   });
 });
 
+// Every reason the server sends (Reason in core/views/uscdi_patient_access.py).
+const SERVER_REASONS = [
+  "unknown_selection",
+  "not_configured",
+  "sign_in_unavailable",
+  "attempt_invalid",
+  "declined",
+  "no_code",
+  "not_available",
+  "not_a_patient",
+  "invalid_request",
+  "source_unavailable",
+  "consent_required",
+  "no_types",
+  "browser_mismatch",
+  "consent_withdrawn",
+  "identifier_conflict",
+];
+
+function buttonLabels() {
+  return [...document.querySelectorAll("#pf_main .pf-actions .pf-btn")].map((b) => b.textContent.trim());
+}
+
 describe("the error screen", () => {
-  test("a message where retrying cannot help offers only Back", () => {
-    global.PATIENT_FACING_CONFIG.flowError = { title: "You're signed out", message: "Close this page.", retry: false };
-    window.upaError({});
-    const labels = [...document.querySelectorAll("#pf_main .pf-actions .pf-btn")].map((b) => b.textContent.trim());
-    expect(labels).toEqual(["Back"]);
+  test("every reason the server sends has its own copy", () => {
+    for (const reason of SERVER_REASONS) {
+      expect(window.upaReasonCopy(reason)).toBe(window.UPA_REASON_COPY[reason]);
+      expect(window.upaReasonCopy(reason).title).toBeTruthy();
+    }
   });
 
-  test("other errors keep their retry", () => {
-    global.PATIENT_FACING_CONFIG.flowError = { title: "We couldn't start the connection", message: "x", retry: true };
-    window.upaError({});
-    expect(document.querySelectorAll("#pf_main .pf-actions .pf-btn").length).toBe(2);
+  test("an unknown reason gets the generic copy, inherited names included", () => {
+    for (const reason of ["new_reason", "constructor", "__proto__", undefined]) {
+      expect(window.upaReasonCopy(reason).title).toBe("Something went wrong");
+    }
+  });
+
+  test("only the reason is read: a title or message in the URL is never shown", () => {
+    window.upaError({ reason: "declined", title: "Call 555-0100", message: "Their words" });
+    const text = document.getElementById("pf_main").textContent;
+    expect(text).toContain("Nothing was shared");
+    expect(text).not.toContain("555-0100");
+    expect(text).not.toContain("Their words");
+  });
+
+  test("a reason where retrying cannot help offers only Back", () => {
+    window.upaError({ reason: "identifier_conflict" });
+    expect(buttonLabels()).toEqual(["Back"]);
+  });
+
+  test("other reasons keep their retry", () => {
+    window.upaError({ reason: "declined" });
+    expect(buttonLabels().length).toBe(2);
+  });
+});
+
+describe("the page's start", () => {
+  function at(search) {
+    window.history.replaceState({}, "", `/clients/uscdi-patient-access/${search}`);
+  }
+
+  test("with the module off, the page says so", () => {
+    global.PATIENT_FACING_CONFIG.available = false;
+    at("?route=hub");
+    window.upaStart();
+    expect(document.getElementById("pf_main").textContent).toContain("Not available");
+  });
+
+  test("an error the server redirected to shows in a tab without the token", () => {
+    sessionStorage.clear();
+    at("?route=error&reason=browser_mismatch");
+    window.upaStart();
+    const text = document.getElementById("pf_main").textContent;
+    expect(text).toContain("Please connect from the same browser");
+    expect(text).not.toContain("Your session has ended");
+  });
+
+  test("the status route in a tab without the token says the records are being sent", async () => {
+    sessionStorage.clear();
+    at("?route=status&job=j1&source=5");
+    await window.upaStart();
+    const text = document.getElementById("pf_main").textContent;
+    expect(text).toContain("Your records are being sent to your study");
+    expect(text).not.toContain("Your session has ended");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test("anywhere else, a tab without the token gets the shell's gate", async () => {
+    sessionStorage.clear();
+    at("?route=hub");
+    await window.upaStart();
+    expect(document.getElementById("pf_main").textContent).toContain("Your session has ended");
+  });
+
+  test("with the token, the shell runs the route", async () => {
+    at("?route=hub");
+    const hub = window.PF_ROUTES.hub;
+    window.PF_ROUTES.hub = jest.fn();
+    await window.upaStart();
+    expect(window.PF_ROUTES.hub).toHaveBeenCalled();
+    window.PF_ROUTES.hub = hub;
   });
 });
 

@@ -84,17 +84,6 @@ def _env_flag(name: str, default: bool) -> bool:
     return default if value is None else value.strip().lower() in ("1", "true", "yes")
 
 
-# Session and CSRF cookies. SameSite=Lax is Django's default, set here on purpose: the USCDI
-# Patient Access callback depends on it. The EHR sends the patient back with a top-level GET
-# redirect from its own site; Lax lets the session cookie ride along, Strict would drop it and
-# every callback would fail as "not the launching patient". Do not tighten it.
-SESSION_COOKIE_SAMESITE = "Lax"
-CSRF_COOKIE_SAMESITE = "Lax"
-# HTTPS-only cookies wherever DEBUG is off; dev over plain http (DEBUG on) keeps them sendable.
-SESSION_COOKIE_SECURE = _env_flag("SESSION_COOKIE_SECURE", not DEBUG)
-CSRF_COOKIE_SECURE = _env_flag("CSRF_COOKIE_SECURE", not DEBUG)
-
-
 def _patient_access_keys() -> list[str]:
     """PATIENT_ACCESS_ENCRYPTION_KEYS, or the file PATIENT_ACCESS_ENCRYPTION_KEYS_FILE names (the
     docker compose dev stack generates one under ./local; a file reaches `compose exec` commands

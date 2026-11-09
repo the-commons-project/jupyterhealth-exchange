@@ -40,6 +40,14 @@ function getStoredToken() {
   }
 }
 
+function clearStoredToken() {
+  try {
+    sessionStorage.removeItem(PF_TOKEN_KEY);
+  } catch (e) {
+    // sessionStorage unavailable: nothing was stored
+  }
+}
+
 // Exchange an authorization code for an access token; null on failure.
 async function exchangeCodeForToken(clientId, code, codeVerifier, redirectUri) {
   const payload = {
@@ -129,36 +137,14 @@ async function pfErrorText(response) {
   }
 }
 
-// Session mode: a client whose page sets PATIENT_FACING_CONFIG.auth = "session" (USCDI Patient
-// Access) has a Django session from its invitation link instead of a stored bearer token. Its
-// requests are same-origin with the session cookie, and carry the CSRF token on writes.
-function pfSessionMode() {
-  return typeof PATIENT_FACING_CONFIG !== "undefined" && PATIENT_FACING_CONFIG.auth === "session";
-}
-
-const PF_SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];
-
-// Authenticated JSON request against /api/v1/ (bearer token, or the session in session mode); resolves to the parsed body (null for 204), throws on error.
-// The API path for one of the shell's own calls. A client served over its own routes maps them in
-// PATIENT_FACING_CONFIG.apiPaths ({profile, consents, fhirSources}); everyone else gets JHE's.
-function pfPath(name, fallback) {
-  const paths = (PATIENT_FACING_CONFIG && PATIENT_FACING_CONFIG.apiPaths) || {};
-  return paths[name] || fallback;
-}
-
+// Bearer-authenticated JSON request against /api/v1/; resolves to the parsed body (null for 204), throws on error.
 async function pfApi(method, path, body) {
-  const headers = { "Cache-Control": "no-cache" };
-  if (pfSessionMode()) {
-    if (PF_SAFE_METHODS.indexOf(method) === -1) headers["X-CSRFToken"] = PATIENT_FACING_CONFIG.csrfToken;
-  } else {
-    headers.Authorization = `Bearer ${getStoredToken()}`;
-  }
+  const headers = { Authorization: `Bearer ${getStoredToken()}`, "Cache-Control": "no-cache" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(API_ENDPOINT + path, {
     method: method,
     headers: headers,
     body: body === undefined ? undefined : JSON.stringify(body),
-    credentials: "same-origin",
   });
   if (!response.ok) throw new Error(await pfErrorText(response));
   if (response.status === 204) return null;
@@ -221,8 +207,7 @@ async function renderError(params) {
 async function patientApp() {
   pfRegisterPartials();
   const current = pfRouteAndParams();
-  // In session mode the server redeemed the invitation code before serving the page.
-  if (current.params.code && !pfSessionMode()) {
+  if (current.params.code) {
     pfShowLoading();
     try {
       await pfRedeemInvitation(current.params.code);
@@ -235,7 +220,7 @@ async function patientApp() {
     delete current.params.code;
     window.history.replaceState({}, "", pfUrl(current.route, current.params));
   }
-  if (!pfSessionMode() && !getStoredToken()) {
+  if (!getStoredToken()) {
     showFlowError("Your session has ended", "Open the link from your invitation email to continue.");
     return;
   }
@@ -345,12 +330,12 @@ function pfResetPatient() {
 }
 
 async function pfPatientId() {
-  if (!pfPatient) pfPatient = (await pfApi("GET", pfPath("profile", "users/profile"))).patient;
+  if (!pfPatient) pfPatient = (await pfApi("GET", "users/profile")).patient;
   return pfPatient.id;
 }
 
 async function pfSourcesNow() {
-  const consents = await pfApi("GET", pfPath("consents", `patients/${await pfPatientId()}/consents`));
+  const consents = await pfApi("GET", `patients/${await pfPatientId()}/consents`);
   return pfSources(consents, PATIENT_FACING_CONFIG);
 }
 
@@ -372,12 +357,12 @@ function pfConsentWrites(scopes, consented) {
 async function pfWriteConsents(scopes, consented) {
   const patientId = await pfPatientId();
   const writes = pfConsentWrites(scopes, consented);
-  if (writes.POST.length) await pfApi("POST", pfPath("consents", `patients/${patientId}/consents`), { study_scope_consents: writes.POST });
-  if (writes.PATCH.length) await pfApi("PATCH", pfPath("consents", `patients/${patientId}/consents`), { study_scope_consents: writes.PATCH });
+  if (writes.POST.length) await pfApi("POST", `patients/${patientId}/consents`, { study_scope_consents: writes.POST });
+  if (writes.PATCH.length) await pfApi("PATCH", `patients/${patientId}/consents`, { study_scope_consents: writes.PATCH });
 }
 
 async function pfFhirSources() {
-  return (await pfApi("GET", pfPath("fhirSources", "fhir_sources"))).results;
+  return (await pfApi("GET", "fhir_sources")).results;
 }
 
 // The newest FhirSource registered for a data source, or null.
@@ -571,12 +556,12 @@ if (typeof window !== "undefined") {
   window.pfClient = pfClient;
   window.storeToken = storeToken;
   window.getStoredToken = getStoredToken;
+  window.clearStoredToken = clearStoredToken;
   window.exchangeCodeForToken = exchangeCodeForToken;
   window.pfRedeemInvitation = pfRedeemInvitation;
   window.pfRouteAndParams = pfRouteAndParams;
   window.pfUrl = pfUrl;
   window.pfRender = pfRender;
-  window.pfPath = pfPath;
   window.pfShowLoading = pfShowLoading;
   window.pfHideLoading = pfHideLoading;
   window.pfRegisterPartials = pfRegisterPartials;
@@ -588,7 +573,6 @@ if (typeof window !== "undefined") {
   window.patientApp = patientApp;
   window.PF_ROUTES = PF_ROUTES;
   window.PF_ROUTE_TITLES = PF_ROUTE_TITLES;
-  window.pfSessionMode = pfSessionMode;
   window.pfPatientLabel = pfPatientLabel;
   window.pfUniqueSorted = pfUniqueSorted;
   window.pfSources = pfSources;

@@ -3,13 +3,13 @@
 // on the server and delivered to the study's storage. Registers, for the shared patient-facing
 // app (core/static/common/js/patient-facing.js):
 //   - the connect step: hospital picker, then "choose what to share" (copied from the EHR Patient
-//     Portal client, not shared with it), then a real form post to the server's launch, which
-//     redirects to the EHR's sign-in;
+//     Portal client, not shared with it), then the server's launch, which answers with the EHR's
+//     sign-in URL and sets this browser's callback cookie;
 //   - the status route the server's callback redirects to, polling the job;
 //   - its own done and error screens (the done screen reads the job, not JHE's FHIR store, which
-//     this client never writes to).
-// The page runs the shell in session mode (PATIENT_FACING_CONFIG.auth === "session"): every
-// request is same-origin with the patient's session cookie; pfApi adds the CSRF token.
+//     this client never writes to; the error screen words a reason code, never text from the URL).
+// Authentication is the shell's, as for every patient client: the invitation link is redeemed for
+// a bearer token kept in sessionStorage.
 // ────────────────────────────────────────────────────
 
 const UPA_POLL_MS = 2000;
@@ -17,7 +17,7 @@ const UPA_POLL_MS = 2000;
 // Search hospital facilities for the picker. Returns an array of rows (or [] on any failure).
 async function upaSearchBrands(query) {
   try {
-    const out = await pfApi("GET", `uscdi-patient-access/brands?q=${encodeURIComponent(query || "")}`);
+    const out = await pfApi("GET", `ehr-patient-portal/brands?q=${encodeURIComponent(query || "")}`);
     return (out && out.results) || [];
   } catch (e) {
     return [];
@@ -26,7 +26,7 @@ async function upaSearchBrands(query) {
 
 // One pre-checked row per scope the vendor supports (row.supportedScopes), labelled from
 // CONSTANTS.EHR_SUPPORTED_SCOPES. Each checkbox is a form field (name "scopes"), so the ticked
-// ones are what the launch form posts. Returns how many rows were rendered.
+// ones are what the launch sends. Returns how many rows were rendered.
 function upaRenderScopePicker(container, row) {
   container.innerHTML = "";
   const supported = (row.supportedScopes || "").split(/\s+/).filter(Boolean);
@@ -55,15 +55,51 @@ function upaRenderScopePicker(container, row) {
   return rendered;
 }
 
-// Submit the launch form the way a click on its button would (firing "submit", so the loading
-// overlay shows); browsers without requestSubmit get a plain submit.
-function upaSubmitLaunch(form) {
-  if (typeof form.requestSubmit === "function") {
-    form.requestSubmit();
-  } else {
-    pfShowLoading();
-    form.submit();
+// Where the page goes to sign in; one place, so tests can watch it (jsdom cannot navigate).
+const upaBrowser = { go: (url) => window.location.assign(url) };
+
+// Only an https sign-in URL is followed (http too where the server allows it, in development).
+function upaSafeSignInUrl(url) {
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === "https:" || (protocol === "http:" && PATIENT_FACING_CONFIG.allowHttpSignIn === true);
+  } catch (e) {
+    return false;
   }
+}
+
+// The launch: the form's fields as JSON with the bearer token. The server records the attempt,
+// sets this browser's callback cookie on the response and answers with the EHR's authorize URL,
+// which the page then goes to. A refusal is a reason code, shown on the error route.
+async function upaLaunch(form) {
+  const fields = new FormData(form);
+  pfShowLoading();
+  let reason = "invalid_request";
+  try {
+    const response = await fetch(`${API_ENDPOINT}uscdi-patient-access/launch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getStoredToken()}`,
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache",
+      },
+      body: JSON.stringify({
+        location_id: fields.get("location_id"),
+        data_source_id: fields.get("data_source_id"),
+        scopes: fields.getAll("scopes"),
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok && upaSafeSignInUrl(body.authorizeUrl)) {
+      upaBrowser.go(body.authorizeUrl); // assign, not replace: Back returns to the connect step
+      return;
+    }
+    reason = response.status === 401 ? "session_ended" : response.ok ? "sign_in_unavailable" : body.reason || reason;
+  } catch (e) {
+    reason = "sign_in_unavailable";
+  }
+  pfHideLoading();
+  return pfNav("error", { reason: reason });
 }
 
 // Search results as clickable rows (name + address); returns how many were rendered.
@@ -108,7 +144,7 @@ function upaTypeChoice(row) {
 }
 
 // After the patient picks a hospital: record it in the launch form, then the checklist, or
-// straight to the sign-in when the vendor's own screen asks per type (the server then requests
+// straight to the launch when the vendor's own screen asks per type (the server then requests
 // every type whatever the form carries).
 function upaAfterHospital(row) {
   document.getElementById("launch-location").value = String(row.id);
@@ -116,7 +152,7 @@ function upaAfterHospital(row) {
   if (upaTypeChoice(row) === "ehr") {
     const going = document.getElementById("launch-status");
     if (going) going.textContent = `Taking you to ${row.brandName || "your healthcare organization"} to sign in…`;
-    upaSubmitLaunch(document.getElementById("launch-form"));
+    upaLaunch(document.getElementById("launch-form"));
     return;
   }
   document.getElementById("scope-picker").hidden = false;
@@ -130,15 +166,14 @@ function upaAfterHospital(row) {
   update();
 }
 
-// Connect step: the hospital picker, then the scope checklist; Continue submits the launch form.
+// Connect step: the hospital picker, then the scope checklist; Continue launches.
 pfClient.connect = async (source) => {
-  pfRender("t-connect", {
-    rail: pfRail(1),
-    launchUrl: PATIENT_FACING_CONFIG.launchUrl,
-    csrfToken: PATIENT_FACING_CONFIG.csrfToken,
-    dataSourceId: String(source.id),
+  pfRender("t-connect", { rail: pfRail(1), dataSourceId: String(source.id) });
+  const form = document.getElementById("launch-form");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    upaLaunch(form);
   });
-  document.getElementById("launch-form").addEventListener("submit", () => pfShowLoading());
   const picker = {
     container: document.getElementById("hospital-picker"),
     input: document.getElementById("hospital-search"),
@@ -330,25 +365,132 @@ async function upaHub() {
   });
 }
 
-// Error route: errors the server carried in the session (never in the URL) come in the page
-// config; the shell's own ?title=&message= form still works.
-function upaError(params) {
-  const flow = PATIENT_FACING_CONFIG.flowError;
-  if (flow) {
-    return showFlowError(flow.title, flow.message, {
-      retryHref: pfUrl("connect", { source: String(PATIENT_FACING_CONFIG.dataSourceIds[0]) }),
-      noRetry: flow.retry === false,
-    });
-  }
-  return renderError(params);
+// Every reason the server sends (Reason in core/views/uscdi_patient_access.py), and the client's
+// own, in the patient's words. `retry: false` where trying again cannot help: only Back is offered.
+const UPA_REASON_COPY = {
+  unknown_selection: {
+    title: "We couldn't find that organization",
+    message: "Please search for your healthcare organization again.",
+    retry: true,
+  },
+  not_configured: {
+    title: "Not available yet",
+    message: "Sharing records from this healthcare organization is not available yet.",
+    retry: true,
+  },
+  sign_in_unavailable: {
+    title: "We couldn't reach your healthcare organization",
+    message: "Its sign-in is not responding right now. Please try again later.",
+    retry: true,
+  },
+  attempt_invalid: {
+    title: "This sign-in has expired",
+    message: "It took too long or was already used. Please connect again.",
+    retry: true,
+  },
+  declined: {
+    title: "Nothing was shared",
+    message: "Sharing was not approved at your healthcare organization. You can connect again whenever you're ready.",
+    retry: true,
+  },
+  no_code: {
+    title: "We couldn't connect to your healthcare organization",
+    message: "The sign-in did not finish. Please try again.",
+    retry: true,
+  },
+  not_available: {
+    title: "Not available",
+    message: "Sharing records from your healthcare organization is not available here yet.",
+    retry: false,
+  },
+  not_a_patient: {
+    title: "We couldn't start the connection",
+    message: "Open the link from your invitation email to continue.",
+    retry: false,
+  },
+  invalid_request: {
+    title: "We couldn't start the connection",
+    message: "Please choose your healthcare organization again.",
+    retry: true,
+  },
+  source_unavailable: {
+    title: "We couldn't start the connection",
+    message: "This study connection is not available.",
+    retry: false,
+  },
+  consent_required: {
+    title: "We couldn't start the connection",
+    message: "Please agree to share your records with your study first.",
+    retry: true,
+  },
+  no_types: {
+    title: "We couldn't start the connection",
+    message: "Please choose at least one kind of record to share.",
+    retry: true,
+  },
+  browser_mismatch: {
+    title: "Please connect from the same browser",
+    message: "Open the link from your invitation email again in this browser, and connect from there.",
+    retry: false,
+  },
+  consent_withdrawn: {
+    title: "Nothing was fetched",
+    message: "You are no longer sharing records with this study.",
+    retry: false,
+  },
+  identifier_conflict: {
+    title: "We couldn't connect your records",
+    message: "This health record is already linked to another person in this study. Please contact your study team.",
+    retry: false,
+  },
+  // The client's own.
+  session_ended: {
+    title: "Your session has ended",
+    message: "Open the link from your invitation email to continue.",
+    retry: false,
+  },
+  signed_out: {
+    title: "You're signed out",
+    message: "You can close this page. To share again, open the link from your invitation email.",
+    retry: false,
+  },
+};
+const UPA_UNKNOWN_REASON = { title: "Something went wrong", message: "Please try again.", retry: true };
+
+function upaReasonCopy(reason) {
+  return Object.prototype.hasOwnProperty.call(UPA_REASON_COPY, reason) ? UPA_REASON_COPY[reason] : UPA_UNKNOWN_REASON;
 }
 
-// Page entry point: a carried error (an invalid link, a session that ended, a failed callback)
-// is shown instead of the app; otherwise the shell runs as usual.
+// Error route (?route=error&reason=...): the reason's copy. Only the reason is read; a title or
+// message in the URL is never shown, so no one can put their own words on this screen.
+function upaError(params) {
+  const copy = upaReasonCopy(params.reason);
+  return showFlowError(copy.title, copy.message, {
+    retryHref: pfUrl("connect", { source: String(PATIENT_FACING_CONFIG.dataSourceIds[0]) }),
+    noRetry: !copy.retry,
+  });
+}
+
+// The status route in a tab without the token: the EHR returned the browser to a new tab, say.
+// The pull runs anyway; this tab just cannot follow it.
+async function upaSendingElsewhere() {
+  await renderImporting();
+  const lede = document.querySelector("#pf_main .pf-lede");
+  if (lede) lede.textContent = "Your records are being sent to your study. You can close this page; it keeps going.";
+  const copy = document.querySelector("#pf_main .pf-import-card__copy");
+  if (copy) copy.textContent = "To follow progress, open the link from your invitation email.";
+}
+
+// Page entry point. Without a token (and no invitation code to redeem), two screens still show:
+// an error the server redirected here and a pull being sent. Everything else is the shell's,
+// whose gate says the session has ended.
 function upaStart() {
-  if (PATIENT_FACING_CONFIG.flowError) {
-    pfRegisterPartials();
-    return upaError({});
+  pfRegisterPartials();
+  const current = pfRouteAndParams();
+  if (PATIENT_FACING_CONFIG.available === false) return upaError({ reason: "not_available" });
+  if (!current.params.code && !getStoredToken()) {
+    if (current.route === "error") return upaError(current.params);
+    if (current.route === "status") return upaSendingElsewhere();
   }
   return patientApp();
 }
@@ -362,27 +504,32 @@ window.addEventListener("pageshow", (e) => {
   if (pfRouteAndParams().route === "connect") pfRetry();
 });
 
-// Sign out: a small form under the hub, done and manage screens. Ends the session on the server;
-// the 12-hour expiry remains the backstop for a patient who just closes the page.
+// Sign out: the server revokes the token (and the refresh token issued with it), then the tab
+// forgets it. A revoke that fails (the token already dead, the network down) still signs out here.
+async function upaSignOut() {
+  pfShowLoading();
+  try {
+    await pfApi("POST", "uscdi-patient-access/sign-out");
+  } catch (e) {
+    // signing out goes on
+  }
+  clearStoredToken();
+  return pfNav("error", { reason: "signed_out" }, true);
+}
+
+// A Sign out button under the hub, done and manage screens.
 function upaAppendSignOut() {
   const main = document.getElementById("pf_main");
-  const url = PATIENT_FACING_CONFIG.signOutUrl;
-  if (!main || !url || main.querySelector("form.upa-sign-out")) return;
-  const form = document.createElement("form");
-  form.className = "upa-sign-out pf-actions";
-  form.method = "post";
-  form.action = url;
-  const csrf = document.createElement("input");
-  csrf.type = "hidden";
-  csrf.name = "csrfmiddlewaretoken";
-  csrf.value = PATIENT_FACING_CONFIG.csrfToken || "";
+  if (!main || main.querySelector(".upa-sign-out")) return;
+  const actions = document.createElement("div");
+  actions.className = "upa-sign-out pf-actions";
   const button = document.createElement("button");
-  button.type = "submit";
+  button.type = "button";
   button.className = "pf-btn pf-btn--ghost";
   button.textContent = "Sign out";
-  form.appendChild(csrf);
-  form.appendChild(button);
-  main.appendChild(form);
+  button.addEventListener("click", () => upaSignOut());
+  actions.appendChild(button);
+  main.appendChild(actions);
 }
 
 function upaWithSignOut(route) {
@@ -403,7 +550,9 @@ window.PF_ROUTE_TITLES.status = "Sending records";
 // Exposed for unit tests; browser runs load this as a plain <script> and ignore it.
 if (typeof window !== "undefined") {
   window.upaSearchBrands = upaSearchBrands;
-  window.upaSubmitLaunch = upaSubmitLaunch;
+  window.upaBrowser = upaBrowser;
+  window.upaSafeSignInUrl = upaSafeSignInUrl;
+  window.upaLaunch = upaLaunch;
   window.upaRenderBrandResults = upaRenderBrandResults;
   window.upaRenderScopePicker = upaRenderScopePicker;
   window.upaTypeChoice = upaTypeChoice;
@@ -415,6 +564,9 @@ if (typeof window !== "undefined") {
   window.upaReceipt = upaReceipt;
   window.upaDone = upaDone;
   window.upaError = upaError;
+  window.upaReasonCopy = upaReasonCopy;
+  window.UPA_REASON_COPY = UPA_REASON_COPY;
+  window.upaSendingElsewhere = upaSendingElsewhere;
   window.upaManage = upaManage;
   window.upaCardDesc = upaCardDesc;
   window.upaHospitals = upaHospitals;
@@ -422,4 +574,5 @@ if (typeof window !== "undefined") {
   window.upaStart = upaStart;
   window.upaFailureCopy = upaFailureCopy;
   window.upaAppendSignOut = upaAppendSignOut;
+  window.upaSignOut = upaSignOut;
 }
