@@ -50,6 +50,10 @@ ruff_on_python_files() {
 run "ruff check" ruff_on_python_files check
 run "ruff format" ruff_on_python_files format --check
 run "missing migrations" in_runner python manage.py makemigrations --check --dry-run
+# uscdi-patient-access: the patient_access package is typed strictly and layered; JHE itself is not
+# type-checked.
+run "mypy (patient_access)" in_runner mypy
+run "import contracts (patient_access)" in_runner lint-imports
 
 if [ "$quick" = 0 ]; then
     run "backend tests" scripts/dev/test.sh

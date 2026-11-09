@@ -38,6 +38,13 @@ dev = [
     "pytest-django",
     "pytest-cov",
     "pyyaml",
+    # uscdi-patient-access: test and check tools for the patient_access package
+    "moto>=5.2.5",
+    "hypothesis>=6.170.14",
+    "ijson>=3.6.0",
+    "mypy>=2.4.1",
+    "import-linter>=2.15",
+    "types-requests>=2.33.0.20261030",
 ]
 
 [tool.uv]
@@ -69,7 +76,79 @@ select = [
     "UP", # pyupgrade
 ]
 
+# uscdi-patient-access
+[tool.ruff.lint.per-file-ignores]
+# JHE runs on Python 3.11 (the Dockerfile), which has no PEP 695 type-parameter syntax; ruff's
+# target is 3.12, so it would suggest syntax the runtime rejects.
+"patient_access/**" = ["UP046", "UP047"]
+
 [tool.ruff.format]
 exclude = [
     "migrations",
 ]
+
+# uscdi-patient-access: the patient_access package is typed and checked strictly; JHE itself is not
+# checked. Its tests and the standalone validator are not checked either.
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+files = ["patient_access"]
+exclude = [
+    "patient_access/django_app/migrations/",
+    "patient_access/tests/",
+    "patient_access/scripts/",
+]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["django.*", "boto3", "boto3.*", "botocore.*", "rest_framework.*", "moto", "moto.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Django's own classes are untyped without django-stubs: subclassing them is Any by necessity.
+module = ["patient_access.django_app.*"]
+disallow_subclassing_any = false
+disallow_untyped_decorators = false
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# uscdi-patient-access: the layering of the patient_access package (`uv run lint-imports`).
+[tool.importlinter]
+root_packages = ["patient_access"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "core depends on nothing else in the package"
+type = "forbidden"
+source_modules = ["patient_access.core"]
+forbidden_modules = [
+    "patient_access.formatters",
+    "patient_access.destinations",
+    "patient_access.spool",
+    "patient_access.dispatch",
+    "patient_access.django_app",
+    "patient_access.testing",
+]
+
+[[tool.importlinter.contracts]]
+name = "only django_app uses Django"
+type = "forbidden"
+source_modules = [
+    "patient_access.core",
+    "patient_access.formatters",
+    "patient_access.destinations",
+    "patient_access.spool",
+    "patient_access.dispatch",
+    "patient_access.testing",
+]
+forbidden_modules = ["django", "rest_framework"]
+
+[[tool.importlinter.contracts]]
+name = "core does not use boto3"
+type = "forbidden"
+source_modules = ["patient_access.core", "patient_access.formatters", "patient_access.spool"]
+forbidden_modules = ["boto3", "botocore"]
