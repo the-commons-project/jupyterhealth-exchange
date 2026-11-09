@@ -11,7 +11,7 @@ there could let a deployment silently run on a public key).
 | `jhe.env` | yes | `jhe`, `cron` | every Django setting the stack needs except the OIDC signing key, which `compose/jhe-entrypoint.sh` generates into `local/oidc.key` on first boot so no private key is committed |
 | `db.env` | yes | `db` | Postgres user/password/database |
 | `mcp.env` | yes | `mcp` | MCP server's JHE client credentials and broker key |
-| `s3.env` | yes | `s3`, `jhe`, `cron` | root user and password of the local S3-compatible store (also the console login); `seed_patient_access_sandbox` writes them into the USCDI Patient Access settings |
+| `s3.env` | yes | `s3`, `jhe`, `cron` | root user and password of the local S3-compatible store (also the console login); `seed_patient_access_sandbox` writes them into the USCDI Patient Access settings <!-- uscdi-patient-access --> |
 | `local.secret.env` | **no** (gitignored) | `jhe`, `cron` | your real third-party credentials; optional, overrides `jhe.env` |
 
 Values that depend on the published ports (`SITE_URL`, `MCP_OAUTH_REDIRECT_URI`, the MCP

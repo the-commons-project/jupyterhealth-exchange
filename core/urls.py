@@ -113,7 +113,7 @@ urlpatterns = [
         name="ehr-patient-portal-callback",
     ),
     path("api/v1/ehr-patient-portal/brands", ehr_patient_portal.brands_search, name="ehr-patient-portal-brands"),
-    # USCDI Patient Access: the server-side counterpart of the EHR Patient Portal (patient_access
+    # uscdi-patient-access: the server-side counterpart of the EHR Patient Portal (patient_access
     # library). Its callback path is registered with each EHR vendor separately.
     path("clients/uscdi-patient-access/", uscdi_patient_access.connect, name="uscdi-patient-access-connect"),
     path(

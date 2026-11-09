@@ -146,7 +146,7 @@ def brands_search(request):
             "fhir_base_url": loc.brand.fhir_base_url,
             "ehr_client_id": loc.brand.vendor.ehr_client_id,
             "supported_scopes": loc.brand.vendor.supported_scopes,
-            "vendor_name": loc.brand.vendor.name,
+            "vendor_name": loc.brand.vendor.name,  # uscdi-patient-access: its checklist depends on the vendor
         }
         for loc in qs
     ]

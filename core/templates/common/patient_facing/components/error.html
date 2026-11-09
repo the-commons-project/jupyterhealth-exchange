@@ -9,6 +9,7 @@
       </div>
     </div>
     <div class="pf-actions">
+      {{! uscdi-patient-access: where retrying cannot help, only Back }}
       {{#unless noRetry}}
       {{#if retryHref}}
       <a class="pf-btn" href="{{retryHref}}">{{retryLabel}}</a>

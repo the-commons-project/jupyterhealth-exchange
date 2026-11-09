@@ -352,7 +352,7 @@ class Command(BaseCommand):
             # any OMH measure: the pull spans every mapped resource type and lands in the
             # auxiliary FHIR store, not the OMH Observation model.
             ("EHR Patient Portal", "patient_app", ["*"]),
-            # Clinical records pulled server-side by USCDI Patient Access and delivered to the
+            # uscdi-patient-access: clinical records pulled server-side and delivered to the
             # deployment's S3 bucket; the same wildcard scope as the EHR Patient Portal.
             ("USCDI Patient Access", "patient_app", ["*"]),
         ]
@@ -420,7 +420,7 @@ class Command(BaseCommand):
                 # (see seed_example_institute's EhrVendor seeding, below).
             },
             {
-                # USCDI Patient Access: the server-side counterpart of the EHR Patient Portal.
+                # uscdi-patient-access: the server-side counterpart of the EHR Patient Portal.
                 # The shell redeems the invitation link for a token; the EHR returns to
                 # /clients/uscdi-patient-access/callback, registered on each vendor's app.
                 "name": "USCDI Patient Access",
@@ -559,7 +559,7 @@ class Command(BaseCommand):
         StudyDataSource.objects.create(study=lifespan_study_bp_hr, data_source=ehr_patient_portal_ds)
         StudyScopeRequest.objects.create(study=lifespan_study_bp_hr, scope_code=code_fhir_star)
 
-        # USCDI Patient Access: invitable for the same study, under the same records request.
+        # uscdi-patient-access: invitable for the same study, under the same records request.
         uscdi_client = get_application_model().objects.get(name="USCDI Patient Access")
         StudyClient.objects.create(study=lifespan_study_bp_hr, client=uscdi_client)
         uscdi_ds = DataSource.objects.get(name="USCDI Patient Access")

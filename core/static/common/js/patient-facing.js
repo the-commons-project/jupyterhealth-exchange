@@ -40,6 +40,7 @@ function getStoredToken() {
   }
 }
 
+// uscdi-patient-access: its sign-out forgets the token
 function clearStoredToken() {
   try {
     sessionStorage.removeItem(PF_TOKEN_KEY);
@@ -159,7 +160,7 @@ function showFlowError(title, message, actions) {
     message: message,
     retryLabel: actions.retryLabel || "Try again",
     retryHref: actions.retryHref || null,
-    noRetry: Boolean(actions.noRetry), // a message where retrying cannot help (opt-in; default unchanged)
+    noRetry: Boolean(actions.noRetry), // uscdi-patient-access: retrying cannot help (opt-in; default unchanged)
     backHref: PATIENT_FACING_CONFIG.pageUrl,
   });
 }
@@ -556,7 +557,7 @@ if (typeof window !== "undefined") {
   window.pfClient = pfClient;
   window.storeToken = storeToken;
   window.getStoredToken = getStoredToken;
-  window.clearStoredToken = clearStoredToken;
+  window.clearStoredToken = clearStoredToken; // uscdi-patient-access
   window.exchangeCodeForToken = exchangeCodeForToken;
   window.pfRedeemInvitation = pfRedeemInvitation;
   window.pfRouteAndParams = pfRouteAndParams;
@@ -572,7 +573,7 @@ if (typeof window !== "undefined") {
   window.renderError = renderError;
   window.patientApp = patientApp;
   window.PF_ROUTES = PF_ROUTES;
-  window.PF_ROUTE_TITLES = PF_ROUTE_TITLES;
+  window.PF_ROUTE_TITLES = PF_ROUTE_TITLES; // uscdi-patient-access
   window.pfPatientLabel = pfPatientLabel;
   window.pfUniqueSorted = pfUniqueSorted;
   window.pfSources = pfSources;

@@ -79,11 +79,7 @@ USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    return default if value is None else value.strip().lower() in ("1", "true", "yes")
-
-
+# uscdi-patient-access
 def _patient_access_keys() -> list[str]:
     """PATIENT_ACCESS_ENCRYPTION_KEYS, or the file PATIENT_ACCESS_ENCRYPTION_KEYS_FILE names (the
     docker compose dev stack generates one under ./local; a file reaches `compose exec` commands
@@ -96,7 +92,7 @@ def _patient_access_keys() -> list[str]:
     return [k.strip() for k in raw.replace("\n", ",").split(",") if k.strip()]
 
 
-# USCDI Patient Access (the patient_access library). Off until PATIENT_ACCESS_ENCRYPTION_KEYS is
+# uscdi-patient-access (the patient_access library). Off until PATIENT_ACCESS_ENCRYPTION_KEYS is
 # set: a deployment that does not use it boots exactly as before. Deploy-time values only; the
 # bucket, credentials, caps, key layout and extension base URL are JheSetting rows
 # (patient_access.*, validated on save; see core/patient_access/settings.py).
@@ -114,7 +110,7 @@ PATIENT_ACCESS = {
     "DELIVERY_GUARD": "core.patient_access.consent.require_consent",
     # The HTTP library logs each request line (query string included, so the EHR patient id) at
     # DEBUG; off, its loggers are pinned to WARNING. Turn on for local debugging only.
-    "HTTP_DEBUG_LOGGING": _env_flag("PATIENT_ACCESS_HTTP_DEBUG_LOGGING", False),
+    "HTTP_DEBUG_LOGGING": os.getenv("PATIENT_ACCESS_HTTP_DEBUG_LOGGING", "").strip().lower() in ("1", "true", "yes"),
     "ALLOW_HTTP": DEBUG,  # http EHR endpoints in development only
 }
 

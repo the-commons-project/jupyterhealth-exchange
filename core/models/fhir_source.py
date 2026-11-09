@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .patient import Patient
 
 
+# uscdi-patient-access: where a server-side pull is recorded
 class FhirSourceManager(models.Manager["FhirSource"]):
     def get_or_create_for_pull(
         self, patient: Patient, data_source: DataSource, location: EhrBrandLocation | None
@@ -72,7 +73,7 @@ class FhirSource(models.Model):
     )
     last_updated = models.DateTimeField(auto_now=True)
 
-    objects = FhirSourceManager()
+    objects = FhirSourceManager()  # uscdi-patient-access
 
     def __str__(self):
         return self.label or f"FhirSource {self.pk}"
