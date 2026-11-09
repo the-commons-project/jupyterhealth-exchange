@@ -3,7 +3,7 @@
 # disposable, RAM-backed Postgres. Needs only Docker; your dev stack and its data are
 # never touched.
 #
-#   scripts/dev/test.sh                                  all of tests/backend/
+#   scripts/dev/test.sh                                  all of tests/backend/ and patient_access/tests/
 #   scripts/dev/test.sh tests/backend/test_study_viewset.py -k scope
 #   scripts/dev/test.sh --fresh                          recreate the test DB first
 #
@@ -28,7 +28,8 @@ for arg in "$@"; do
 done
 # Default to the suite CI runs. A bare `pytest` from the repo root also collects
 # mcp_server/ and tests/contract/, which need their own environments.
-[ "$has_path" = 1 ] || args+=(tests/backend/)
+# uscdi-patient-access: patient_access/tests/ is the package's own suite.
+[ "$has_path" = 1 ] || args+=(tests/backend/ patient_access/tests/)
 
 # shellcheck source=scripts/dev/lib.sh
 source scripts/dev/lib.sh

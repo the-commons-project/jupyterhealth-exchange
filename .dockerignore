@@ -3,6 +3,9 @@ fly.toml
 .env
 docs/
 tests/
+# uscdi-patient-access: keep the package's tests and docs out of the image, like tests/ and docs/
+patient_access/tests/
+patient_access/docs/
 # Local-only state that should never enter an image build context
 .venv/
 node_modules/

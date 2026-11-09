@@ -200,7 +200,7 @@ def test_the_config_names_whats_wrong():
 
 def test_host_classes_are_checked():
     with pytest.raises(ConfigError, match="not a pydantic model"):
-        build_module(parse(module_config(JOB_ATTRS="backend.patient_access.helpers.host_guard")))
+        build_module(parse(module_config(JOB_ATTRS="patient_access.tests.helpers.host_guard")))
     with pytest.raises(ConfigError, match="cannot be imported"):
         build_module(parse(module_config(DIRECTORY="nowhere.Directory")))
 

@@ -122,7 +122,7 @@ def bundle_of(**resource: object) -> dict[str, object]:
     return {"resourceType": "Bundle", "type": "searchset", "entry": [{"resource": resource}]}
 
 
-# --- host plugs named by dotted path in PATIENT_ACCESS (module "backend.patient_access.helpers") ---
+# --- host plugs named by dotted path in PATIENT_ACCESS (module "patient_access.tests.helpers") ---
 
 
 class HostDirectory:
@@ -145,7 +145,7 @@ def host_guard(job: Job[HostAttrs]) -> HostAttrs:
     return job.participant.attrs
 
 
-HELPERS = "backend.patient_access.helpers"
+HELPERS = "patient_access.tests.helpers"
 TEST_KEY = "x9Q5mX1y8m0bkYb3l7wVvO9Oe2r3wQ4b8h9vB9fP0nU="
 
 

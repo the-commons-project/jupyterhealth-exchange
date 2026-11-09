@@ -10,6 +10,9 @@ on:
       - README.md
       - docs/**
       - tests/backend/**
+      # uscdi-patient-access: the package's tests and docs, like tests/backend/ and docs/
+      - patient_access/tests/**
+      - patient_access/docs/**
       - .pre-commit-config.yaml
       - .github/**
       - "!.github/workflows/image.yaml"
@@ -18,6 +21,9 @@ on:
       - README.md
       - docs/**
       - tests/backend/**
+      # uscdi-patient-access: the package's tests and docs, like tests/backend/ and docs/
+      - patient_access/tests/**
+      - patient_access/docs/**
       - .pre-commit-config.yaml
       - .github/**
       - "!.github/workflows/image.yaml"

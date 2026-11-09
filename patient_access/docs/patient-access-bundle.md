@@ -2,7 +2,7 @@
 
 What the USCDI Patient Access module delivers: one file per pull, written to the deployment's S3
 bucket when a patient connects a healthcare organization and the pull completes. This document is
-the file's specification. `scripts/validate_patient_access_bundle.py` checks a file against it and
+the file's specification. `patient_access/scripts/validate_patient_access_bundle.py` checks a file against it and
 needs nothing but Python 3.11.
 
 ## 1. The object

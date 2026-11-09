@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Check a USCDI Patient Access bundle against its specification (docs/patient-access-bundle.md).
+"""Check a USCDI Patient Access bundle against its specification (patient_access/docs/patient-access-bundle.md).
 
-    python scripts/validate_patient_access_bundle.py FILE [FILE ...]
+    python patient_access/scripts/validate_patient_access_bundle.py FILE [FILE ...]
 
 Standard library only, so it runs anywhere Python 3.11 does. Prints a report per file and exits
 1 if any check failed. The checks are independent of the code that writes the bundles: they read

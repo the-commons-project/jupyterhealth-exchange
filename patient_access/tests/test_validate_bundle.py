@@ -1,6 +1,6 @@
-"""The standalone validator (scripts/validate_patient_access_bundle.py) against bundles the
+"""The standalone validator (patient_access/scripts/validate_patient_access_bundle.py) against bundles the
 formatter writes: a sound bundle passes, and each kind of damage is named. The validator reads
-the file by the specification alone (docs/patient-access-bundle.md), independent of this code."""
+the file by the specification alone (patient_access/docs/patient-access-bundle.md), independent of this code."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from patient_access.formatters import render_bundle
 from .helpers import NOW
 from .test_document_bundle import NOTE_ID, finished_job, spool_with_records
 
-SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "validate_patient_access_bundle.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "validate_patient_access_bundle.py"
 spec = importlib.util.spec_from_file_location("validate_patient_access_bundle", SCRIPT)
 assert spec is not None and spec.loader is not None
 validator = importlib.util.module_from_spec(spec)

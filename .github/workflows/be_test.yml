@@ -63,7 +63,8 @@ jobs:
 
       - name: Run Django tests
         run: |
-          uv run pytest -vx tests/backend/
+          # uscdi-patient-access: patient_access/tests/ is the package's own suite
+          uv run pytest -vx tests/backend/ patient_access/tests/
 
       - name: install coverage.py
         # needed for codecov
