@@ -78,6 +78,42 @@ CSRF_TRUSTED_ORIGINS = [SITE_URL]
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+
+# uscdi-patient-access
+def _patient_access_keys() -> list[str]:
+    """PATIENT_ACCESS_ENCRYPTION_KEYS, or the file PATIENT_ACCESS_ENCRYPTION_KEYS_FILE names (the
+    docker compose dev stack generates one under ./local; a file reaches `compose exec` commands
+    too, where a variable exported by the entrypoint would not)."""
+    raw = os.getenv("PATIENT_ACCESS_ENCRYPTION_KEYS", "")
+    path = os.getenv("PATIENT_ACCESS_ENCRYPTION_KEYS_FILE", "")
+    if not raw and path and os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            raw = f.read()
+    return [k.strip() for k in raw.replace("\n", ",").split(",") if k.strip()]
+
+
+# uscdi-patient-access (the patient_access library). Off until PATIENT_ACCESS_ENCRYPTION_KEYS is
+# set: a deployment that does not use it boots exactly as before. Deploy-time values only; the
+# bucket, credentials, caps, key layout and extension base URL are JheSetting rows
+# (patient_access.*, validated on save; see core/patient_access/settings.py).
+PATIENT_ACCESS = {
+    # Fernet keys, comma-separated, the first encrypts: EHR tokens, PKCE verifiers and spool keys
+    # at rest. Rotate by prepending a new key and dropping the old one once jobs have drained.
+    "ENCRYPTION_KEYS": _patient_access_keys(),
+    # Where a pull waits between fetch and delivery, encrypted; deleted when the job ends.
+    "SPOOL_DIR": os.getenv("PATIENT_ACCESS_SPOOL_DIR", "/data/patient-access/spool"),
+    "DISPATCHER": "thread",  # the pull runs in a thread of the web process; cron sweeps up the rest
+    "LAUNCH_ATTRS": "core.patient_access.identity.LaunchAttrs",
+    "JOB_ATTRS": "core.patient_access.identity.JheAttrs",
+    "DIRECTORY": "core.patient_access.directory.JheOrmDirectory",
+    "SETTINGS_PROVIDER": "core.patient_access.settings.read_patient_access_settings",
+    "DELIVERY_GUARD": "core.patient_access.consent.require_consent",
+    # The HTTP library logs each request line (query string included, so the EHR patient id) at
+    # DEBUG; off, its loggers are pinned to WARNING. Turn on for local debugging only.
+    "HTTP_DEBUG_LOGGING": os.getenv("PATIENT_ACCESS_HTTP_DEBUG_LOGGING", "").strip().lower() in ("1", "true", "yes"),
+    "ALLOW_HTTP": DEBUG,  # http EHR endpoints in development only
+}
+
 INSTALLED_APPS = [
     "core.apps.CoreConfig",
     "django.contrib.admin",

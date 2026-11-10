@@ -32,6 +32,14 @@ fi
 OIDC_RSA_PRIVATE_KEY="$(cat "$key_file")"
 export OIDC_RSA_PRIVATE_KEY
 
+# uscdi-patient-access: the Fernet key its tables are encrypted with, generated the same way.
+# docker-compose.yml points PATIENT_ACCESS_ENCRYPTION_KEYS_FILE at it, which turns the module on.
+pa_key_file=/code/local/patient-access.key
+if [ ! -s "$pa_key_file" ]; then
+    echo "jhe-entrypoint: generating a dev patient access key at local/patient-access.key"
+    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > "$pa_key_file"
+fi
+
 python manage.py migrate --noinput
 
 # `seed` only works on an empty database, so run it once. "Has any user" is the marker:
@@ -41,6 +49,8 @@ if python manage.py shell -v 0 -c "import sys; from core.models import JheUser; 
 else
     echo "jhe-entrypoint: empty database, running seed"
     python manage.py seed
+    # uscdi-patient-access, dev only: the SMART sandbox hospitals and the local S3 settings.
+    python manage.py seed_patient_access_sandbox || echo "jhe-entrypoint: seed_patient_access_sandbox failed; rerun it with scripts/dev/manage.sh"
 fi
 
 exec "$@"

@@ -4,13 +4,14 @@ The launch is one step. The callback is three, which the host composes with its 
 between:
 
     attempt = begin_callback(state, attempts)            consumes the attempt (single use)
-        host: the session's patient is the attempt's participant, else stop (the code is unspent)
+        host: this browser launched the attempt (JHE: a cookie set at launch), else stop (the
+        code is unspent)
     token = exchange_code(attempt, code=..., ...)        the only call to the EHR
         host, in one transaction with the next step: its own records for the pull, and the
         job's participant
     job = create_job(attempt, token, participant, ...)   the job row; dispatched after commit
 
-`begin_callback` must commit on its own, before the session check: in a transaction with the
+`begin_callback` must commit on its own, before the host's check: in a transaction with the
 later steps, any later failure would roll the consume back and make the attempt usable again.
 Only the host's records and `create_job` share a transaction.
 
