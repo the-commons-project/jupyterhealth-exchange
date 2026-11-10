@@ -17,7 +17,8 @@ from types import MappingProxyType
 from core.models import EhrBrandLocation, EhrVendor
 from patient_access.core.models import Brand, Endpoint, Facility, Selection
 from patient_access.core.source_settings import SourceSettings
-from patient_access.core.vendors import VENDORS, TypeChoice, VendorKey
+from patient_access.core.vendors import VENDORS, VendorKey
+from patient_access.core.vocab import TypeChoice
 
 # The library's registry key for each vendor row, matched on the row's display name: the existing
 # EhrVendor table has no stable key column (a schema change this build does not make; PRD §10

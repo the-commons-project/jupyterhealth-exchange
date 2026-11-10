@@ -9,7 +9,9 @@ from core.models import DataSource, FhirSource, Patient
 from core.models.fhir_aux_resource import fhir_source_uri
 from patient_access.core.models import Participant
 
-PROVIDER = "jhe_patient_session"
+# How JHE established who the participant is (the library's audit field): a patient's bearer
+# token. Rows from before 2026-11-09 say "jhe_patient_session", which was true for them.
+PROVIDER = "jhe_patient_token"
 
 
 class LaunchAttrs(BaseModel):

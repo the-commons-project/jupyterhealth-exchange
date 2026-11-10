@@ -14,6 +14,8 @@ from urllib.parse import parse_qs, urlparse
 import boto3
 import pytest
 import responses
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from django.forms.models import model_to_dict
 from django.test import Client, override_settings
 from django.test.utils import override_script_prefix
@@ -235,7 +237,21 @@ def test_the_page_says_when_the_module_is_off(world):
     assert Client().get(CONNECT).context["config"]["available"] is False
 
 
-def test_this_clients_invitation_redeems_for_a_token_that_launches_and_signs_out(world, module_on, ehr):
+@pytest.fixture
+def oidc_signing_key(settings):
+    """A real key for /o/token/ to sign this RS256 app's id_token with: CI's OIDC_RSA_PRIVATE_KEY
+    is a placeholder that does not parse."""
+    pem = rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    settings.OAUTH2_PROVIDER = {**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": pem.decode()}
+
+
+def test_this_clients_invitation_redeems_for_a_token_that_launches_and_signs_out(
+    world, module_on, ehr, oidc_signing_key
+):
     """The whole token path, as the shell walks it: the invitation for a grant at the generic
     endpoint, the grant for tokens at /o/token/, a launch with the access token, then sign-out,
     which revokes the access token and the refresh token issued with it."""
@@ -311,8 +327,8 @@ def test_launch_sets_one_callback_cookie_for_the_attempt(world, module_on, ehr):
 
 @pytest.mark.parametrize(
     ("debug", "https", "secure"),
-    [(True, False, False), (True, True, True), (False, False, True)],
-    ids=["development over http", "https", "DEBUG off"],
+    [(True, False, False), (True, True, True), (False, False, True), (False, True, True)],
+    ids=["development over http", "development over https", "DEBUG off over http", "DEBUG off over https"],
 )
 def test_the_callback_cookie_is_secure_unless_development_over_http(world, module_on, ehr, debug, https, secure):
     with override_settings(DEBUG=debug):
@@ -473,14 +489,16 @@ def test_a_replayed_callback_is_refused_even_with_the_cookie(world, module_on, e
     value = browser.cookies[cookie_name(state)].value
     browser.get(CALLBACK, {"state": state, "code": "c"})
     browser.cookies[cookie_name(state)] = value  # re-sent by hand
-    assert refused(browser.get(CALLBACK, {"state": state, "code": "c"})) == "attempt_invalid"
+    r = browser.get(CALLBACK, {"state": state, "code": "c"})
+    assert refused(r) == "attempt_invalid" and r.cookies[cookie_name(state)]["max-age"] == 0
     assert JobRecord.objects.count() == 1
 
 
 def test_an_expired_attempt_is_reported_as_expired_not_as_another_browser(world, module_on, ehr):
     browser, state = launched(world)
     AuthAttemptRecord.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
-    assert refused(browser.get(CALLBACK, {"state": state, "code": "c"})) == "attempt_invalid"
+    r = browser.get(CALLBACK, {"state": state, "code": "c"})
+    assert refused(r) == "attempt_invalid" and r.cookies[cookie_name(state)]["max-age"] == 0
 
 
 @pytest.mark.parametrize(

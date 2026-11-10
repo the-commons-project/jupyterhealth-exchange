@@ -6,7 +6,7 @@ from rest_framework.routers import DefaultRouter
 from core.fhir.config import FHIR_VERSION
 
 from . import views
-from .views import common, ehr_patient_portal, ow, uscdi_patient_access
+from .views import common, ehr_patient_portal, ow, uscdi_patient_access  # uscdi-patient-access
 from .views.fhir import FHIRResourceView, capability_statement, smart_configuration
 from .views.fhir_import import FHIRImportView
 

@@ -74,7 +74,7 @@ function upaSafeSignInUrl(url) {
 async function upaLaunch(form) {
   const fields = new FormData(form);
   pfShowLoading();
-  let reason = "invalid_request";
+  let reason = "sign_in_unavailable"; // also a 5xx, an answer without a reason, or an unsafe URL
   try {
     const response = await fetch(`${API_ENDPOINT}uscdi-patient-access/launch`, {
       method: "POST",
@@ -94,9 +94,10 @@ async function upaLaunch(form) {
       upaBrowser.go(body.authorizeUrl); // assign, not replace: Back returns to the connect step
       return;
     }
-    reason = response.status === 401 ? "session_ended" : response.ok ? "sign_in_unavailable" : body.reason || reason;
+    if (response.status === 401) reason = "session_ended";
+    else if (!response.ok && body.reason) reason = body.reason;
   } catch (e) {
-    reason = "sign_in_unavailable";
+    // the request never got an answer: sign_in_unavailable stands
   }
   pfHideLoading();
   return pfNav("error", { reason: reason });
@@ -462,9 +463,11 @@ function upaReasonCopy(reason) {
 }
 
 // Error route (?route=error&reason=...): the reason's copy. Only the reason is read; a title or
-// message in the URL is never shown, so no one can put their own words on this screen.
+// message in the URL is never shown, so no one can put their own words on this screen. That
+// includes the tab: the shell titles it from a URL `title`, so it is retitled here.
 function upaError(params) {
   const copy = upaReasonCopy(params.reason);
+  document.title = `${PATIENT_FACING_CONFIG.siteTitle} - ${copy.title}`;
   return showFlowError(copy.title, copy.message, {
     retryHref: pfUrl("connect", { source: String(PATIENT_FACING_CONFIG.dataSourceIds[0]) }),
     noRetry: !copy.retry,

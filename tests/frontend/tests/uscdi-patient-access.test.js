@@ -159,6 +159,12 @@ describe("the picker and the launch", () => {
     expect(window.location.search).toContain("reason=no_types");
   });
 
+  test("a server error at launch says sign-in is unavailable, not to pick again", async () => {
+    await connectStep(() => Promise.resolve({ ok: false, status: 500, json: () => Promise.reject(new Error("html")) }));
+    await window.upaLaunch(document.getElementById("launch-form"));
+    expect(window.location.search).toContain("reason=sign_in_unavailable");
+  });
+
   test("a launch whose token has died says the session has ended", async () => {
     await connectStep(() => respond(401, { detail: "Authentication credentials were not provided." }));
     await window.upaLaunch(document.getElementById("launch-form"));
@@ -434,6 +440,11 @@ describe("the error screen", () => {
     expect(text).toContain("Nothing was shared");
     expect(text).not.toContain("555-0100");
     expect(text).not.toContain("Their words");
+  });
+
+  test("nor in the tab title, which the shell would take from a URL title", async () => {
+    await window.pfNav("error", { reason: "declined", title: "Call 555-0100" });
+    expect(document.title).toBe("T - Nothing was shared");
   });
 
   test("a reason where retrying cannot help offers only Back", () => {
