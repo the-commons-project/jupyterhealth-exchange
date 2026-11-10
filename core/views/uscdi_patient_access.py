@@ -1,24 +1,80 @@
 """USCDI Patient Access: a patient-facing client that pulls the patient's records from their
 hospital's patient portal server-side and delivers them to the deployment's S3 bucket, through
-the patient_access library.
+the patient_access library. The views here are the web half of a pull (the library's phases 1-3:
+open, pick, authorize); the fetch and delivery run in a worker (phases 4-5).
 
-    GET  /clients/uscdi-patient-access/?code=...   the page; the shell redeems the invitation
-    POST /api/v1/uscdi-patient-access/launch       the connect step -> {authorizeUrl}, and this
-                                                   browser's callback cookie
-    GET  /clients/uscdi-patient-access/callback    the EHR's return: the job is created and started
-    GET  /api/v1/uscdi-patient-access/jobs         the patient's own pulls, for the hub and manage screens
-    GET  /api/v1/uscdi-patient-access/jobs/<id>    the patient's own job, for the status screen
-    POST /api/v1/uscdi-patient-access/sign-out     revokes the patient's token
+Routes of this module:
 
-The patient is authenticated as by every other JHE client: the shell redeems the invitation link
-at JHE's invitation endpoint for a bearer token, and every API route here takes that token. The
-callback is the one route a token cannot reach, because it is the EHR redirecting the browser.
-So the launch sets a cookie of its own in the browser that launched: one per attempt, a random
-value whose SHA-256 the attempt keeps, sent only to the callback's path. The callback acts only
-for a browser that presents it, so an authorization code delivered to another browser is never
-exchanged. Errors reach the page as a reason from a closed set (`Reason`), never as text; the
-client words each one. Nothing here touches the EHR Patient Portal client; the picker and
-checklist are copies.
+    GET  /clients/uscdi-patient-access/?code=...   connect: the page (the shell redeems the link)
+    POST /api/v1/uscdi-patient-access/launch       launch: the connect step -> {authorizeUrl}, and
+                                                   this browser's callback cookie
+    GET  /clients/uscdi-patient-access/callback    callback: the EHR's return; the job is created
+                                                   and started
+    GET  /api/v1/uscdi-patient-access/jobs         jobs: the patient's own pulls (hub, manage)
+    GET  /api/v1/uscdi-patient-access/jobs/<id>    job: one pull (status, done)
+    POST /api/v1/uscdi-patient-access/sign-out     sign_out: revokes the patient's token
+
+The flow, in order. "shared" marks JHE routes every patient client uses, unchanged by this one;
+the right-hand column is what the view calls in the library (`patient_access.core.flow`) or
+what happens beyond JHE.
+
+    browser (shell + client-uscdi-patient-access.js)   JHE view            library / EHR / worker
+    ------------------------------------------------------------------------------------------
+     1 GET  page?code=<invitation>                     connect             renders the shell
+     2 POST api/v1/invitation/<token>                  shared              -> a grant
+     3 POST /o/token/ (PKCE)                           shared (DOT)        -> bearer token, kept in
+                                                                           sessionStorage; every
+                                                                           call below sends it
+     4 GET  users/profile, patients/<id>/consents,     shared              hub; the consent step
+            fhir_sources                                                   POSTs/PATCHes consents
+     5 GET  api/v1/ehr-patient-portal/brands?q=        shared              the picker; then the
+                                                                           checklist, unless the
+                                                                           vendor's own screen asks
+     6 POST launch {location_id, data_source_id,       launch              start_upstream_auth:
+            scopes}                                                        discovery, PKCE, the
+                                                                           attempt stored. Answers
+                                                                           {authorizeUrl}; sets the
+                                                                           callback cookie
+     7 location.assign(authorizeUrl)                                       EHR: the patient signs in
+                                                                           and grants
+     8 EHR redirects: GET callback?state&code          callback            begin_callback (consume
+       (the cookie rides along)                                            the attempt); the cookie
+                                                                           check; exchange_code (the
+                                                                           EHR's token endpoint);
+                                                                           _finish: FhirSource,
+                                                                           patient identifier,
+                                                                           create_job -> dispatched
+                                                                           to a thread; 302 to
+                                                                           page?route=status&job=
+     9 GET  jobs/<id>, polled by the status screen     job                 meanwhile the worker runs
+                                                                           pipeline.run_job: fetch
+                                                                           every granted type and
+                                                                           the documents into the
+                                                                           spool, render the Bundle,
+                                                                           deliver to S3. The cron
+                                                                           sweep (every minute,
+                                                                           patient_access_run_jobs)
+                                                                           picks up anything a
+                                                                           thread dropped
+    10 done, manage: GET jobs?source=<data source>     jobs                the receipt; every pull
+                                                                           of the patient's
+    11 POST sign-out                                   sign_out            refresh token revoked
+                                                                           (and the access token);
+                                                                           the tab forgets it
+
+Authentication is as for every other JHE client: a bearer token from the invitation, on every
+API route here. The callback is the one route a token cannot reach, because it is the EHR
+redirecting the browser. So the launch sets a cookie of its own in the browser that launched:
+one per attempt, named from the state, a random value whose SHA-256 the attempt keeps, sent
+only to the callback's path (`CallbackCookie`). The callback acts only for a browser that
+presents it, so an authorization code delivered to another browser is never exchanged, and the
+attempt is consumed before the check, so a lured callback spends the attacker's attempt. The
+callback never reads `request.user`: the patient is the attempt's.
+
+Errors reach the page as `?route=error&reason=<code>` from a closed set (`Reason`), never as
+text; the client words each one. A refused launch answers `{"reason": <code>}` with 400, or 403
+(not a patient) or 503 (module off). Nothing here touches the EHR Patient Portal client; the
+picker and checklist are copies.
 """
 
 from __future__ import annotations
