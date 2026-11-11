@@ -3,6 +3,10 @@
 A deployment's part is only its client id per vendor and environment, which the host's directory
 supplies (JHE: the `EhrVendor` row). Adding a vendor is an entry here, a profile in
 `profiles.py` if its query table differs, and tests.
+
+A vendor with no entry of its own is not shut out: every certified EHR offers the same standard
+sign-in and record types, and `US_CORE` is that baseline. An entry is for what a vendor does
+differently, once it is known.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from types import MappingProxyType
 
 from .credentials import PUBLIC, AuthMethod
 from .models import Value
-from .profiles import EPIC_PROFILE, SMART_REFERENCE_PROFILE
+from .profiles import EPIC_PROFILE, SMART_REFERENCE_PROFILE, USCDI_PROFILE
 from .source_settings import ClientRegistration, FetchProfile, SourceSettings
 from .vocab import ScopeVersion, TypeChoice
 
@@ -21,6 +25,7 @@ from .vocab import ScopeVersion, TypeChoice
 class VendorKey(StrEnum):
     EPIC = "epic"
     SMART_REFERENCE = "smart-reference"  # the SMART Health IT sandbox: dev and end-to-end runs
+    US_CORE = "us-core"  # any certified EHR the registry has no entry for
 
 
 class Vendor(Value):
@@ -58,6 +63,15 @@ VENDORS: Mapping[VendorKey, Vendor] = MappingProxyType(
         VendorKey.SMART_REFERENCE: Vendor(
             key=VendorKey.SMART_REFERENCE,
             fetch=SMART_REFERENCE_PROFILE,
+            base_scopes=("openid", "fhirUser", "launch/patient"),
+        ),
+        # What SMART App Launch and US Core ask of every certified EHR: the standard sign-in
+        # scopes, the USCDI table as published, and our own checklist for the record types. A
+        # vendor that differs somewhere gets a row that fails, not a pull that fails, until it
+        # has an entry of its own.
+        VendorKey.US_CORE: Vendor(
+            key=VendorKey.US_CORE,
+            fetch=USCDI_PROFILE,
             base_scopes=("openid", "fhirUser", "launch/patient"),
         ),
     }

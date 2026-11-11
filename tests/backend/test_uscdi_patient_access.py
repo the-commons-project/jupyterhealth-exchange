@@ -51,6 +51,7 @@ from patient_access.core.models import JobStatus
 from patient_access.core.pipeline import DeliveryRefused
 from patient_access.core.settings import DEFAULT_LAYOUT
 from patient_access.core.smart import clear_discovery_cache
+from patient_access.core.vocab import TypeChoice
 from patient_access.django_app.models import AuthAttemptRecord, JobRecord
 from patient_access.django_app.wiring import get_module
 
@@ -689,6 +690,21 @@ def test_the_directory_maps_vendor_rows_to_the_registry(world):
         directory.settings_for(selection.endpoint)
     with pytest.raises(KeyError):
         directory.selection("99999")
+
+
+def test_a_vendor_row_the_registry_does_not_name_gets_the_standard_settings(world):
+    """An operator adds an EHR from the admin: its client id is enough to connect."""
+    EhrVendor.objects.update(name="Some Other EHR")
+    directory = JheOrmDirectory()
+    selection = directory.selection(str(world["location"].id))
+    settings = directory.settings_for(selection.endpoint)
+    assert settings.registration.vendor == "Some Other EHR" and settings.registration.client_id == "client-1"
+    assert settings.fetch.name == "uscdi" and settings.type_choice is TypeChoice.HOST
+    assert settings.registration.base_scopes == ("openid", "fhirUser", "launch/patient")
+    assert JheOrmDirectory.type_choice("Some Other EHR") is TypeChoice.HOST
+    EhrVendor.objects.update(ehr_client_id="")
+    with pytest.raises(KeyError):  # no app registration: still not configured
+        directory.settings_for(selection.endpoint)
 
 
 def test_the_delivery_guard_refuses_after_consent_is_withdrawn(world, module_on, ehr):
