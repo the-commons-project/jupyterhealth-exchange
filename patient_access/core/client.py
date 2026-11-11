@@ -161,7 +161,9 @@ class FhirClient:
         full = url if "://" in url else f"{self.base}/{url.lstrip('/')}"
         return self.policy.check(full)
 
-    def _get(self, url: str, params: Mapping[str, str] | None, accept: str, stream: bool) -> requests.Response:
+    def _get(
+        self, url: str, params: Mapping[str, str] | None, accept: str, stream: bool, timeout: float | None = None
+    ) -> requests.Response:
         """One GET with the token, following redirects itself: each hop passes the policy, and the
         token stays behind when the host changes or https drops to http."""
         full = self.absolute(url)
@@ -173,7 +175,7 @@ class FhirClient:
                 full,
                 params=params,
                 headers=headers,
-                timeout=self.profile.timeout_seconds,
+                timeout=timeout or self.profile.timeout_seconds,
                 stream=stream,
                 allow_redirects=False,
             )
@@ -199,7 +201,7 @@ class FhirClient:
 
     def stream(self, url: str, accept: str) -> requests.Response:
         """A streamed GET for document content. The caller closes the response."""
-        return self._get(url, None, accept, stream=True)
+        return self._get(url, None, accept, stream=True, timeout=self.profile.documents.timeout_seconds)
 
 
 def _credentials_cross(from_url: str, to_url: str) -> bool:

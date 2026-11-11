@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from .source_settings import FetchProfile, QuerySpec
 
-# USCDI for a patient-facing pull: one row per type (two for Observation, by category).
+# USCDI for a patient-facing pull: one row per type (two for Observation, by category; two for
+# DocumentReference: the clinical notes and the generated C-CDA).
 USCDI: tuple[QuerySpec, ...] = (
     QuerySpec(
         label="Demographics", resource_type="Patient", query="Patient", scope="patient/Patient.read", single=True
@@ -56,6 +57,23 @@ USCDI: tuple[QuerySpec, ...] = (
         query="DocumentReference?category=clinical-note",
         scope="patient/DocumentReference.read",
     ),
+    # The generated C-CDA (the patient summary every certified EHR can produce). Vendors expose
+    # it under different requests, and which one a server answers is not something its metadata
+    # reliably says, so the row carries each known spelling and the server's answer picks:
+    # Epic's own document category, then the US Core operation (Oracle Health), then the
+    # summary-of-episode document type (eClinicalWorks, athenahealth). A server that files the
+    # C-CDA among its clinical notes has already sent it in the row above.
+    QuerySpec(
+        label="Summary Documents",
+        resource_type="DocumentReference",
+        query="DocumentReference?category=summary-document",
+        alternatives=(
+            "DocumentReference/$docref",
+            "DocumentReference?type=http://loinc.org|34133-9",
+        ),
+        keep="ccda",
+        scope="patient/DocumentReference.read",
+    ),
     QuerySpec(label="Encounters", resource_type="Encounter", query="Encounter", scope="patient/Encounter.read"),
     QuerySpec(
         label="Care Plans",
@@ -86,6 +104,9 @@ USCDI_PROFILE = FetchProfile(name="uscdi", queries=USCDI)
 
 # Epic: the USCDI table as published.
 EPIC_PROFILE = USCDI_PROFILE.model_copy(update={"name": "epic"})
+
+# Oracle Health (Cerner Millennium): the USCDI table as published.
+ORACLE_HEALTH_PROFILE = USCDI_PROFILE.model_copy(update={"name": "oracle-health"})
 
 # The SMART reference server leaves DocumentReference.category empty; the clinical-note filter
 # would hide every note there.

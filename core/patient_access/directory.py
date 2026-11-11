@@ -29,6 +29,8 @@ VENDOR_KEYS: Mapping[str, VendorKey] = MappingProxyType(
     {
         "Epic Sandbox": VendorKey.EPIC,
         "Epic Production": VendorKey.EPIC,
+        "Oracle Health Sandbox": VendorKey.ORACLE_HEALTH,
+        "Oracle Health Production": VendorKey.ORACLE_HEALTH,
         "SMART Sandbox": VendorKey.SMART_REFERENCE,  # dev only: seed_patient_access_sandbox
     }
 )

@@ -13,13 +13,14 @@ from types import MappingProxyType
 
 from .credentials import PUBLIC, AuthMethod
 from .models import Value
-from .profiles import EPIC_PROFILE, SMART_REFERENCE_PROFILE
+from .profiles import EPIC_PROFILE, ORACLE_HEALTH_PROFILE, SMART_REFERENCE_PROFILE
 from .source_settings import ClientRegistration, FetchProfile, SourceSettings
 from .vocab import ScopeVersion, TypeChoice
 
 
 class VendorKey(StrEnum):
     EPIC = "epic"
+    ORACLE_HEALTH = "oracle-health"  # Cerner Millennium
     SMART_REFERENCE = "smart-reference"  # the SMART Health IT sandbox: dev and end-to-end runs
 
 
@@ -54,6 +55,13 @@ VENDORS: Mapping[VendorKey, Vendor] = MappingProxyType(
             # What JHE's EhrVendor.BASE_SCOPES requests from Epic today.
             base_scopes=("openid", "profile", "launch/patient"),
             type_choice=TypeChoice.EHR,
+        ),
+        VendorKey.ORACLE_HEALTH: Vendor(
+            key=VendorKey.ORACLE_HEALTH,
+            fetch=ORACLE_HEALTH_PROFILE,
+            # Millennium serves a document's content only to a token that also carries Binary
+            # read, which no row of the query table asks for.
+            base_scopes=("openid", "fhirUser", "launch/patient", "patient/Binary.read"),
         ),
         VendorKey.SMART_REFERENCE: Vendor(
             key=VendorKey.SMART_REFERENCE,

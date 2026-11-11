@@ -12,6 +12,8 @@ settings the host reads once per attempt (`settings.py`).
 
 from __future__ import annotations
 
+from typing import Literal
+
 from .credentials import PUBLIC, AuthMethod
 from .models import DocumentSource, Value
 from .scopes import Access, Context, Permission, ScopeSet, constraints_of
@@ -30,6 +32,15 @@ class QuerySpec(Value):
     query: str  # "Observation?category=laboratory"; "Patient" with single=True is an instance read
     scope: str  # the patient/<Type>.read scope that gates it
     single: bool = False  # an instance read of the patient's own id (Patient)
+    # Other ways to ask for the same thing, tried in order after `query` until one answers with
+    # something the row keeps. For what vendors expose under different searches (the generated
+    # C-CDA): the row is the same everywhere and the server's answer picks the route.
+    alternatives: tuple[str, ...] = ()
+    keep: Literal["ccda"] | None = None  # which resources of the answer the row keeps (all, when None)
+
+    @property
+    def routes(self) -> tuple[str, ...]:
+        return (self.query, *self.alternatives)
 
     @property
     def access(self) -> Access:
@@ -49,6 +60,9 @@ class DocumentProfile(Value):
     sources: frozenset[DocumentSource] = frozenset(DocumentSource)
     # Preference order when a DocumentReference offers one document in several formats.
     prefer: tuple[str, ...] = ("text/plain", "text/html", "application/pdf", "text/rtf", "application/xml")
+    # How long to wait for a document's first byte. Longer than a search's: a generated C-CDA is
+    # built when it is asked for, and Oracle Health takes 20 to 30 seconds over a large record.
+    timeout_seconds: float = 120.0
 
 
 class FetchProfile(Value):
