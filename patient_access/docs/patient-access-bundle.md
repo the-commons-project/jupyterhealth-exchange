@@ -111,10 +111,9 @@ Each section holds:
   organizations a summary per encounter). Organizations expose it under different requests, so
   the pull asks in order (`DocumentReference?category=summary-document`,
   `DocumentReference/$docref`, `DocumentReference?type=http://loinc.org|34133-9`) and stops at
-  the first that answers with a C-CDA. `query` is the request that answered. Each request
-  passed over before it is an `attempt` (repeated, a string: `<request>: <what it said>`). When
-  none answered, `query` is the first request, `count` is 0, `status` is `ok` and every request
-  is an `attempt`: the organization offered no summary this way, which is not a failed pull.
+  the first that answers with a C-CDA. `query` is the request that answered. When none
+  answered, `query` is the first request, `count` is 0 and `status` is `ok`: the organization
+  offered no summary this way, which is not a failed pull.
   `count` is also 0 when the summary was already among the clinical notes.
 - When the section has no entries: `emptyReason` (§6) and `text`, a generated narrative. The
   narrative is written by the delivering software, not by the organization, and says so:

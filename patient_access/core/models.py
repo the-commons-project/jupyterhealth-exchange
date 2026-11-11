@@ -262,14 +262,10 @@ class TypeOutcome(Record):
     error: str | None = None
     capped: bool = False
     seconds: float = 0.0
-    # For a row with alternatives: each route tried before the one in `query`, and why it was
-    # passed over ("<route>: <reason>"). Every route, when none answered.
-    attempts: list[str] = Field(default_factory=list)
 
     def reset(self) -> None:
         self.status, self.count, self.pages, self.bytes = OutcomeStatus.PENDING, 0, 0, 0
         self.error, self.capped, self.seconds = None, False, 0.0
-        self.attempts = []
 
 
 # --- documents -------------------------------------------------------------------------------

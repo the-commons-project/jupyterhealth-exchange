@@ -3,6 +3,7 @@
 import logging
 from datetime import timedelta
 
+import pytest
 import responses
 from pydantic import SecretStr
 
@@ -15,6 +16,13 @@ from patient_access.testing.memory import MemorySpoolHandle
 from .helpers import ISS, NOW, Clock, job, source_settings
 
 LOG = JobLog(logging.getLogger("test"), {"job_id": "j"})
+
+
+@pytest.fixture(autouse=True)
+def _job_log(caplog):
+    caplog.set_level(logging.INFO, logger="test")
+
+
 SCOPES = ("openid", "launch/patient", "patient/DocumentReference.read")
 DOCREF = f"{ISS}/DocumentReference/$docref"
 SEARCH = f"{ISS}/DocumentReference"
@@ -61,6 +69,11 @@ def run():
     return by_label["Summary Documents"], by_label["Documents"], spool
 
 
+def passed_over(caplog):
+    """The routes the job's log says were passed over, in order."""
+    return [r.getMessage().split(": ", 1)[1] for r in caplog.records if "passed over" in r.getMessage()]
+
+
 def called(url, query=None):
     return [
         c for c in responses.calls if c.request.url.split("?")[0] == url and (query is None or query in c.request.url)
@@ -77,21 +90,21 @@ def test_is_ccda_reads_the_document_not_the_vendor():
 
 
 @responses.activate
-def test_the_first_route_that_answers_is_used_and_the_rest_are_not_asked():
+def test_the_first_route_that_answers_is_used_and_the_rest_are_not_asked(caplog):
     """The shape of an Epic pull: its own category answers, and nothing else is asked."""
     responses.add(responses.GET, SEARCH, match=[params({"patient": "p1"})], json=bundle(note(1)))
     responses.add(responses.GET, SEARCH, match=[params(BY_CATEGORY)], json=bundle(ccda(1), ccda(2, code="11506-3")))
     summary, documents, spool = run()
     assert (summary.status, summary.count) == (OutcomeStatus.OK, 2)
     assert summary.query == "DocumentReference?category=summary-document"
-    assert summary.attempts == []
+    assert passed_over(caplog) == []
     assert documents.count == 1
     assert [r["id"] for r in spool.iter_type("DocumentReference")] == ["note1", "ccda1", "ccda2"]
     assert not called(DOCREF) and not called(SEARCH, "34133-9")
 
 
 @responses.activate
-def test_a_route_that_errors_or_answers_with_other_documents_is_passed_over():
+def test_a_route_that_errors_or_answers_with_other_documents_is_passed_over(caplog):
     """A server that ignores the category it does not know, has no $docref, and answers the type."""
     responses.add(responses.GET, SEARCH, match=[params({"patient": "p1"})], json=bundle(note(1)))
     responses.add(
@@ -112,29 +125,29 @@ def test_a_route_that_errors_or_answers_with_other_documents_is_passed_over():
     summary, _, spool = run()
     assert (summary.status, summary.count) == (OutcomeStatus.OK, 1)
     assert summary.query == "DocumentReference?type=http://loinc.org|34133-9"
-    assert summary.attempts == [
-        "DocumentReference?category=summary-document: nothing kept (server: partial)",
-        "DocumentReference/$docref: 404 unknown operation",
+    assert passed_over(caplog) == [
+        "DocumentReference?category=summary-document passed over (nothing kept (server: partial))",
+        "DocumentReference/$docref passed over (unknown operation)",  # the log keeps no digits
     ]
     # note2 came back from a filter the server ignored: it is not a summary, so it is not stored
     assert [r["id"] for r in spool.iter_type("DocumentReference")] == ["note1", "ccda1"]
 
 
 @responses.activate
-def test_the_operation_answers_when_the_category_does_not():
+def test_the_operation_answers_when_the_category_does_not(caplog):
     """The shape of an Oracle Health pull: the category finds nothing, $docref generates the CCD."""
     responses.add(responses.GET, SEARCH, match=[params({"patient": "p1"})], json=bundle(note(1)))
     responses.add(responses.GET, SEARCH, match=[params(BY_CATEGORY)], json=bundle())
     responses.add(responses.GET, DOCREF, match=[params({"patient": "p1"})], json=bundle(ccda(1)))
     summary, _, spool = run()
     assert (summary.status, summary.count, summary.query) == (OutcomeStatus.OK, 1, "DocumentReference/$docref")
-    assert summary.attempts == ["DocumentReference?category=summary-document: nothing kept"]
+    assert passed_over(caplog) == ["DocumentReference?category=summary-document passed over (nothing kept)"]
     assert [r["id"] for r in spool.iter_type("DocumentReference")] == ["note1", "ccda1"]
     assert not called(SEARCH, "34133-9")
 
 
 @responses.activate
-def test_a_summary_already_among_the_clinical_notes_ends_the_search():
+def test_a_summary_already_among_the_clinical_notes_ends_the_search(caplog):
     """The shape of an eClinicalWorks pull: the C-CDA is a clinical note, already stored."""
     responses.add(responses.GET, SEARCH, match=[params({"patient": "p1"})], json=bundle(note(1), ccda(1)))
     responses.add(responses.GET, SEARCH, match=[params(BY_CATEGORY)], json=bundle())
@@ -143,13 +156,13 @@ def test_a_summary_already_among_the_clinical_notes_ends_the_search():
     summary, documents, spool = run()
     assert (summary.status, summary.count) == (OutcomeStatus.OK, 0)  # found, and already in the bundle
     assert summary.query == "DocumentReference?type=http://loinc.org|34133-9"
-    assert len(summary.attempts) == 2
+    assert len(passed_over(caplog)) == 2
     assert documents.count == 2
     assert [r["id"] for r in spool.iter_type("DocumentReference")] == ["note1", "ccda1"]
 
 
 @responses.activate
-def test_no_route_answering_is_an_empty_row_not_a_failed_pull():
+def test_no_route_answering_is_an_empty_row_not_a_failed_pull(caplog):
     responses.add(responses.GET, SEARCH, match=[params({"patient": "p1"})], json=bundle(note(1)))
     responses.add(responses.GET, SEARCH, match=[params(BY_CATEGORY)], json=bundle())
     responses.add(responses.GET, DOCREF, status=400, json={})
@@ -157,18 +170,19 @@ def test_no_route_answering_is_an_empty_row_not_a_failed_pull():
     summary, documents, spool = run()
     assert (summary.status, summary.count, summary.error) == (OutcomeStatus.OK, 0, None)
     assert summary.query == "DocumentReference?category=summary-document"
-    assert [a.split(": ")[0] for a in summary.attempts] == [
+    said = passed_over(caplog)
+    assert [a.split(" passed over")[0] for a in said] == [
         "DocumentReference?category=summary-document",
         "DocumentReference/$docref",
         "DocumentReference?type=http://loinc.org|34133-9",
     ]
-    assert summary.attempts[0].endswith("nothing kept") and "network" in summary.attempts[2]
+    assert "nothing kept" in said[0] and "network" in said[2]
     assert documents.status is OutcomeStatus.OK
     assert [r["id"] for r in spool.iter_type("DocumentReference")] == ["note1"]
 
 
 @responses.activate
-def test_a_route_the_server_ignored_is_not_paged_to_its_end():
+def test_a_route_the_server_ignored_is_not_paged_to_its_end(caplog):
     """A filter the server ignores returns the whole record, a page at a time."""
     responses.add(responses.GET, SEARCH, match=[params({"patient": "p1"})], json=bundle(note(1)))
     page = bundle(note(2), note(3)) | {"link": [{"relation": "next", "url": f"{SEARCH}?page=2"}]}
@@ -176,5 +190,5 @@ def test_a_route_the_server_ignored_is_not_paged_to_its_end():
     responses.add(responses.GET, DOCREF, match=[params({"patient": "p1"})], json=bundle(ccda(1)))
     summary, _, _ = run()
     assert (summary.count, summary.query) == (1, "DocumentReference/$docref")
-    assert summary.attempts == ["DocumentReference?category=summary-document: nothing kept"]
+    assert passed_over(caplog) == ["DocumentReference?category=summary-document passed over (nothing kept)"]
     assert not called(SEARCH, "page=2")

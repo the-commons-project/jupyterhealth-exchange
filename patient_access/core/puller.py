@@ -200,14 +200,15 @@ def _pull(
     outcome: TypeOutcome,
     seen: set[str],
     save: Callable[[], None],
+    passed_over: list[tuple[str, str]],
 ) -> int:
     """Pages one row into the spool. Returns how many non-finite numbers were replaced.
 
     A row with alternatives is asked for one route at a time, in order, until a route answers
-    with something the row keeps. A route that errors, or answers with nothing kept, is noted on
-    the outcome and passed over: these are other spellings of one request, and a server not
-    knowing one of them is not a failure of the pull. When none answers the row is `ok` with
-    nothing in it, and `attempts` says what each route said."""
+    with something the row keeps. A route that errors, or answers with nothing kept, is passed
+    over: these are other spellings of one request, and a server not knowing one of them is not
+    a failure of the pull. When none answers the row is `ok` with nothing in it. Each route
+    passed over is added to `passed_over` with what it said, for the job's log."""
     if not spec.alternatives:
         replaced, _ = _pull_route(client, spec, spec.query, patient, spool, outcome, seen, save, None)
         return replaced
@@ -222,13 +223,13 @@ def _pull(
         except (TokenExpired, Unauthorized):
             raise
         except RefusedUrl as e:
-            outcome.attempts.append(f"{route}: the server's next page was refused: {e.reason.value}")
+            passed_over.append((route, f"the server's next page was refused: {e.reason.value}"))
             continue
         except requests.RequestException as e:
-            outcome.attempts.append(f"{route}: network: {type(e).__name__}")
+            passed_over.append((route, f"network: {type(e).__name__}"))
             continue
         except (UnreadablePage, ValueError):
-            outcome.attempts.append(f"{route}: unreadable response")
+            passed_over.append((route, "unreadable response"))
             continue
         replaced += n
         if kept:
@@ -241,7 +242,7 @@ def _pull(
             )
             break
         said = trial.error if trial.status is OutcomeStatus.ERROR else "nothing kept"
-        outcome.attempts.append(f"{route}: {said}" + (f" (server: {'; '.join(notes)})" if notes else ""))
+        passed_over.append((route, str(said) + (f" (server: {'; '.join(notes)})" if notes else "")))
     else:
         outcome.status = OutcomeStatus.OK
     outcome.seconds = round(time.monotonic() - started, 2)
@@ -346,8 +347,9 @@ def fetch_resources(
             if spec is None:
                 o.status, o.error = OutcomeStatus.SKIPPED, "scope not granted"
                 continue
+            passed_over: list[tuple[str, str]] = []
             try:
-                if replaced := _pull(client, spec, patient, spool, o, seen, save):
+                if replaced := _pull(client, spec, patient, spool, o, seen, save, passed_over):
                     log.warning(
                         "%s: %d non-finite numbers replaced with null",
                         o.label,
@@ -366,6 +368,10 @@ def fetch_resources(
                 o.status, o.error = OutcomeStatus.ERROR, f"network: {type(e).__name__}"
             except (UnreadablePage, ValueError):
                 o.status, o.error = OutcomeStatus.ERROR, "unreadable response"
+            for route, said in passed_over:  # a row's own routes: fixed text, no patient in them
+                log.info(
+                    "%s: %s passed over (%s)", o.label, route, sanitised(said), extra={"resource_type": resource_type}
+                )
             if o.status is OutcomeStatus.ERROR:
                 log.warning("%s: %s", o.label, sanitised(o.error), extra={"resource_type": resource_type})
             else:

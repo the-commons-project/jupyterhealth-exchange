@@ -210,7 +210,6 @@ def outcome_extension(o: TypeOutcome, base: str) -> JsonObject:
             ext("error", o.error),
             ext("capped", o.capped),
             ext("seconds", o.seconds),
-            *repeated("attempt", o.attempts),
         ],
     )
 
