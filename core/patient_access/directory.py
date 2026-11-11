@@ -25,6 +25,10 @@ from patient_access.core.vocab import TypeChoice
 # question 9, full-build backlog 8 and 26). Renaming a row in the admin unmaps it. "SMART Sandbox"
 # is the dev seed's vendor; the mapping ships everywhere but only acts where a row of that name
 # exists, which also lets a hosted dev server use the SMART sandbox by seeding the row.
+#
+# A row whose name is not here is not refused: it gets the registry's baseline for any certified
+# EHR (DEFAULT_VENDOR), so an operator can add an EHR from the admin with its client id alone. A
+# name is listed here only for a vendor the registry knows something particular about.
 VENDOR_KEYS: Mapping[str, VendorKey] = MappingProxyType(
     {
         "Epic Sandbox": VendorKey.EPIC,
@@ -32,6 +36,7 @@ VENDOR_KEYS: Mapping[str, VendorKey] = MappingProxyType(
         "SMART Sandbox": VendorKey.SMART_REFERENCE,  # dev only: seed_patient_access_sandbox
     }
 )
+DEFAULT_VENDOR = VendorKey.US_CORE
 
 
 def selection_for(loc: EhrBrandLocation) -> Selection:
@@ -63,9 +68,11 @@ class JheOrmDirectory:
         return selection_for(loc)
 
     def settings_for(self, endpoint: Endpoint) -> SourceSettings:
-        key = VENDOR_KEYS.get(endpoint.vendor)
+        """The vendor's settings with the row's client id. KeyError when the row has none: an app
+        registration is the one thing every vendor needs that no default can supply."""
+        key = VENDOR_KEYS.get(endpoint.vendor, DEFAULT_VENDOR)
         row = EhrVendor.objects.filter(name=endpoint.vendor).first()
-        if key is None or row is None or not row.ehr_client_id:
+        if row is None or not row.ehr_client_id:
             raise KeyError(endpoint.vendor)
         return VENDORS[key].settings(vendor_name=endpoint.vendor, client_id=row.ehr_client_id)
 
@@ -73,8 +80,7 @@ class JheOrmDirectory:
     def type_choice(vendor_name: str) -> TypeChoice:
         """Where the patient picks record types for this vendor (the host's checklist unless the
         registry says the vendor's own screen asks)."""
-        key = VENDOR_KEYS.get(vendor_name)
-        return VENDORS[key].type_choice if key is not None else TypeChoice.HOST
+        return VENDORS[VENDOR_KEYS.get(vendor_name, DEFAULT_VENDOR)].type_choice
 
     @staticmethod
     def type_choices() -> dict[str, TypeChoice]:
