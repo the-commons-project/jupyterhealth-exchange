@@ -103,8 +103,10 @@ class UnreadablePage(Exception):
     """A 200 whose body is not the shape a FHIR search or read returns."""
 
 
-def search_url(base: str, spec: QuerySpec, patient: str, page_size: int | None) -> tuple[str, dict[str, str]]:
-    path, _, query = spec.query.partition("?")
+def search_url(
+    base: str, spec: QuerySpec, patient: str, page_size: int | None, route: str | None = None
+) -> tuple[str, dict[str, str]]:
+    path, _, query = (route or spec.query).partition("?")
     if spec.single:
         return f"{base}/{path}/{patient}", {}
     params = dict(parse_qsl(query, keep_blank_values=True))
@@ -152,6 +154,44 @@ def _page(body: Any, single: bool) -> tuple[list[JsonObject], str | None]:
     return page.resources, page.next_url
 
 
+XML_TYPES = frozenset({"application/xml", "text/xml"})
+CCDA_SUMMARY_TYPE = "34133-9"  # LOINC: summary of episode note (the patient summary)
+
+
+def is_ccda(resource: JsonObject) -> bool:
+    """A DocumentReference for a C-CDA, by what it says of itself, not by who sent it: the
+    C-CDA format code, an XML attachment, or the patient-summary type. A server that ignores a
+    filter it does not know answers with every document; this is what tells those apart."""
+    doc_type = resource.get("type")
+    codings = doc_type.get("coding") if isinstance(doc_type, dict) else None
+    if any(isinstance(c, dict) and c.get("code") == CCDA_SUMMARY_TYPE for c in codings or []):
+        return True
+    for content in resource.get("content") or []:
+        if not isinstance(content, dict):
+            continue
+        fmt, attachment = content.get("format"), content.get("attachment")
+        if isinstance(fmt, dict) and "ccda" in str(fmt.get("code") or "").lower():
+            return True
+        if isinstance(attachment, dict):
+            if str(attachment.get("contentType") or "").split(";")[0].strip().lower() in XML_TYPES:
+                return True
+    return False
+
+
+KEEPERS: dict[str, Callable[[JsonObject], bool]] = {"ccda": is_ccda}
+
+
+def _server_notes(resource: JsonObject) -> list[str]:
+    """What an OperationOutcome among a page's entries says (why a result is empty or partial)."""
+    out = []
+    for issue in resource.get("issue") or []:
+        if isinstance(issue, dict):
+            details = issue.get("details")
+            text = (details.get("text") if isinstance(details, dict) else None) or issue.get("diagnostics")
+            out.append(str(text or issue.get("code") or "unspecified"))
+    return out
+
+
 def _pull(
     client: FhirClient,
     spec: QuerySpec,
@@ -160,12 +200,73 @@ def _pull(
     outcome: TypeOutcome,
     seen: set[str],
     save: Callable[[], None],
+    passed_over: list[tuple[str, str]],
 ) -> int:
-    """Pages one row into the spool. Returns how many non-finite numbers were replaced."""
+    """Pages one row into the spool. Returns how many non-finite numbers were replaced.
+
+    A row with alternatives is asked for one route at a time, in order, until a route answers
+    with something the row keeps. A route that errors, or answers with nothing kept, is passed
+    over: these are other spellings of one request, and a server not knowing one of them is not
+    a failure of the pull. When none answers the row is `ok` with nothing in it. Each route
+    passed over is added to `passed_over` with what it said, for the job's log."""
+    if not spec.alternatives:
+        replaced, _ = _pull_route(client, spec, spec.query, patient, spool, outcome, seen, save, None)
+        return replaced
+    started = time.monotonic()
     replaced = 0
+    outcome.query = spec.query  # a rerun starts over: the route an earlier run settled on is not kept
+    for route in spec.routes:
+        trial = TypeOutcome(label=outcome.label, resource_type=outcome.resource_type, query=route)
+        notes: list[str] = []
+        try:
+            n, kept = _pull_route(client, spec, route, patient, spool, trial, seen, save, notes)
+        except (TokenExpired, Unauthorized):
+            raise
+        except RefusedUrl as e:
+            passed_over.append((route, f"the server's next page was refused: {e.reason.value}"))
+            continue
+        except requests.RequestException as e:
+            passed_over.append((route, f"network: {type(e).__name__}"))
+            continue
+        except (UnreadablePage, ValueError):
+            passed_over.append((route, "unreadable response"))
+            continue
+        replaced += n
+        if kept:
+            outcome.query, outcome.status, outcome.error = route, trial.status, trial.error
+            outcome.count, outcome.pages, outcome.bytes, outcome.capped = (
+                trial.count,
+                trial.pages,
+                trial.bytes,
+                trial.capped,
+            )
+            break
+        said = trial.error if trial.status is OutcomeStatus.ERROR else "nothing kept"
+        passed_over.append((route, str(said) + (f" (server: {'; '.join(notes)})" if notes else "")))
+    else:
+        outcome.status = OutcomeStatus.OK
+    outcome.seconds = round(time.monotonic() - started, 2)
+    return replaced
+
+
+def _pull_route(
+    client: FhirClient,
+    spec: QuerySpec,
+    route: str,
+    patient: str,
+    spool: SpoolHandle,
+    outcome: TypeOutcome,
+    seen: set[str],
+    save: Callable[[], None],
+    notes: list[str] | None,
+) -> tuple[int, int]:
+    """Pages one route of a row into the spool. Returns how many non-finite numbers were replaced
+    and how many resources the row keeps were seen (stored now or already in the spool)."""
+    keep = KEEPERS[spec.keep] if spec.keep else None
+    replaced = kept = 0
     url: str | None
     params: dict[str, str] | None
-    url, params = search_url(client.base, spec, patient, client.profile.page_size)
+    url, params = search_url(client.base, spec, patient, client.profile.page_size, route)
     started = time.monotonic()
     while url:
         if outcome.pages >= client.profile.page_cap:
@@ -175,14 +276,19 @@ def _pull(
         params = None  # `next` links carry their own query
         if r.status_code != 200:
             outcome.status, outcome.error = OutcomeStatus.ERROR, error_text(r)
-            return replaced
+            return replaced, kept
         body, nonfinite = _json(r)
         replaced += nonfinite
         resources, url = _page(body, spec.single)
         outcome.pages += 1
         for resource in resources:
             if resource.get("resourceType") != spec.resource_type:
+                if notes is not None and resource.get("resourceType") == "OperationOutcome":
+                    notes += _server_notes(resource)
                 continue  # OperationOutcome warnings, _include'd resources
+            if keep is not None and not keep(resource):
+                continue  # the server answered with more than the row asks for
+            kept += 1
             rid = resource.get("id")
             if isinstance(rid, str):
                 if rid in seen:
@@ -190,11 +296,16 @@ def _pull(
                 seen.add(rid)
             outcome.bytes += spool.append(spec.resource_type, resource)
             outcome.count += 1
+        if keep is not None and not kept:
+            # A first page with nothing the row keeps: the server did not understand the route
+            # (it ignored the filter and is sending every document). Its later pages are the
+            # same answer, and a large record has hundreds of them.
+            break
         if outcome.pages % SAVE_EVERY_PAGES == 0:
             save()
     outcome.status = OutcomeStatus.OK
     outcome.seconds = round(time.monotonic() - started, 2)
-    return replaced
+    return replaced, kept
 
 
 def fetch_resources(
@@ -236,8 +347,9 @@ def fetch_resources(
             if spec is None:
                 o.status, o.error = OutcomeStatus.SKIPPED, "scope not granted"
                 continue
+            passed_over: list[tuple[str, str]] = []
             try:
-                if replaced := _pull(client, spec, patient, spool, o, seen, save):
+                if replaced := _pull(client, spec, patient, spool, o, seen, save, passed_over):
                     log.warning(
                         "%s: %d non-finite numbers replaced with null",
                         o.label,
@@ -256,6 +368,10 @@ def fetch_resources(
                 o.status, o.error = OutcomeStatus.ERROR, f"network: {type(e).__name__}"
             except (UnreadablePage, ValueError):
                 o.status, o.error = OutcomeStatus.ERROR, "unreadable response"
+            for route, said in passed_over:  # a row's own routes: fixed text, no patient in them
+                log.info(
+                    "%s: %s passed over (%s)", o.label, route, sanitised(said), extra={"resource_type": resource_type}
+                )
             if o.status is OutcomeStatus.ERROR:
                 log.warning("%s: %s", o.label, sanitised(o.error), extra={"resource_type": resource_type})
             else:

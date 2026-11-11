@@ -37,7 +37,8 @@ def consistent_job():
     counts = {"Patient": 1, "DiagnosticReport": 1, "DocumentReference": 1, "Observation": 2}
     for o in j.outcomes:
         if o.resource_type in counts:
-            n = counts[o.resource_type] if o.label != "Vital Signs" else 0  # both Observations count as labs
+            # both Observations count as labs, and the one document as a clinical note
+            n = counts[o.resource_type] if o.label not in ("Vital Signs", "Summary Documents") else 0
             o.status, o.count, o.error = OutcomeStatus.OK, n, None
     for r in list(j.documents.records):
         if r.result is DocumentResult.STORED:  # frozen values: replace the record, as the pass would
