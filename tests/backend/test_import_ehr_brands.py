@@ -165,6 +165,51 @@ def test_call_command_reads_file(db, tmp_path):
     assert EhrBrandLocation.objects.count() == 2
 
 
+def _endpoint_per_organization_bundle():
+    """The shape Oracle Health publishes: each Organization with its own Endpoint, no facilities."""
+    return {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "entry": [
+            {"resource": {"resourceType": "Endpoint", "id": "t1", "address": "https://fhir.example.com/r4/t1/"}},
+            {
+                "resource": {
+                    "resourceType": "Organization",
+                    "id": "Ot1",
+                    "name": "Lakeside Sandbox Clinic",
+                    "address": [{"line": ["1 Main St"], "city": "Springfield", "state": "IL", "postalCode": "62701"}],
+                    "endpoint": [{"reference": "Endpoint/t1"}],
+                }
+            },
+        ],
+    }
+
+
+def test_a_named_vendor_takes_every_brand_in_the_bundle(db):
+    counts = import_brands_bundle(_endpoint_per_organization_bundle(), vendor_name="Oracle Health Production")
+    assert counts == {"brands": 1, "locations": 1}
+    brand = EhrBrand.objects.get(fhir_base_url="https://fhir.example.com/r4/t1/")
+    # "sandbox" in the name files a brand under Epic Sandbox only when no vendor is named
+    assert brand.vendor.name == "Oracle Health Production"
+    assert not EhrVendor.objects.filter(name__startswith="Epic").exists()
+    location = brand.locations.get()  # no facilities listed: the brand is its own location
+    assert (location.name, location.city, location.state) == ("Lakeside Sandbox Clinic", "Springfield", "IL")
+
+
+def test_a_named_vendor_reuses_the_row_and_keeps_its_client_id(db):
+    EhrVendor.objects.create(name="Oracle Health Production", ehr_client_id="registered-client")
+    import_brands_bundle(_endpoint_per_organization_bundle(), vendor_name="Oracle Health Production")
+    vendor = EhrVendor.objects.get(name="Oracle Health Production")
+    assert vendor.ehr_client_id == "registered-client" and vendor.brands.count() == 1
+
+
+def test_call_command_takes_the_vendor(db, tmp_path):
+    path = tmp_path / "brands.json"
+    path.write_text(json.dumps(_endpoint_per_organization_bundle()))
+    call_command("import_ehr_brands", "--file", str(path), "--vendor", "Oracle Health Production")
+    assert EhrBrand.objects.get().vendor.name == "Oracle Health Production"
+
+
 def test_imports_facility_with_urn_uuid_partof_reference(db):
     """Epic's real production Brands Bundle uses urn:uuid: references (not
     Organization/<id>) for both endpoint and partOf links."""

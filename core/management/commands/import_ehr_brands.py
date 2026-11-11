@@ -8,7 +8,14 @@ Epic publishes its bundle at https://open.epic.com/MyApps/Endpoints
 download it and run:  python manage.py import_ehr_brands --file epic_brands.json
 A small curated sample ships at core/data/ehr_brands.sample.json for seed/dev.
 
-Vendor-neutral: any EHR's user-access Brands Bundle can be imported the same way.
+Vendor-neutral: any EHR's bundle of this shape can be imported the same way, by naming the
+vendor row its brands belong under:
+
+    python manage.py import_ehr_brands --file oracle_health.json --vendor "Oracle Health Production"
+
+Oracle Health publishes its patient endpoints in this shape (Organizations, each with an
+Endpoint) at https://github.com/oracle-samples/ignite-endpoints. Without --vendor the brands are
+filed the way Epic's own file needs (see `import_brands_bundle`).
 """
 
 import json
@@ -70,11 +77,14 @@ def _address_parts(org):
 
 
 @transaction.atomic
-def import_brands_bundle(bundle):
+def import_brands_bundle(bundle, vendor_name=None):
     """
     Upsert a Brands Bundle into EhrBrand / EhrBrandLocation. Idempotent: brands
     keyed on fhir_base_url, locations on (brand, name, address_text). Returns
     {"brands": n, "locations": m}.
+
+    `vendor_name` is the EhrVendor row every brand in the bundle is filed under (created when
+    missing, without a client id). None keeps the Epic rule below.
     """
     resources = [e.get("resource", {}) for e in bundle.get("entry", []) or []]
     endpoints = {}
@@ -90,15 +100,19 @@ def import_brands_bundle(bundle):
     brand_orgs = [o for o in orgs if o.get("endpoint")]
     facility_orgs = [o for o in orgs if o.get("partOf") and not o.get("endpoint")]
 
-    # This importer is Epic-specific in practice (see module docstring). Epic's user-access
-    # directory carries exactly one sandbox brand alongside every real customer brand; that one
-    # entry is JHE's own OAuth registration for testing (its ehr_client_id is a sandbox app id,
-    # not something that would ever work against a production hospital), so it gets its own
-    # vendor rather than sharing config with every real brand.
+    # A bundle is one vendor's directory, so its brands go under the vendor the caller names.
+    # With no vendor named, the bundle is taken to be Epic's: its user-access directory carries
+    # exactly one sandbox brand alongside every real customer brand; that one entry is JHE's own
+    # OAuth registration for testing (its ehr_client_id is a sandbox app id, not something that
+    # would ever work against a production hospital), so it gets its own vendor rather than
+    # sharing config with every real brand.
     vendor_cache = {}
 
     def _vendor_for(org):
-        name = "Epic Sandbox" if "sandbox" in (org.get("name") or "").lower() else "Epic Production"
+        if vendor_name:
+            name = vendor_name
+        else:
+            name = "Epic Sandbox" if "sandbox" in (org.get("name") or "").lower() else "Epic Production"
         if name not in vendor_cache:
             vendor_cache[name], _ = EhrVendor.objects.get_or_create(name=name)
         return vendor_cache[name]
@@ -163,12 +177,25 @@ class Command(BaseCommand):
             default=DEFAULT_SAMPLE,
             help=f"Path to a Brands Bundle JSON file (default: {DEFAULT_SAMPLE}).",
         )
+        parser.add_argument(
+            "--vendor",
+            default=None,
+            help=(
+                "Name of the EHR vendor row to file every brand under, created if missing "
+                '(e.g. "Oracle Health Production"). Omit for the Epic file: its brands go under '
+                '"Epic Production", and its sandbox brand under "Epic Sandbox".'
+            ),
+        )
 
     def handle(self, *args, **options):
         path = options["file"]
         with open(path, encoding="utf-8") as f:
             bundle = json.load(f)
-        counts = import_brands_bundle(bundle)
+        vendor_name = (options.get("vendor") or "").strip() or None
+        counts = import_brands_bundle(bundle, vendor_name=vendor_name)
+        under = f' under "{vendor_name}"' if vendor_name else ""
         self.stdout.write(
-            self.style.SUCCESS(f"Imported {counts['brands']} brand(s), {counts['locations']} location(s) from {path}")
+            self.style.SUCCESS(
+                f"Imported {counts['brands']} brand(s), {counts['locations']} location(s) from {path}{under}"
+            )
         )
