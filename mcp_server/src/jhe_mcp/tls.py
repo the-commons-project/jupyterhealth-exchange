@@ -1,10 +1,10 @@
 """TLS for the HTTP server, from the environment.
 
 A load balancer that keeps traffic encrypted to the container needs the container to speak
-HTTPS. The hop is encrypted, not mutually authenticated: an ALB does not validate the
-certificate it is shown, and the VPC is what vouches for the container, so a self-signed
-certificate issued at start, for this container only, does the job; a deployment with a CA
-mounts its own files instead.
+HTTPS. That hop is encrypted, not mutually authenticated: load balancers that re-encrypt to
+targets generally do not validate the target's certificate (an AWS ALB does not), and the
+network vouches for the container, so a self-signed certificate issued at start, for this
+container only, does the job; a deployment with a CA mounts its own files instead.
 
     MCP_TLS unset         plain HTTP (local runs, compose).
     MCP_TLS=self-signed   a key pair and certificate generated here into MCP_TLS_DIR (default: a

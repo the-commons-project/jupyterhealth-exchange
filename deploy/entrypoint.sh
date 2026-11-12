@@ -1,9 +1,9 @@
 #!/bin/sh
 # Container entrypoint for the JHE image. It runs the command it is given unchanged, except that
 # with JHE_TLS set it first arranges for gunicorn to serve HTTPS, so a load balancer can keep
-# traffic encrypted all the way to the container. The hop is encrypted, not mutually
-# authenticated: an ALB does not validate the certificate it is shown, and the VPC (the target's
-# registered address, packet-level authentication) is what vouches for the container.
+# traffic encrypted all the way to the container. That hop is encrypted, not mutually
+# authenticated: load balancers that re-encrypt to targets generally do not validate the
+# target's certificate (an AWS ALB does not), and the network vouches for the container.
 #
 #   JHE_TLS unset        plain HTTP; nothing here runs. Compose and local runs.
 #   JHE_TLS=self-signed  a key pair and certificate issued here, for this container only, into
