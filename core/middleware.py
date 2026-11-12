@@ -1,5 +1,26 @@
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
+
+HEALTH_PATH = "/health"
+
+
+class HealthCheckMiddleware:
+    """``GET /health``: the liveness probe, answered before the rest of the chain runs.
+
+    No database, no auth, and no Host check: an Application Load Balancer (and Fly's proxy)
+    probes a container with the container's own IP address as the Host header, which
+    ``CommonMiddleware`` would turn into a 400 under ``ALLOWED_HOSTS``. Sitting first in the
+    chain, this answers the probe whatever Host it carries; every other path, and any other
+    method on this one, goes on through the chain untouched.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path == HEALTH_PATH and request.method in ("GET", "HEAD"):
+            return JsonResponse({"status": "ok", "version": settings.JHE_VERSION})
+        return self.get_response(request)
 
 
 class OAuthCorsMiddleware:

@@ -35,11 +35,6 @@ User = get_user_model()
 AccessToken = get_access_token_model()
 
 
-def health(request):
-    """Lightweight liveness probe — no DB, no auth."""
-    return JsonResponse({"status": "ok", "version": settings.JHE_VERSION})
-
-
 def _well_known_file(filename):
     """Serve a ``core/data`` file verbatim as JSON — no auth, no redirect."""
     body = (settings.BASE_DIR / "core" / "data" / filename).read_bytes()

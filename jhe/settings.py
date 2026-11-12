@@ -218,6 +218,9 @@ REST_FRAMEWORK = {
 }
 
 MIDDLEWARE = [
+    # GET /health, first: no database, no auth, and no Host check, so a load balancer's probe
+    # (which carries the task's own IP as the Host) is answered before anything else runs.
+    "core.middleware.HealthCheckMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     # Permissive CORS for /o/ so browser-based OAuth clients (e.g. the
     # tests/patient-access-client demo on another origin) can read the token
