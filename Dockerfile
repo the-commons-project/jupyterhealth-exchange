@@ -38,4 +38,6 @@ RUN python manage.py collectstatic --no-input
 
 EXPOSE 8000
 
+# Runs the command unchanged unless JHE_TLS asks for HTTPS; see deploy/entrypoint.sh.
+ENTRYPOINT ["sh", "/code/deploy/entrypoint.sh"]
 CMD ["gunicorn", "--bind", ":8000", "--workers", "2", "jhe.wsgi"]

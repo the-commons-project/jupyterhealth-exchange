@@ -227,6 +227,23 @@ Entities are based on the [HL7 FHIR model](https://build.fhir.org/), a widely us
 | **Oura**<br>`ieee:physical-activity:1.0`<br>`ieee:sleep-episode:1.0`<br>`ieee:sleep-stage-summary:1.0`<br>`ieee:time-in-bed:1.0`<br>`ieee:total-sleep-time:1.0`<br>`omh:body-height:2.0`<br>`omh:body-weight:3.0`<br>`omh:heart-rate:2.0`<br>`omh:oxygen-saturation:2.0`<br>`omh:respiratory-rate:2.0` | **Open Wearables** | Invitation Link |
 | – | – | Patient Access<br/>(E-mail one-time code) |
 
+## Running in Production
+
+The web app must be served over HTTPS for any hostname other than localhost. The image serves
+plain HTTP by default and expects a reverse proxy or load balancer to terminate TLS and send
+`X-Forwarded-Proto` (the settings already honour it). Settings that a deployment behind such a proxy sets through the environment:
+
+| Variable | Purpose |
+| --- | --- |
+| `SITE_URL`, `ALLOWED_HOSTS` | The public URL and the host names Django will answer. |
+| `JHE_TLS` | Makes the container itself serve HTTPS, for a load balancer that keeps traffic encrypted all the way to the container. `self-signed` issues a certificate at start for that container only; `provided` uses the files named by `JHE_TLS_CERTFILE` and `JHE_TLS_KEYFILE`. See `deploy/entrypoint.sh`. |
+
+That hop is then encrypted but not mutually authenticated: an AWS Application Load Balancer does
+not validate the certificate a target presents, and the VPC (the target's registered address and
+packet-level authentication) is what vouches for the container. A certificate from a CA changes
+the paperwork, not that property.
+
+
 ## Contributing
 
 See [doc](https://jupyterhealth.github.io/software-documentation/) for test requirements, coding standards, and PR checklist.

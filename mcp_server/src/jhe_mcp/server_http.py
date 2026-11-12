@@ -63,11 +63,21 @@ def configure_logging() -> None:
 def main() -> None:
     import uvicorn
 
+    from .tls import resolve_tls
+
     configure_logging()
     settings = Settings.from_env()
     app = build_app(settings)
     port = int(os.environ.get("MCP_HTTP_PORT", "8401"))
-    uvicorn.run(app, host="0.0.0.0", port=port, access_log=False)
+    tls = resolve_tls()  # None for plain HTTP; see tls.py for MCP_TLS
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        access_log=False,
+        ssl_certfile=str(tls.certfile) if tls else None,
+        ssl_keyfile=str(tls.keyfile) if tls else None,
+    )
 
 
 if __name__ == "__main__":

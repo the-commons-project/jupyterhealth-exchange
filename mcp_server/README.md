@@ -68,6 +68,8 @@ jhe-mcp-http
 
 Set the required environment variables before starting (see the [Configuration reference](https://jupyterhealth.github.io/software-documentation/jhe/mcp-server#configuration) in the docs), or create a `.env` file and load it into your shell.
 
+To serve HTTPS from the container itself (a load balancer that keeps traffic encrypted to the task), set `MCP_TLS=self-signed` for a certificate issued at start for that container only, or `MCP_TLS=provided` with `MCP_TLS_CERTFILE` and `MCP_TLS_KEYFILE` naming mounted files. Unset, the server speaks plain HTTP as before. See `src/jhe_mcp/tls.py`.
+
 ---
 
 ## Tools
