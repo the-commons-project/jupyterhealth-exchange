@@ -54,8 +54,7 @@ api_router.register(r"invitation", views.PatientInvitationViewSet, basename="Pat
 
 # snake_case instead of kebab-case because Djano @action decoratrors don't support hyphens
 urlpatterns = [
-    # Health check (no auth, no DB)
-    path("health", common.health, name="health"),
+    # GET /health is answered by core.middleware.HealthCheckMiddleware, before routing.
     # Mobile app association files — must stay public, unauthenticated and redirect-free
     path(
         ".well-known/apple-app-site-association",
