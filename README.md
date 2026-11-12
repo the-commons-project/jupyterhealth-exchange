@@ -229,13 +229,14 @@ Entities are based on the [HL7 FHIR model](https://build.fhir.org/), a widely us
 
 ## Running in Production
 
-The web app must be served over HTTPS for any hostname other than localhost. The image serves
-plain HTTP by default and expects a reverse proxy or load balancer to terminate TLS and send
-`X-Forwarded-Proto` (the settings already honour it). Settings that a deployment behind such a proxy sets through the environment:
+The web app must be served over HTTPS for any hostname other than localhost (the browser OIDC
+client requires it). The image serves plain HTTP by default and expects a reverse proxy or
+load balancer to terminate TLS and send `X-Forwarded-Proto`, which the settings honour.
+Settings a deployment behind such a proxy sets through the environment:
 
 | Variable | Purpose |
 | --- | --- |
-| `SITE_URL`, `ALLOWED_HOSTS` | The public URL and the host names Django will answer. |
+| `SITE_URL` | The public URL. `ALLOWED_HOSTS` (comma-separated) and `CSRF_TRUSTED_ORIGINS` derive from it unless set. |
 | `SECURE_HSTS_SECONDS` | Sends `Strict-Transport-Security` on HTTPS responses (`31536000` for a year); off when unset. `SECURE_HSTS_INCLUDE_SUBDOMAINS=true` extends it to subdomains. |
 
 
