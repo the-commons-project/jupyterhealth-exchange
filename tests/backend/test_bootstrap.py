@@ -100,6 +100,18 @@ class TestRerun:
         )
         assert Application.objects.filter(name=bootstrap.ADMIN_UI_APPLICATION).count() == 1
 
+    def test_two_admin_ui_applications_already_present_are_left_alone(self):
+        """A database seeded before this command existed can hold two rows of the name; the
+        lookup takes the first, both work, and bootstrap must neither fail nor add a third."""
+        for _ in range(2):
+            Application.objects.create(
+                name=bootstrap.ADMIN_UI_APPLICATION,
+                client_type=Application.CLIENT_PUBLIC,
+                authorization_grant_type=Application.GRANT_AUTHORIZATION_CODE,
+            )
+        run()
+        assert Application.objects.filter(name=bootstrap.ADMIN_UI_APPLICATION).count() == 2
+
     def test_seed_on_top_adds_the_demo_without_a_second_admin_ui_client(self):
         run()
         call_command("seed", stdout=io.StringIO())

@@ -249,19 +249,22 @@ def ensure_admin_ui_application() -> list[str]:
     client id by this name, and without it nobody can log in. A public client with PKCE, no
     secret, consent skipped (it is the site's own UI), redirecting to JHE's callback."""
     application_model = get_application_model()
-    _, was_created = application_model.objects.get_or_create(
+    # `filter().exists()` rather than get_or_create: a database that was seeded before this
+    # command existed may hold two rows of this name (one by hand, one from the seed), and the
+    # lookup takes the first by id, so both work. Nothing to create then, and nothing to pick.
+    if application_model.objects.filter(name=ADMIN_UI_APPLICATION).exists():
+        return []
+    application_model.objects.create(
         name=ADMIN_UI_APPLICATION,
-        defaults={
-            "client_type": application_model.CLIENT_PUBLIC,
-            "authorization_grant_type": application_model.GRANT_AUTHORIZATION_CODE,
-            "redirect_uris": settings.SITE_URL + settings.OAUTH2_CALLBACK_PATH,
-            "client_secret": "",
-            "skip_authorization": True,
-            "algorithm": "RS256",
-            "user_id": None,
-        },
+        client_type=application_model.CLIENT_PUBLIC,
+        authorization_grant_type=application_model.GRANT_AUTHORIZATION_CODE,
+        redirect_uris=settings.SITE_URL + settings.OAUTH2_CALLBACK_PATH,
+        client_secret="",
+        skip_authorization=True,
+        algorithm="RS256",
+        user_id=None,
     )
-    return [ADMIN_UI_APPLICATION] if was_created else []
+    return [ADMIN_UI_APPLICATION]
 
 
 EHR_VENDORS = ["Epic Sandbox", "Epic Production"]
