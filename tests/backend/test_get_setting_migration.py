@@ -210,6 +210,31 @@ class InviteCodeFormTests(TestCase):
         )
         self.assertFalse(form.is_valid())
 
+    @patch("core.forms.get_setting", return_value=None)
+    def test_no_invite_code_in_db_rejects_a_request_without_the_field(self, mock_gs):
+        """Regression: with no code configured, a POST that omits `joincode` must not pass
+        (a missing field and a missing setting are both None, and None == None)."""
+        from core.forms import UserRegistrationForm
+
+        form = UserRegistrationForm(data={"email": "newuser4@example.com", "password": "securepass123"})
+        self.assertFalse(form.is_valid())
+        self.assertIn("Registration is closed", str(form.errors))
+
+    @patch("core.forms.get_setting", return_value="")
+    def test_empty_invite_code_in_db_closes_registration(self, mock_gs):
+        from core.forms import UserRegistrationForm
+
+        form = UserRegistrationForm(data={"email": "newuser5@example.com", "password": "securepass123", "joincode": ""})
+        self.assertFalse(form.is_valid())
+        self.assertIn("Registration is closed", str(form.errors))
+
+    def test_configured_code_rejects_a_request_without_the_field(self):
+        from core.forms import UserRegistrationForm
+
+        form = UserRegistrationForm(data={"email": "newuser6@example.com", "password": "securepass123"})
+        self.assertFalse(form.is_valid())
+        self.assertIn("Invite Code is invalid", str(form.errors))
+
 
 # =====================================================================
 # Unit + Regression tests — models.py methods

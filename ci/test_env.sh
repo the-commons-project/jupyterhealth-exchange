@@ -1,4 +1,3 @@
-export REGISTRATION_INVITE_CODE="jhe"
 export SITE_URL=http://localhost:8000
 export DB_NAME="test_jhe_dev"
 export DB_USER="postgres"

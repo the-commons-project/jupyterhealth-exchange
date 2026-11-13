@@ -302,7 +302,8 @@ LOGGING = {
 
 # https://django-oauth-toolkit.readthedocs.io/en/latest/getting_started.html
 AUTH_USER_MODEL = "core.JheUser"
-REGISTRATION_INVITE_CODE = os.getenv("REGISTRATION_INVITE_CODE")
+# The registration invite code is the JheSetting `site.registration_invite_code`, read by
+# core.forms.UserRegistrationForm; registration is closed until an admin sets it.
 
 # LOGIN_URL = '/admin/login/' for staff accounts
 LOGIN_URL = "/accounts/login/"
