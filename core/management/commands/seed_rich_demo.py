@@ -432,10 +432,26 @@ def cgm_body(dt, value):
 class Command(BaseCommand):
     help = "Generate a synthetic demo cohort (CGM + Oura wearables) dated up to today."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--organization",
+            default=ORG_NAME_FRAGMENT,
+            help=f"Name (or part of the name) of the organization the demo study belongs to. "
+            f"Default: the development seed's '{ORG_NAME_FRAGMENT}'. On a deployment that ran "
+            f"`bootstrap` rather than `seed`, name one of your own organizations.",
+        )
+
     def handle(self, *args, **options):
-        organization = Organization.objects.filter(name__icontains=ORG_NAME_FRAGMENT).first()
+        wanted = options["organization"]
+        organization = (
+            Organization.objects.filter(name=wanted).first()
+            or Organization.objects.filter(name__icontains=wanted).first()
+        )
         if not organization:
-            raise CommandError(f"Missing Organization containing '{ORG_NAME_FRAGMENT}' — run `seed` first.")
+            raise CommandError(
+                f"Missing Organization containing '{wanted}' — run `seed` first, or name an existing "
+                "organization with --organization."
+            )
 
         demo_emails = [mp["email"] for mp in MOCK_PATIENTS]
         if JheUser.objects.filter(email__in=demo_emails).exists():
