@@ -333,11 +333,22 @@ EMAIL_PORT = int(os.getenv("SMTP_PORT", 587))
 EMAIL_USE_TLS = True
 DEFAULT_FROM_EMAIL = "support@jhe.org"
 
-EMAIL_BACKEND = (
-    "django.core.mail.backends.console.EmailBackend"
-    if not EMAIL_HOST
-    else "django.core.mail.backends.smtp.EmailBackend"
-)
+
+def email_backend(smtp_host: str | None, debug: bool) -> str:
+    """SMTP when a relay is configured. Without one, the console backend in development, where
+    seeing the verification link in the log is the point; anywhere else the dummy backend,
+    which drops mail: the console backend would print every message, recipient address and
+    links included, into a production log."""
+    if smtp_host:
+        return "django.core.mail.backends.smtp.EmailBackend"
+    if debug:
+        return "django.core.mail.backends.console.EmailBackend"
+    return "django.core.mail.backends.dummy.EmailBackend"
+
+
+EMAIL_BACKEND = email_backend(EMAIL_HOST, DEBUG)
+if EMAIL_BACKEND.endswith("dummy.EmailBackend"):
+    logging.warning("SMTP_HOST unset: outgoing mail (verification, invitations, one-time codes) is dropped.")
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
