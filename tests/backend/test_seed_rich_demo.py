@@ -153,3 +153,22 @@ def test_without_flag_does_not_invoke_generator():
     with patch("core.management.commands.seed.call_command") as mock_call:
         SeedCommand().handle(flush_db=False, with_rich_demo=False)
     assert not any(c.args and c.args[0] == "seed_rich_demo" for c in mock_call.call_args_list)
+
+
+@pytest.mark.django_db
+def test_seed_rich_demo_takes_an_organization_name(monkeypatch):
+    """A deployment that ran `bootstrap` has no 'Planetary Research Institute': the demo
+    cohort can be seeded into an organization of the operator's choosing."""
+    SeedCommand.seed_codeable_concepts()
+    org = Organization.objects.create(name="Tenmile Demo Clinic", type="other")
+    monkeypatch.setattr(gen, "CGM_WINDOW_DAYS", 1)
+    monkeypatch.setattr(gen, "WEARABLE_MIN_DAYS", 1)
+    monkeypatch.setattr(gen, "WEARABLE_MAX_DAYS", 1)
+    call_command("seed_rich_demo", organization="Tenmile Demo Clinic")
+    assert Study.objects.filter(organization=org, name=gen.STUDY_NAME).exists()
+
+
+@pytest.mark.django_db
+def test_seed_rich_demo_names_the_option_when_the_organization_is_missing():
+    with pytest.raises(CommandError, match="--organization"):
+        call_command("seed_rich_demo", organization="Nowhere")
