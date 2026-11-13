@@ -11,6 +11,10 @@
 ARG BASE_IMAGE=jhe-dev:local
 FROM ${BASE_IMAGE}
 
+# The base image drops to an unprivileged user; this dev-only image installs into the system
+# interpreter and runs tests that write into the bind-mounted repository, so it stays root.
+USER root
+
 # uv to install the dev group the same way ../Dockerfile installs the rest (into the system
 # interpreter); uvx so check.sh can run ruff at pre-commit's version.
 COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /usr/local/bin/
