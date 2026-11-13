@@ -69,6 +69,9 @@ services:
     # Dev-only entrypoint: migrate, then seed if the database is empty.
     entrypoint: ["sh", "/code/compose/jhe-entrypoint.sh"]
     command: ["python", "manage.py", "runserver", "0.0.0.0:${JHE_PORT:-8000}"]
+    # The image runs as an unprivileged user; here the repository is bind-mounted over /code
+    # and the entrypoint writes keys into ./local, so the dev containers run as root.
+    user: root
     env_file: *jhe-env-files
     environment:
       <<: *jhe-environment
@@ -103,6 +106,7 @@ services:
     # (below) means the key exists and the migrate inside it is a no-op.
     entrypoint: ["sh", "/code/compose/jhe-entrypoint.sh"]
     command: ["supercronic", "/code/deploy/crontab"]
+    user: root
     env_file: *jhe-env-files
     environment:
       <<: *jhe-environment

@@ -9,8 +9,15 @@ RUN apt-get -y update \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN mkdir -p /code
-RUN mkdir -p /data
+# The application runs as a fixed, unprivileged uid (as the MCP image does). The image is
+# read-only to it except the directories written at run time: /data (the patient-access spool)
+# and /run/jhe-tls (the container's own certificate, when JHE_TLS asks for one). The dev
+# compose stack overrides this with `user: root`: it bind-mounts the repository over /code and
+# its entrypoint writes keys into it.
+RUN groupadd --gid 10001 app \
+ && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin app \
+ && mkdir -p /code /data /run/jhe-tls \
+ && chown 10001:10001 /data /run/jhe-tls
 
 WORKDIR /code
 
@@ -35,6 +42,8 @@ ADD --chmod=755 https://github.com/aptible/supercronic/releases/download/v0.2.29
 
 COPY . /code
 RUN python manage.py collectstatic --no-input
+
+USER 10001
 
 EXPOSE 8000
 
