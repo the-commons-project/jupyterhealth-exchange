@@ -126,7 +126,7 @@ Authenticate (in Claude Code, `/mcp` → `jhe-local`), log in to JHE in the brow
 
 1. Run the Django migration `$ python manage.py migrate` to create the database tables.
 
-1. Seed the database by running the Django management command `$ python manage.py seed`
+1. Seed the database by running the Django management command `$ python manage.py seed`. That is the development fixture: demo organizations, patients and users with known passwords. A deployment runs `$ python manage.py bootstrap` instead, after every `migrate`: the reference data, the `JHE Admin UI` OAuth application the browser login needs, and the EHR vendor rows, with no users, no demo data and registration closed until an admin sets `site.registration_invite_code` under Settings.
 
 1. Start the server with `$ python manage.py runserver`
 
