@@ -1,7 +1,5 @@
 import io
 import os
-import secrets
-import string
 import uuid
 from datetime import timedelta
 
@@ -14,12 +12,11 @@ from django.utils.crypto import get_random_string
 from faker import Faker
 from oauth2_provider.models import get_application_model
 
+from core import bootstrap
 from core.models import (
     JHE_FHIR_SOURCE_BASE,
-    ClientDataSource,
     CodeableConcept,
     DataSource,
-    DataSourceSupportedScope,
     EhrBrand,
     EhrBrandLocation,
     EhrVendor,
@@ -151,11 +148,14 @@ class Command(BaseCommand):
         with transaction.atomic():
             self.reset_sequences()
             self._step("superuser", (JheUser, Practitioner), self.generate_superuser)
+            self._step(
+                "bootstrap",
+                (JheSetting, CodeableConcept, DataSource, Application, JheClient, Organization, EhrVendor),
+                self.run_bootstrap,
+            )
+            # The development values of the settings, over bootstrap's neutral ones.
             self._step("settings", (JheSetting,), self.seed_jhe_settings)
-            self._step("codeable concepts", (CodeableConcept,), self.seed_codeable_concepts)
-            self._step("data sources", (DataSource, DataSourceSupportedScope), self.seed_data_sources)
-            self._step("clients", (Application, JheClient, ClientDataSource), self.seed_clients)
-            root_organization = self._step("root organization", (Organization,), self.create_root_organization)
+            root_organization = Organization.objects.get(id=bootstrap.ROOT_ORGANIZATION_ID)
             self._step(
                 "example institute",
                 (
@@ -179,7 +179,6 @@ class Command(BaseCommand):
                 self.seed_health_system,
                 root_organization,
             )
-            self._step("admin UI client", (Application,), self.seed_oauth_application)
             self._step("MCP broker client", (Application,), self.seed_mcp_broker_application)
             self._step("SMART EHR launch client", (Application,), self.seed_sof_ehr_launch_application)
 
@@ -280,182 +279,32 @@ class Command(BaseCommand):
 
             cursor.execute("ALTER SEQUENCE core_patientinvitation_id_seq RESTART WITH 101;")
 
+    # The reference data lives in core.bootstrap (`manage.py bootstrap`): the seed runs it
+    # first and layers the demo on top. The single steps are kept as methods because tests
+    # call them by name.
+    @staticmethod
+    def run_bootstrap():
+        from core.management.commands.bootstrap import Command as Bootstrap
+
+        for _label, step in Bootstrap.STEPS:
+            step()
+
     @staticmethod
     def seed_codeable_concepts():
-        # OMH = https://w3id.org/openmhealth, IEEE = https://w3id.org/ieee1752. IEEE 1752 is the
-        # balloted form of an OMH schema and JHE treats the two coding systems interchangeably,
-        # so a measure can be seeded under either -- or both, where the schema versions differ.
-        # Every label therefore names its namespace: the two are indistinguishable otherwise,
-        # and the admin renders a CodeableConcept by its text alone.
-        omh = "https://w3id.org/openmhealth"
-        ieee = "https://w3id.org/ieee1752"
-        codes = [
-            (omh, "omh:blood-glucose:4.0", "Blood glucose (OMH)"),
-            (omh, "omh:blood-pressure:4.0", "Blood pressure (OMH)"),
-            (omh, "omh:body-temperature:4.0", "Body temperature (OMH)"),
-            (omh, "omh:heart-rate:2.0", "Heart Rate (OMH)"),
-            (omh, "omh:oxygen-saturation:2.0", "Oxygen saturation (OMH)"),
-            (omh, "omh:respiratory-rate:2.0", "Respiratory rate (OMH)"),
-            (omh, "omh:rr-interval:1.0", "RR Interval (OMH)"),
-            (omh, "omh:body-weight:3.0", "Body weight (OMH)"),
-            (omh, "omh:body-height:2.0", "Body height (OMH)"),
-            (omh, "omh:forced-vital-capacity:1.0", "Forced vital capacity (OMH)"),
-            (omh, "omh:forced-expiratory-volume-1-second:1.0", "Forced expiratory volume 1 second (OMH)"),
-            (omh, "omh:physical-activity:1.2", "Physical activity (OMH)"),
-            (omh, "omh:step-count:3.0", "Step count (OMH)"),
-            (omh, "omh:sleep-episode:1.1", "Sleep episode (OMH)"),
-            (omh, "omh:sleep-duration:2.0", "Sleep duration (OMH)"),
-            (ieee, "ieee:sleep-stage-summary:1.0", "Sleep stage summary (IEEE)"),
-            (ieee, "ieee:physical-activity:1.0", "Physical activity (IEEE)"),
-            (ieee, "ieee:sleep-episode:1.0", "Sleep episode (IEEE)"),
-            (ieee, "ieee:total-sleep-time:1.0", "Total sleep time (IEEE)"),
-            (ieee, "ieee:time-in-bed:1.0", "Time in bed (IEEE)"),
-            # Not OMH/IEEE data points: FHIR resource types, so they carry no suffix. "*" is the
-            # wildcard -- a data source scoped to it supplies FHIR resources of any type, which is
-            # what an EHR patient-portal pull does (17 types today, all stored as aux rows).
-            ("http://hl7.org/fhir/resource-types", "QuestionnaireResponse", "FHIR QuestionnaireResponse"),
-            ("http://hl7.org/fhir/resource-types", "*", "All FHIR Resources"),
-        ]
-        # bulk create thing
-        for system, code, text in codes:
-            CodeableConcept.objects.update_or_create(
-                coding_system=system,
-                coding_code=code,
-                defaults={"text": text},
-            )
+        bootstrap.ensure_codeable_concepts()
 
-    def seed_data_sources(self):
-        data_sources = [
-            ("CareX", "personal_device", ["omh:blood-pressure:4.0", "omh:heart-rate:2.0"]),
-            ("Dexcom Stelo", "personal_device", ["omh:blood-glucose:4.0"]),
-            ("iHealth", "personal_device", ["omh:body-temperature:4.0", "omh:heart-rate:2.0"]),
-            (
-                "Oura",
-                "personal_device",
-                [
-                    "omh:heart-rate:2.0",
-                    "omh:oxygen-saturation:2.0",
-                    "omh:respiratory-rate:2.0",
-                    "omh:body-weight:3.0",
-                    "omh:body-height:2.0",
-                    "ieee:sleep-episode:1.0",
-                    "ieee:sleep-stage-summary:1.0",
-                    "ieee:time-in-bed:1.0",
-                    "ieee:total-sleep-time:1.0",
-                    "ieee:physical-activity:1.0",
-                ],
-            ),
-            ("Questionnaire", "patient_app", ["QuestionnaireResponse"]),
-            # Source for clinical records pulled from an EHR's patient-access FHIR API
-            # (#489). Shares its name with the client of the same name -- one product, one
-            # name, the way CareX does. Its supported scope is the FHIR wildcard rather than
-            # any OMH measure: the pull spans every mapped resource type and lands in the
-            # auxiliary FHIR store, not the OMH Observation model.
-            ("EHR Patient Portal", "patient_app", ["*"]),
-            # uscdi-patient-access: clinical records pulled server-side and delivered to the
-            # deployment's S3 bucket; the same wildcard scope as the EHR Patient Portal.
-            ("USCDI Patient Access", "patient_app", ["*"]),
-        ]
-        for name, type, scope_codes in data_sources:
-            # `type` is a default, not a lookup: matching on (name, type) would make a retype
-            # create a second row rather than update the existing one, silently orphaning the
-            # FhirSource/StudyDataSource rows that point at the original by FK.
-            ds, _ = DataSource.objects.update_or_create(name=name, defaults={"type": type})
-            for coding_code in scope_codes:
-                scope = CodeableConcept.objects.get(coding_code=coding_code)
-                DataSourceSupportedScope.objects.get_or_create(data_source=ds, scope_code=scope)
+    @staticmethod
+    def seed_data_sources():
+        bootstrap.ensure_data_sources()
 
-    def seed_clients(self):
-        _alphabet = string.ascii_letters + string.digits
-
-        def _generate_client_id(length=40):
-            return "".join(secrets.choice(_alphabet) for _ in range(length))
-
-        Application = get_application_model()
-
-        clients = [
-            {
-                "name": "CareX",
-                "invitation_url": "https://carex.ai/invitation/CODE",
-                "data_sources": ["CareX", "Questionnaire"],
-            },
-            {
-                "name": "CommonHealth",
-                "invitation_url": "https://commonhealth.tcp.org?invitation=CODE",
-                "data_sources": ["Dexcom Stelo", "iHealth"],
-            },
-            {
-                # Open Wearables patient client, served by JHE itself at /clients/ow/launch
-                # (core/views/common.py::ow_launch). The OW polling pipeline (ow_poll) pulls
-                # Oura data for patients who have linked an OW account.
-                "name": "Open Wearables",
-                "invitation_url": "http://localhost:8001/clients/ow/launch?code=CODE",
-                "data_sources": ["Oura"],
-            },
-            {
-                # SMART on FHIR patient EHR-records client (issue #489). Served on JHE's
-                # own default :8000 -- there is no separate service for this client (unlike
-                # Open Wearables above), so it has no reason to live on a different port.
-                #
-                # The row, its DataSource and its URL path are all "EHR Patient Portal".
-                # The earlier name "Patient Access" collided with the unrelated
-                # `auth.patient_access_clients` login-mode setting (#604), which is a login
-                # mode for a list of clients, not this client.
-                #
-                # NOTE: this app's redirect_uris is the JHE OAuth callback (the default
-                # /auth/callback, used by the invitation -> /o/token exchange), NOT the
-                # Epic callback. The Epic callback URLs
-                # (http://localhost:8000/clients/ehr-patient-portal/callback and the
-                # jhe.fly.dev equivalent) are registered separately on the Epic app at
-                # fhir.epic.com -- they must be updated there in step with this path.
-                "name": "EHR Patient Portal",
-                "invitation_url": "http://localhost:8000/clients/ehr-patient-portal/?code=CODE",
-                # The client and its DataSource are one and the same product (as with CareX),
-                # so they share a name and are linked here. That ClientDataSource row is the
-                # only link: the connect page reads the data source id through it, never by
-                # looking a name up at request time.
-                "data_sources": ["EHR Patient Portal"],
-                # No iss here: the hospital the patient picks supplies it, from
-                # EhrBrand.fhir_base_url. client_id/scopes come from that brand's EhrVendor
-                # (see seed_example_institute's EhrVendor seeding, below).
-            },
-            {
-                # uscdi-patient-access: the server-side counterpart of the EHR Patient Portal.
-                # The shell redeems the invitation link for a token; the EHR returns to
-                # /clients/uscdi-patient-access/callback, registered on each vendor's app.
-                "name": "USCDI Patient Access",
-                "invitation_url": f"{settings.SITE_URL}/clients/uscdi-patient-access/?code=CODE",
-                "data_sources": ["USCDI Patient Access"],
-            },
-        ]
-
-        for client in clients:
-            app, created = Application.objects.get_or_create(
-                name=client["name"],
-                defaults={
-                    "client_id": _generate_client_id(),
-                    "client_type": Application.CLIENT_PUBLIC,
-                    "authorization_grant_type": Application.GRANT_AUTHORIZATION_CODE,
-                    "skip_authorization": True,
-                    "redirect_uris": client.get("redirect_uris", settings.SITE_URL + settings.OAUTH2_CALLBACK_PATH),
-                    "algorithm": "RS256",
-                },
-            )
-            # Create the JheClient explicitly (there is no post_save signal).
-            jhe_client, _ = JheClient.objects.get_or_create(application=app)
-            if created:
-                # Deployment-specific: a deployment's real invitation host is not the seeded
-                # localhost URL, so this is written once and never overwritten.
-                jhe_client.invitation_url = client["invitation_url"]
-                jhe_client.save()
-
-            for ds_name in client["data_sources"]:
-                ds = DataSource.objects.get(name=ds_name)
-                ClientDataSource.objects.get_or_create(client=app, data_source=ds)
+    @staticmethod
+    def seed_clients():
+        bootstrap.ensure_clients()
 
     @staticmethod
     def create_root_organization():
-        return Organization.objects.create(id=0, name="ROOT", type="root")
+        bootstrap.ensure_root_organization()
+        return Organization.objects.get(id=bootstrap.ROOT_ORGANIZATION_ID)
 
     @staticmethod
     def seed_ehr_vendor_sandbox_config():
@@ -849,58 +698,15 @@ class Command(BaseCommand):
         three_org_tom.save_setting("current_organization_id", cosmic_cardio_lab.id)
         three_org_tom.save_setting("current_study_id", cosmic_cardio_lab_o2.id)
 
-    def seed_oauth_application(self, name="JHE Admin UI"):
-        application = get_application_model()
-        application.objects.create(
-            redirect_uris=settings.SITE_URL + settings.OAUTH2_CALLBACK_PATH,
-            client_type="public",
-            authorization_grant_type="authorization-code",
-            client_secret="pbkdf2_sha256$870000$Hrxk93CVKgRSGJdyusw4go$umXWiaCn152vXWiXl1bQZwupccDt18QiQcotff+hBmQ=",
-            name=name,
-            user_id=None,
-            skip_authorization=True,
-            created=timezone.now(),
-            updated=timezone.now(),
-            algorithm="RS256",
-            post_logout_redirect_uris="",
-            hash_client_secret=True,
-            allowed_origins="",
-        )
+    @staticmethod
+    def seed_oauth_application():
+        bootstrap.ensure_admin_ui_application()
 
     def seed_mcp_broker_application(self):
-        """Seed the JHE MCP Server broker as a confidential OAuth client.
-
-        Credentials come from the environment (mirroring how the broker reads
-        its own JHE_CLIENT_ID / JHE_CLIENT_SECRET), so no secret is committed to
-        the repo. Skipped when they are not set — e.g. local or CI seeds that
-        don't run the broker. The broker is the one client that needs
-        ``skip_authorization=True`` recorded in code so a reseed reproduces the
-        no-consent-prompt behavior.
-        """
-        client_id = os.environ.get("MCP_OAUTH_CLIENT_ID")
-        client_secret = os.environ.get("MCP_OAUTH_CLIENT_SECRET")
-        if not (client_id and client_secret):
+        """The MCP server's confidential client, from MCP_OAUTH_CLIENT_ID/SECRET; skipped when
+        they are not set (local and CI seeds that do not run the broker)."""
+        if bootstrap.ensure_mcp_broker_application() is None:
             self._skip("MCP_OAUTH_CLIENT_ID/SECRET not set")
-            return
-        redirect_uri = os.environ.get("MCP_OAUTH_REDIRECT_URI", "https://jhe-mcp.fly.dev/oauth/callback")
-        # django-oauth-toolkit hashes the plaintext on save (hash_client_secret
-        # defaults to True); the broker authenticates by sending the matching
-        # plaintext from its own env. Set it explicitly to mirror
-        # seed_oauth_application and make the behavior obvious.
-        get_application_model().objects.update_or_create(
-            name="JHE MCP Server",
-            defaults={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "hash_client_secret": True,
-                "client_type": "confidential",
-                "authorization_grant_type": "authorization-code",
-                "redirect_uris": redirect_uri,
-                "skip_authorization": True,
-                "algorithm": "RS256",
-                "user_id": None,
-            },
-        )
 
     def seed_sof_ehr_launch_application(self):
         """Seed the "SoF EHR Launch" confidential OAuth client used by /o/token-exchange.
