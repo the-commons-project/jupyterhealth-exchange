@@ -101,11 +101,6 @@ USCDI: tuple[QuerySpec, ...] = (
     ),
 )
 
+# The one query table every vendor is pulled with. A vendor that answers a row differently gets a
+# replacement search for that row on its host directory row (see `vendors.vendor_settings`).
 USCDI_PROFILE = FetchProfile(name="uscdi", queries=USCDI)
-
-# Epic: the USCDI table as published.
-EPIC_PROFILE = USCDI_PROFILE.model_copy(update={"name": "epic"})
-
-# The SMART reference server leaves DocumentReference.category empty; the clinical-note filter
-# would hide every note there.
-SMART_REFERENCE_PROFILE = USCDI_PROFILE.with_query("Documents", "DocumentReference", name="smart-reference")

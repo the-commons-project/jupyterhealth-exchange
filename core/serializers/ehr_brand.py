@@ -1,6 +1,16 @@
 from rest_framework import serializers
 
 from core.models import EhrBrand, EhrBrandLocation, EhrVendor
+from core.models.ehr_brand import query_override_errors
+
+
+class EhrVendorSettingsMixin:
+    """The checks EhrVendor.clean makes, which a ModelSerializer does not call."""
+
+    def validate_query_overrides(self, value):
+        if errors := query_override_errors(value):
+            raise serializers.ValidationError(errors)
+        return value
 
 
 class EhrBrandLocationSerializer(serializers.ModelSerializer):
@@ -20,7 +30,7 @@ class EhrBrandSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class EhrVendorListSerializer(serializers.ModelSerializer):
+class EhrVendorListSerializer(EhrVendorSettingsMixin, serializers.ModelSerializer):
     # The vendor list (thousands of brands/locations nested under some vendors) is expensive to
     # serialize and unused by the list table, which only shows name/client id/scopes/sign-in settings -- brands
     # are fetched separately, per vendor, by EhrVendorSerializer on the detail view.
@@ -35,12 +45,14 @@ class EhrVendorListSerializer(serializers.ModelSerializer):
             "supported_scopes",
             "skip_type_checklist",
             "extra_scopes",
+            "scope_version",
+            "query_overrides",
             "last_updated",
         ]
         read_only_fields = ["id", "last_updated"]
 
 
-class EhrVendorSerializer(serializers.ModelSerializer):
+class EhrVendorSerializer(EhrVendorSettingsMixin, serializers.ModelSerializer):
     # name is nullable on the model but required when creating a vendor via the API
     name = serializers.CharField()
     brands = EhrBrandSerializer(many=True, read_only=True)
@@ -54,6 +66,8 @@ class EhrVendorSerializer(serializers.ModelSerializer):
             "supported_scopes",
             "skip_type_checklist",
             "extra_scopes",
+            "scope_version",
+            "query_overrides",
             "brands",
             "last_updated",
         ]

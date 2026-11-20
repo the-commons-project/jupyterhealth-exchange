@@ -26,6 +26,9 @@ from core.services.jhe_settings import SettingValueType
 from patient_access.testing.smart_sandbox import SandboxConfig
 
 DEFAULT_FILE = Path("core") / "data" / "patient_access_sandbox.json"
+# The SMART reference server leaves DocumentReference.category empty, so the Documents row's
+# clinical-note filter would hide every note there. Migration 0055 repeats this, as migrations must.
+SANDBOX_QUERY_OVERRIDES = [{"row": "Documents", "query": "DocumentReference"}]
 
 
 class SandboxBrand(BaseModel):
@@ -73,6 +76,7 @@ class Command(BaseCommand):
         vendor, _ = EhrVendor.objects.get_or_create(name=spec.vendor)
         vendor.ehr_client_id = spec.client_id  # the sandbox accepts any client id
         vendor.supported_scopes = " ".join(EhrVendor.SUPPORTED_SCOPES)
+        vendor.query_overrides = SANDBOX_QUERY_OVERRIDES
         vendor.save()
         names = [b.name for b in spec.brands]
         EhrBrand.objects.filter(vendor=vendor).exclude(name__in=names).delete()

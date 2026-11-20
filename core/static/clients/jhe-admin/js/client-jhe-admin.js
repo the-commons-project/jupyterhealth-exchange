@@ -2442,6 +2442,49 @@ function readEhrVendorScopeCheckboxes() {
     .join(" ");
 }
 
+const EHR_SCOPE_VERSIONS = [
+  { value: "v1", label: "v1 (patient/X.read)" },
+  { value: "v2", label: "v2 (patient/X.rs)" },
+];
+
+function buildEhrVendorScopeVersionOptions(current) {
+  return EHR_SCOPE_VERSIONS.map((v) => ({ ...v, selected: v.value === (current || "v1") }));
+}
+
+// Context for one t-ehr-vendor-query-override-row: the query-table rows to pick from
+// (CONSTANTS.EHR_QUERY_ROWS), `row` selected (the first when null), and its default search.
+function ehrVendorQueryOverrideContext(row, query) {
+  const rows = CONSTANTS.EHR_QUERY_ROWS;
+  const picked = rows.find((r) => r.label === row) || rows[0];
+  return {
+    options: rows.map((r) => ({ label: r.label, query: r.query, selected: r.label === picked.label })),
+    query: query || "",
+    defaultQuery: picked.query,
+  };
+}
+
+function addEhrVendorQueryOverrideRow() {
+  const row = Handlebars.compile(document.getElementById("t-ehr-vendor-query-override-row").innerHTML);
+  document
+    .getElementById("ehrVendorQueryOverrides")
+    .insertAdjacentHTML("beforeend", row(ehrVendorQueryOverrideContext(null, "")));
+}
+
+function showEhrVendorQueryDefault(select) {
+  select.closest(".ehrVendorQueryOverride").querySelector(".ehrVendorQueryDefault").textContent =
+    select.selectedOptions[0].dataset.default;
+}
+
+// [{row, query}] from the override rows on the form, leaving out any whose search is blank.
+function readEhrVendorQueryOverrides() {
+  return Array.from(document.querySelectorAll("#ehrVendorQueryOverrides .ehrVendorQueryOverride"))
+    .map((el) => ({
+      row: el.querySelector(".ehrVendorQueryOverrideRow").value,
+      query: el.querySelector(".ehrVendorQueryOverrideQuery").value.trim(),
+    }))
+    .filter((o) => o.query);
+}
+
 async function renderEhrVendors(queryParams) {
   const content = Handlebars.compile(
     document.getElementById("t-ehr-vendors").innerHTML
@@ -2464,6 +2507,14 @@ async function renderEhrVendors(queryParams) {
   }
 
   ehrVendorRecord.scopeOptions = buildEhrVendorScopeOptions(ehrVendorRecord.supportedScopes);
+  ehrVendorRecord.scopeVersionOptions = buildEhrVendorScopeVersionOptions(ehrVendorRecord.scopeVersion);
+  ehrVendorRecord.queryOverrideRows = (ehrVendorRecord.queryOverrides || []).map((o) =>
+    ehrVendorQueryOverrideContext(o.row, o.query)
+  );
+  Handlebars.registerPartial(
+    "ehrVendorQueryOverrideRow",
+    document.getElementById("t-ehr-vendor-query-override-row").innerHTML
+  );
 
   Handlebars.registerPartial(
     "crudButton",
@@ -2495,6 +2546,8 @@ function readEhrVendorForm() {
     supportedScopes: readEhrVendorScopeCheckboxes() || null,
     skipTypeChecklist: document.getElementById("ehrVendorSkipTypeChecklist").checked,
     extraScopes: document.getElementById("ehrVendorExtraScopes").value.trim().split(/\s+/).filter(Boolean).join(" "),
+    scopeVersion: document.getElementById("ehrVendorScopeVersion").value,
+    queryOverrides: readEhrVendorQueryOverrides(),
   };
 }
 
@@ -2511,7 +2564,8 @@ async function updateEhrVendor(id) {
   const errors = validateEhrVendorForm();
   if (errors.length) return displayModalValidationError(errors);
   const response = await apiRequest("PATCH", `ehr_vendors/${id}`, readEhrVendorForm());
-  if (response.ok) await navReturnFromCrud();
+  // apiRequest returns nothing after showing a 400's validation errors.
+  if (response && response.ok) await navReturnFromCrud();
 }
 
 async function deleteEhrVendor(id) {

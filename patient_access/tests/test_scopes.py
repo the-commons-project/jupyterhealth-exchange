@@ -3,7 +3,7 @@
 import pytest
 
 from patient_access.core.models import OutcomeStatus
-from patient_access.core.profiles import EPIC_PROFILE
+from patient_access.core.profiles import USCDI_PROFILE
 from patient_access.core.puller import plan_outcomes
 from patient_access.core.scopes import Constraint, Context, Permission, ResourceScope, ScopeSet
 from patient_access.core.source_settings import ClientRegistration, SourceSettings
@@ -35,7 +35,7 @@ EPIC_GRANTED = tuple(
 
 
 def epic_settings() -> SourceSettings:
-    return SourceSettings(registration=ClientRegistration(vendor="epic", client_id="x"), fetch=EPIC_PROFILE)
+    return SourceSettings(registration=ClientRegistration(vendor="epic", client_id="x"), fetch=USCDI_PROFILE)
 
 
 @pytest.mark.parametrize(
@@ -92,7 +92,7 @@ def test_a_constraint_matches_on_code_and_on_system_when_both_name_one():
 
 def test_epic_split_grants_cover_every_row_of_the_epic_profile():
     """The 2026-11-04 Epic sandbox run: every row came out not_granted under exact matching."""
-    assert {q.label for q in epic_settings().queries_for(EPIC_GRANTED)} == {q.label for q in EPIC_PROFILE.queries}
+    assert {q.label for q in epic_settings().queries_for(EPIC_GRANTED)} == {q.label for q in USCDI_PROFILE.queries}
 
 
 def test_epic_split_grants_leave_nothing_requested_withheld():
@@ -121,7 +121,7 @@ def test_a_granular_grant_covers_only_its_own_category():
 def test_a_wildcard_type_covers_every_row():
     settings = epic_settings()
     for wildcard in ("patient/*.read", "patient/*.rs", "patient/*.*"):
-        assert len(settings.queries_for((wildcard,))) == len(EPIC_PROFILE.queries)
+        assert len(settings.queries_for((wildcard,))) == len(USCDI_PROFILE.queries)
 
 
 def test_withheld_names_what_the_ehr_left_out_as_requested():
@@ -132,7 +132,7 @@ def test_withheld_names_what_the_ehr_left_out_as_requested():
 
 def test_outcomes_under_epic_grants_split_unticked_from_withheld():
     settings = epic_settings()
-    requested = settings.scopes([q.scope for q in EPIC_PROFILE.queries if q.label not in {"Allergies"}])
+    requested = settings.scopes([q.scope for q in USCDI_PROFILE.queries if q.label not in {"Allergies"}])
     granted = tuple(s for s in EPIC_GRANTED if not s.startswith("patient/Immunization."))
     outcomes = {o.label: o.status for o in plan_outcomes(settings, requested, granted)}
     assert outcomes["Allergies"] is OutcomeStatus.NOT_REQUESTED  # unticked on our side
@@ -144,7 +144,7 @@ def test_outcomes_under_epic_grants_split_unticked_from_withheld():
 def test_a_user_grant_covers_a_patient_access():
     """In a patient's own launch the user is the patient; every query is pinned to their id."""
     settings = epic_settings()
-    assert len(settings.queries_for(("user/*.read",))) == len(EPIC_PROFILE.queries)
+    assert len(settings.queries_for(("user/*.read",))) == len(USCDI_PROFILE.queries)
     assert ScopeSet.parse(("user/Observation.rs",)).withheld(("patient/Observation.read",)) == ()
     assert ScopeSet.parse(("patient/Observation.rs",)).withheld(("user/Observation.read",)) == (
         "user/Observation.read",
