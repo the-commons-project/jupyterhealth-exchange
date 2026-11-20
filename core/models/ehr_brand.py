@@ -1,4 +1,35 @@
+from django.core.exceptions import ValidationError
 from django.db import models
+
+from patient_access.core.vendors import check_query_override
+from patient_access.core.vocab import ScopeVersion
+
+
+def query_override_errors(value) -> list[str]:
+    """What is wrong with an `EhrVendor.query_overrides` value, for the Django admin and the API.
+    Empty when it is a list of {"row": <query-table row label>, "query": <search>} objects, at most
+    one per row, each search one `check_query_override` accepts."""
+    if not isinstance(value, list):
+        return ["Query overrides must be a list of {row, query} objects."]
+    errors: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"row", "query"}
+            or not all(isinstance(v, str) for v in item.values())
+        ):
+            errors.append("Each query override must be a {row, query} object of two strings.")
+            continue
+        if item["row"] in seen:
+            errors.append(f"{item['row']} has more than one override.")
+            continue
+        seen.add(item["row"])
+        try:
+            check_query_override(item["row"], item["query"])
+        except ValueError as e:
+            errors.append(str(e))
+    return errors
 
 
 class EhrVendor(models.Model):
@@ -84,10 +115,31 @@ class EhrVendor(models.Model):
         help_text="Space-separated scopes requested in addition to openid fhirUser launch/patient, for an "
         "EHR whose sign-in or records need more (Epic: profile).",
     )
+    scope_version = models.CharField(
+        max_length=2,
+        choices=[(ScopeVersion.V1.value, "v1 (patient/X.read)"), (ScopeVersion.V2.value, "v2 (patient/X.rs)")],
+        default=ScopeVersion.V1.value,
+        help_text="The SMART App Launch version the EHR's scopes are spelled in.",
+    )
+    query_overrides = models.JSONField(
+        blank=True,
+        default=list,
+        help_text="Replacement searches for rows of the query table, for an EHR that answers a row "
+        'differently: a list of {"row": <row label>, "query": <search relative to the FHIR base>}.',
+    )
     last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name or f"EhrVendor {self.pk}"
+
+    def clean(self):
+        super().clean()
+        if errors := query_override_errors(self.query_overrides):
+            raise ValidationError({"query_overrides": errors})
+
+    def query_override_map(self) -> dict[str, str]:
+        """`query_overrides` as row label -> search, what the library takes."""
+        return {o["row"]: o["query"] for o in self.query_overrides or ()}
 
 
 class EhrBrand(models.Model):

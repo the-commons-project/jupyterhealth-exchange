@@ -21,7 +21,7 @@ from patient_access.core.models import (
 from patient_access.core.puller import plan_outcomes
 from patient_access.core.settings import PatientAccessSettings, S3Settings
 from patient_access.core.source_settings import SourceSettings
-from patient_access.core.vendors import VENDORS, VendorKey
+from patient_access.core.vendors import vendor_settings
 from patient_access.core.vocab import AuthMethodName, ScopeVersion
 
 ISS = "https://ehr.example.org/fhir/r4"
@@ -60,7 +60,10 @@ SELECTION = Selection(
 
 
 def source_settings(client_id: str = "client-1") -> SourceSettings:
-    return VENDORS[VendorKey.SMART_REFERENCE].settings(vendor_name="Example Vendor", client_id=client_id)
+    # The SMART sandbox's settings: its DocumentReferences carry no category.
+    return vendor_settings(
+        vendor_name="Example Vendor", client_id=client_id, query_overrides={"Documents": "DocumentReference"}
+    )
 
 
 def participant(**attrs: int) -> Participant[HostAttrs]:

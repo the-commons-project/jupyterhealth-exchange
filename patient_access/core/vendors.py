@@ -1,64 +1,73 @@
-"""The vendor registry: the query table each EHR vendor is pulled with, the same in every deployment.
+"""One vendor's SourceSettings, built from what the host's directory row says (JHE: the `EhrVendor` row).
 
-A deployment's part is its client id per vendor and environment, plus what that vendor's sign-in
-needs beyond the standard (scopes added to the base set, and whether the vendor's own screen asks
-the patient which record types to share). The host's directory supplies both (JHE: the
-`EhrVendor` row). An entry here is only for a vendor whose query table differs: a profile in
-`profiles.py` and tests. Any other vendor is pulled with `STANDARD`.
+Every vendor is pulled with the one USCDI query table (`profiles.py`). What differs between vendors
+is set per row by the host, so an operator can change it without a release: the client id, scopes
+added to the base set, the SMART scope version, whether the vendor's own screen asks the patient
+which record types to share, and replacement searches for individual rows of the query table.
+
+A replacement search is free text an operator types, so `check_query_override` refuses one that
+could pull more than its row's scope grants or leave the vendor's FHIR server. Hosts call it when
+the row is saved; `vendor_settings` calls it again so a row written some other way cannot slip by.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from enum import StrEnum
-from types import MappingProxyType
 
-from .credentials import PUBLIC, AuthMethod
-from .models import Value
-from .profiles import EPIC_PROFILE, SMART_REFERENCE_PROFILE, USCDI_PROFILE
-from .source_settings import BASE_SCOPES, ClientRegistration, FetchProfile, SourceSettings
+from .profiles import USCDI_PROFILE
+from .source_settings import BASE_SCOPES, ClientRegistration, FetchProfile, QuerySpec, SourceSettings
 from .vocab import ScopeVersion, TypeChoice
 
 
-class VendorKey(StrEnum):
-    STANDARD = "standard"  # any vendor without an entry of its own: the USCDI table as published
-    EPIC = "epic"
-    SMART_REFERENCE = "smart-reference"  # the SMART Health IT sandbox: dev and end-to-end runs
+def overridable_rows(profile: FetchProfile = USCDI_PROFILE) -> tuple[QuerySpec, ...]:
+    """The rows a host may give a replacement search, in table order. An instance read (the
+    patient's own Patient resource) is left out: it has no search to replace."""
+    return tuple(q for q in profile.queries if not q.single)
 
 
-class Vendor(Value):
-    key: VendorKey
-    fetch: FetchProfile
-    scope_version: ScopeVersion = ScopeVersion.V1
-    methods: tuple[AuthMethod, ...] = (PUBLIC,)  # what this build registers: public clients
+def check_query_override(label: str, query: str, profile: FetchProfile = USCDI_PROFILE) -> None:
+    """Raise ValueError unless `query` may replace the search of the row named `label`.
 
-    def settings(
-        self,
-        *,
-        vendor_name: str,
-        client_id: str,
-        extra_scopes: tuple[str, ...] = (),
-        type_choice: TypeChoice = TypeChoice.HOST,
-    ) -> SourceSettings:
-        """This vendor's settings for one registration (the host's vendor name, client id, and
-        what the host knows the vendor's sign-in needs)."""
-        return SourceSettings(
-            registration=ClientRegistration(
-                vendor=vendor_name,
-                client_id=client_id,
-                methods=self.methods,
-                base_scopes=tuple(dict.fromkeys((*BASE_SCOPES, *extra_scopes))),
-                scope_version=self.scope_version,
-            ),
-            fetch=self.fetch,
-            type_choice=type_choice,
-        )
+    The search must stay on the row's own resource type, since the row's scope is what decides
+    whether it runs: `Observation` under the Documents row would pull Observations on a
+    DocumentReference grant. It must also be a path relative to the vendor's FHIR base, never an
+    absolute URL or a step out of it. The messages never repeat the input, so a host can show them
+    as they are."""
+    row = next((q for q in overridable_rows(profile) if q.label == label), None)
+    if row is None:
+        raise ValueError("Unknown query row; pick one from the list.")
+    if not query or query != query.strip() or any(c.isspace() for c in query):
+        raise ValueError(f"The {row.label} search must be non-empty with no spaces.")
+    path = query.split("?", 1)[0]
+    if "://" in query or query.startswith("/") or ".." in path.split("/") or "#" in query:
+        raise ValueError(f"The {row.label} search must be a path relative to the FHIR base, e.g. {row.query}.")
+    if path.split("/", 1)[0] != row.resource_type:
+        raise ValueError(f"The {row.label} search must start with {row.resource_type}.")
 
 
-VENDORS: Mapping[VendorKey, Vendor] = MappingProxyType(
-    {
-        VendorKey.STANDARD: Vendor(key=VendorKey.STANDARD, fetch=USCDI_PROFILE),
-        VendorKey.EPIC: Vendor(key=VendorKey.EPIC, fetch=EPIC_PROFILE),
-        VendorKey.SMART_REFERENCE: Vendor(key=VendorKey.SMART_REFERENCE, fetch=SMART_REFERENCE_PROFILE),
-    }
-)
+def vendor_settings(
+    *,
+    vendor_name: str,
+    client_id: str,
+    extra_scopes: tuple[str, ...] = (),
+    type_choice: TypeChoice = TypeChoice.HOST,
+    scope_version: ScopeVersion = ScopeVersion.V1,
+    query_overrides: Mapping[str, str] | None = None,
+    profile: FetchProfile = USCDI_PROFILE,
+) -> SourceSettings:
+    """One vendor's settings: the host's row (`query_overrides` is row label -> replacement search)
+    applied to the query table. Raises ValueError on an override `check_query_override` refuses."""
+    fetch = profile
+    for label, query in (query_overrides or {}).items():
+        check_query_override(label, query, profile)
+        fetch = fetch.with_query(label, query, name=profile.name)
+    return SourceSettings(
+        registration=ClientRegistration(
+            vendor=vendor_name,
+            client_id=client_id,
+            base_scopes=tuple(dict.fromkeys((*BASE_SCOPES, *extra_scopes))),
+            scope_version=scope_version,
+        ),
+        fetch=fetch,
+        type_choice=type_choice,
+    )

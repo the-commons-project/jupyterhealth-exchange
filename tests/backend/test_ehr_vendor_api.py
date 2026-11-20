@@ -103,6 +103,54 @@ def test_superuser_can_set_the_sign_in_settings(superuser_client, vendor):
     assert row["skipTypeChecklist"] is True and row["extraScopes"] == "profile"
 
 
+def test_superuser_can_set_the_scope_version_and_query_overrides(superuser_client, vendor):
+    overrides = [{"row": "Summary Documents", "query": "DocumentReference/$docref"}]
+    r = superuser_client.patch(f"{URL}/{vendor.id}", {"scopeVersion": "v2", "queryOverrides": overrides})
+    assert r.status_code == 200, r.text
+    vendor.refresh_from_db()
+    assert vendor.scope_version == "v2" and vendor.query_overrides == overrides  # row labels kept as typed
+    row = next(row for row in superuser_client.get(URL).json()["results"] if row["id"] == vendor.id)
+    assert row["scopeVersion"] == "v2" and row["queryOverrides"] == overrides
+
+
+def test_a_new_vendor_gets_v1_and_no_overrides(superuser_client):
+    r = superuser_client.post(URL, {"name": "Cerner"})
+    assert r.status_code == 201, r.text
+    assert r.json()["scopeVersion"] == "v1" and r.json()["queryOverrides"] == []
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        [{"row": "Documents", "query": "Observation"}],  # off the row's resource type
+        [{"row": "Documents", "query": "https://evil.example/DocumentReference"}],
+        [{"row": "No Such Row", "query": "DocumentReference"}],
+        [{"row": "Documents", "query": "DocumentReference"}, {"row": "Documents", "query": "DocumentReference"}],
+        [{"row": "Documents"}],
+        {"Documents": "DocumentReference"},
+    ],
+)
+def test_a_bad_query_override_is_refused(superuser_client, vendor, overrides):
+    r = superuser_client.patch(f"{URL}/{vendor.id}", {"queryOverrides": overrides})
+    assert r.status_code == 400, r.text
+    assert "queryOverrides" in r.json()
+    vendor.refresh_from_db()
+    assert vendor.query_overrides == []
+
+
+def test_an_unknown_scope_version_is_refused(superuser_client, vendor):
+    r = superuser_client.patch(f"{URL}/{vendor.id}", {"scopeVersion": "v3"})
+    assert r.status_code == 400, r.text
+
+
+def test_the_model_check_refuses_a_bad_override(vendor):
+    from django.core.exceptions import ValidationError
+
+    vendor.query_overrides = [{"row": "Documents", "query": "Observation"}]
+    with pytest.raises(ValidationError, match="must start with DocumentReference"):
+        vendor.full_clean()
+
+
 def test_superuser_can_update(superuser_client, vendor):
     r = superuser_client.patch(f"{URL}/{vendor.id}", {"ehrClientId": "rotated-client-id"})
     assert r.status_code == 200, r.text

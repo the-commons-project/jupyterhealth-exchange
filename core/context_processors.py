@@ -11,6 +11,7 @@ from core.fhir.config import supported_resource_types
 from core.models import DataSource, EhrVendor, JheSetting, Organization
 from core.permissions import ROLE_PERMISSIONS
 from core.services.jhe_settings import DEFAULT_CACHE_TTL, get_setting
+from patient_access.core.vendors import overridable_rows
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,8 @@ def constants(request):
         "DATA_SOURCE_TYPES": json.dumps(DataSource.DATA_SOURCE_TYPES),
         "EHR_SUPPORTED_SCOPES": json.dumps(EhrVendor.SUPPORTED_SCOPES),
         "EHR_PATIENT_PORTAL_BASE_SCOPES": EhrVendor.BASE_SCOPES,
+        # USCDI Patient Access query-table rows an EHR row may override, with their default search.
+        "EHR_QUERY_ROWS": json.dumps([{"label": q.label, "query": q.query} for q in overridable_rows()]),
         "JHE_SETTING_VALUE_TYPES": json.dumps(JheSetting.JHE_SETTING_VALUE_TYPES),
         "ROLE_PERMISSIONS": json.dumps(ROLE_PERMISSIONS),
         "FHIR_RESOURCES": json.dumps(supported_resource_types()),

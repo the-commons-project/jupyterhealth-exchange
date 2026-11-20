@@ -49,9 +49,10 @@ from core.views.uscdi_patient_access import CALLBACK_COOKIE_PREFIX, CALLBACK_COO
 from patient_access.core.flow import FlowErrorKind
 from patient_access.core.models import JobStatus
 from patient_access.core.pipeline import DeliveryRefused
+from patient_access.core.profiles import USCDI_PROFILE
 from patient_access.core.settings import DEFAULT_LAYOUT
 from patient_access.core.smart import clear_discovery_cache
-from patient_access.core.vocab import TypeChoice
+from patient_access.core.vocab import ScopeVersion, TypeChoice
 from patient_access.django_app.models import AuthAttemptRecord, JobRecord
 from patient_access.django_app.wiring import get_module
 
@@ -97,7 +98,7 @@ def module_on(tmp_path):
 @pytest.fixture
 def world(db, organization, patient):
     """The client, its data source with the wildcard scope, a study the patient consented to, and
-    one EHR facility on a vendor the registry knows."""
+    one EHR facility on a vendor row set up as the dev seed sets up the SMART sandbox."""
     star, _ = CodeableConcept.objects.get_or_create(
         coding_system="http://hl7.org/fhir/resource-types", coding_code="*", defaults={"text": "All FHIR Resources"}
     )
@@ -119,7 +120,10 @@ def world(db, organization, patient):
     StudyDataSource.objects.create(study=study, data_source=ds)
     add_patient_to_study(patient, study)
     vendor = EhrVendor.objects.create(
-        name="SMART Sandbox", ehr_client_id="client-1", supported_scopes="patient/Patient.read patient/Observation.read"
+        name="SMART Sandbox",
+        ehr_client_id="client-1",
+        supported_scopes="patient/Patient.read patient/Observation.read",
+        query_overrides=[{"row": "Documents", "query": "DocumentReference"}],
     )
     brand = EhrBrand.objects.create(name="Example Health", vendor=vendor, fhir_base_url=ISS)
     location = EhrBrandLocation.objects.create(brand=brand, name="Example Clinic", address_text="1 Main St")
@@ -682,11 +686,12 @@ def test_the_settings_provider_reads_rows_with_defaults(db):
     assert s.bundle.extension_base_url == "https://jupyterhealth.org/fhir/StructureDefinition/"
 
 
-def test_the_directory_maps_vendor_rows_to_the_registry(world):
+def test_the_directory_builds_settings_from_the_vendor_row(world):
     directory = JheOrmDirectory()
     selection = directory.selection(str(world["location"].id))
     settings = directory.settings_for(selection.endpoint)
-    assert settings.registration.client_id == "client-1" and settings.fetch.name == "smart-reference"
+    assert settings.registration.client_id == "client-1"
+    assert next(q.query for q in settings.fetch.queries if q.label == "Documents") == "DocumentReference"
     EhrVendor.objects.update(ehr_client_id="")
     with pytest.raises(KeyError):
         directory.settings_for(selection.endpoint)
@@ -696,11 +701,14 @@ def test_the_directory_maps_vendor_rows_to_the_registry(world):
 
 def test_the_directory_takes_the_sign_in_settings_from_the_vendor_row(world):
     """What a vendor's sign-in needs is set on its row, whatever the row is called."""
-    EhrVendor.objects.update(name="Some Other EHR", skip_type_checklist=True, extra_scopes="profile")
+    EhrVendor.objects.update(
+        name="Some Other EHR", skip_type_checklist=True, extra_scopes="profile", scope_version="v2", query_overrides=[]
+    )
     directory = JheOrmDirectory()
     settings = directory.settings_for(directory.selection(str(world["location"].id)).endpoint)
-    assert settings.registration.client_id == "client-1" and settings.fetch.name == "uscdi"
+    assert settings.registration.client_id == "client-1" and settings.fetch == USCDI_PROFILE
     assert settings.registration.base_scopes == ("openid", "fhirUser", "launch/patient", "profile")
+    assert settings.registration.scope_version is ScopeVersion.V2
     assert settings.type_choice is TypeChoice.EHR
     assert JheOrmDirectory.type_choice("Some Other EHR") is TypeChoice.EHR
     assert JheOrmDirectory.type_choices() == {"Some Other EHR": TypeChoice.EHR}
@@ -795,6 +803,7 @@ def test_the_sandbox_seed_builds_vendor_brands_and_locations(db, monkeypatch):
     call_command("seed_patient_access_sandbox", stdout=io.StringIO())  # idempotent
     vendor = EhrVendor.objects.get(name="SMART Sandbox")
     assert vendor.ehr_client_id and EhrBrand.objects.filter(vendor=vendor).count() == 2
+    assert vendor.query_override_map() == {"Documents": "DocumentReference"}
     assert all(b.fhir_base_url.startswith("https://launch.smarthealthit.org/v/r4/sim/") for b in vendor.brands.all())
     assert EhrBrandLocation.objects.filter(brand__vendor=vendor).count() == 2
     assert not JheSetting.objects.filter(key__startswith="patient_access.").exists()

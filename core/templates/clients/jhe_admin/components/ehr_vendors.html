@@ -11,6 +11,8 @@
         <th scope="col">Supported Scopes</th>
         <th scope="col">Skip JHE Checklist</th>
         <th scope="col">Extra Scopes</th>
+        <th scope="col">SMART Scopes</th>
+        <th scope="col">Query Overrides</th>
       </tr>
     </thead>
     <tbody>
@@ -51,6 +53,14 @@
           </td>
           <td>{{#if skipTypeChecklist}}Yes{{else}}No{{/if}}</td>
           <td>{{extraScopes}}</td>
+          <td>{{scopeVersion}}</td>
+          <td>
+            <ul>
+            {{#each queryOverrides}}
+              <li>{{row}}</li>
+            {{/each}}
+            </ul>
+          </td>
         </tr>
       {{/ehrVendors}}
     </tbody>
@@ -183,6 +193,35 @@
                     need more (Epic: <code>profile</code>; Oracle Health: <code>patient/Binary.read</code>). USCDI Patient Access only.
                   </div>
                 </div>
+                <div class="mb-3">
+                  <label for="ehrVendorScopeVersion" class="form-label">SMART Scopes</label>
+                  <select class="form-select" id="ehrVendorScopeVersion">
+                    {{#each ehrVendorRecord.scopeVersionOptions}}
+                      <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+                    {{/each}}
+                  </select>
+                  <div class="form-text">
+                    The SMART App Launch version the EHR spells its scopes in: v1
+                    <code>patient/Observation.read</code>, v2 <code>patient/Observation.rs</code>. USCDI Patient Access only.
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Query Overrides</label>
+                  <div id="ehrVendorQueryOverrides">
+                    {{#each ehrVendorRecord.queryOverrideRows}}
+                      {{> ehrVendorQueryOverrideRow}}
+                    {{/each}}
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addEhrVendorQueryOverrideRow()">
+                    Add Override
+                  </button>
+                  <div class="form-text">
+                    Replaces the search JHE runs for one kind of record, for an EHR that answers it differently (eg a
+                    server whose documents carry no category: Documents <code>DocumentReference</code>). The search
+                    must start with the row's resource type and be relative to the FHIR base. A row left blank is
+                    dropped. USCDI Patient Access only.
+                  </div>
+                </div>
               </fieldset>
             </form>
             {{#if read}}
@@ -226,6 +265,23 @@
         </div>
       </div>
     </div>
+  </div>
+</script>
+
+<script id="t-ehr-vendor-query-override-row" type="text/template">
+  <div class="ehrVendorQueryOverride border rounded p-2 mb-2">
+    <div class="d-flex gap-2">
+      <select class="form-select form-select-sm ehrVendorQueryOverrideRow" aria-label="Query row" onchange="showEhrVendorQueryDefault(this)">
+        {{#each options}}
+          <option value="{{label}}" data-default="{{query}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+        {{/each}}
+      </select>
+      <button type="button" class="btn btn-sm btn-outline-danger" aria-label="Remove override"
+        onclick="this.closest('.ehrVendorQueryOverride').remove()">Remove</button>
+    </div>
+    <input type="text" class="form-control form-control-sm mt-2 ehrVendorQueryOverrideQuery" aria-label="Replacement search"
+      value="{{query}}" placeholder="Replacement search" />
+    <div class="form-text">Default: <code class="ehrVendorQueryDefault">{{defaultQuery}}</code></div>
   </div>
 </script>
 {% endverbatim %}
