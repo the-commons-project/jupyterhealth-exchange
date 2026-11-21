@@ -2,9 +2,24 @@ from allauth.account.adapter import DefaultAccountAdapter
 from allauth.account.models import EmailAddress
 from allauth.core.exceptions import SignupClosedException
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from django.contrib import messages
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 from core.services.jhe_settings import get_setting
+
+SSO_REQUIRED_MESSAGE = _('Practitioners sign in with SAML2. Use the "Continue with SAML2" button.')
+
+
+def sso_required_for(user):
+    """True when SSO-only is active and `user` is a practitioner, staff or superuser, who may then
+    sign in only through the SAML IdP. Patients are never affected."""
+    from core.context_processors import sso_only_active
+
+    return bool(
+        sso_only_active() and (user.is_staff or user.is_superuser or (user.is_practitioner() and not user.is_patient()))
+    )
 
 
 class JheAccountAdapter(DefaultAccountAdapter):
@@ -24,6 +39,16 @@ class JheAccountAdapter(DefaultAccountAdapter):
         "unknown_email": _("We couldn't find an account for that email address."),
         "rate_limited": _("You're making requests too quickly. Please wait a moment and try again."),
     }
+
+    def pre_login(self, request, user, *, signal_kwargs, **kwargs):
+        """The email-code login (allauth) refuses practitioners when SSO is required. An SSO login
+        carries a `sociallogin` in `signal_kwargs`, which is how it is told apart. The password form
+        is Django's LoginView (core.views.common), which checks the same rule; the Django admin's
+        own login (/admin/login/) is limited by `auth.admin.allowed_cidrs` instead."""
+        if not (signal_kwargs or {}).get("sociallogin") and sso_required_for(user):
+            messages.error(request, SSO_REQUIRED_MESSAGE)
+            return HttpResponseRedirect(reverse("login"))
+        return super().pre_login(request, user, signal_kwargs=signal_kwargs, **kwargs)
 
 
 class JheSocialAccountAdapter(DefaultSocialAccountAdapter):

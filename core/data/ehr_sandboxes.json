@@ -1,0 +1,53 @@
+{
+  "_comment": "Vendor sandbox / preview environments for USCDI Patient Access, loaded by `manage.py import_sandbox_ehrs`. Client ids are NOT here: each belongs to one deployment's app registration (its redirect URI is that deployment's), so pass them with --client-id \"<vendor row>=<id>\" or set them on the EHRs admin page. Sign-in settings (skip auth screen, extra scopes) come from EhrVendor.DEFAULTS_BY_NAME for Epic and Oracle Health rows; the other rows need none.",
+  "sandboxes": [
+    {
+      "vendor": "Epic Sandbox",
+      "brand": "Epic Sandbox",
+      "fhir_base_url": "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/",
+      "city": "Madison",
+      "state": "WI",
+      "note": "fhir.epic.com > Build Apps: the Non-Production Client ID. Test patients: https://fhir.epic.com/Documentation?docId=testpatients"
+    },
+    {
+      "vendor": "Oracle Health Sandbox",
+      "brand": "Oracle Health Sandbox",
+      "fhir_base_url": "https://fhir-myrecord.cerner.com/r4/ec2458f2-1e24-41c8-b71b-0e701af7583d",
+      "city": "Kansas City",
+      "state": "MO",
+      "note": "code Console (code.cerner.com) app of type Patient, Public, SMART v1. Access tokens last about 9.5 minutes."
+    },
+    {
+      "vendor": "eClinicalWorks Sandbox",
+      "brand": "eClinicalWorks Sandbox",
+      "fhir_base_url": "https://fhir4.healow.com/fhir/r4/JAFJCD",
+      "city": "Westborough",
+      "state": "MA",
+      "note": "connect4.healow.com developer portal, Patient App (Public, OpenID). Practice code JAFJCD is the shared sandbox; test patient logins are in healow's FHIR documentation (Sandbox Testing Guidelines)."
+    },
+    {
+      "vendor": "athenahealth Sandbox",
+      "brand": "athenahealth Sandbox",
+      "fhir_base_url": "https://api.preview.platform.athenahealth.com/fhir/r4",
+      "city": "Watertown",
+      "state": "MA",
+      "note": "developer.api.athena.io: Certified APIs only, 3-Legged OAuth for Patients, Browser app type, PKCE, Preview environment."
+    },
+    {
+      "vendor": "Altera Sandbox",
+      "brand": "Altera Sunrise Sandbox",
+      "fhir_base_url": "https://sunrise-fhir-r4.adpsandbox.ahcentral.com/R4/open-Prod/USCore6.1",
+      "city": "Chicago",
+      "state": "IL",
+      "note": "developer.adp.ahcentral.com FHIR App (public client, Test Only). Patient test logins come from the portal Support Widget. Two brands share the one vendor row."
+    },
+    {
+      "vendor": "Altera Sandbox",
+      "brand": "Altera TouchWorks Sandbox",
+      "fhir_base_url": "https://tw-fhir-r4.adpsandbox.ahcentral.com/R4/open-R4",
+      "city": "Chicago",
+      "state": "IL",
+      "note": "developer.adp.ahcentral.com FHIR App (public client, Test Only). Patient test logins come from the portal Support Widget. Two brands share the one vendor row."
+    }
+  ]
+}

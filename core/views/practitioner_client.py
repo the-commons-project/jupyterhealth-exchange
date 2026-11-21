@@ -7,6 +7,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from core.auth import practitioner_client_owner_allowed
 from core.models import PractitionerClient
 from core.serializers import PractitionerClientSerializer
 
@@ -52,6 +53,11 @@ class PractitionerClientViewSet(ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
+        if not practitioner_client_owner_allowed(request.user):
+            return Response(
+                {"detail": "API keys are limited to the accounts in auth.practitioner_clients.allowed_emails."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         practitioner = request.user.practitioner
         label = request.data.get("label", "") or ""
 

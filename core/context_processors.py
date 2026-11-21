@@ -67,6 +67,13 @@ def _saml2_enabled():
     return enabled
 
 
+def sso_only_active():
+    """True when `auth.sso.required_for_practitioners` is on AND the SAML button can work (the
+    switch is on and exactly one SAML application exists). Without the second condition the
+    setting would lock everyone out of a login page that has no way in."""
+    return bool(get_setting("auth.sso.required_for_practitioners", False) and _saml2_enabled())
+
+
 def constants(request):
     site_url = get_setting("site.url", settings.SITE_URL)
     site_logo = get_setting("site.ui.logo", "")
@@ -82,6 +89,7 @@ def constants(request):
         "OAUTH2_CALLBACK_PATH": settings.OAUTH2_CALLBACK_PATH,
         "OIDC_CLIENT_ID": _get_oidc_client_id(),
         "SAML2_ENABLED": _saml2_enabled(),
+        "SSO_ONLY": sso_only_active(),
         "ORGANIZATION_TYPES": json.dumps(Organization.ORGANIZATION_TYPES),
         "DATA_SOURCE_TYPES": json.dumps(DataSource.DATA_SOURCE_TYPES),
         "EHR_SUPPORTED_SCOPES": json.dumps(EhrVendor.SUPPORTED_SCOPES),

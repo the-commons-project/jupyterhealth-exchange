@@ -26,6 +26,8 @@ from django.urls import reverse
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from six import text_type
 
+from core.services.jhe_settings import get_setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +47,29 @@ account_activation_token = TokenGenerator()
 # ---------------------------------------------------------------------------
 # 2. DOT OIDC validator
 # ---------------------------------------------------------------------------
+
+
+def practitioner_clients_allowed_emails():
+    """The lowercase emails in `auth.practitioner_clients.allowed_emails` (comma or whitespace
+    separated), or an empty set, which means every practitioner may hold and use keys."""
+    raw = get_setting("auth.practitioner_clients.allowed_emails", "") or ""
+    return {e.lower() for e in raw.replace(",", " ").split()}
+
+
+def practitioner_client_owner_allowed(user):
+    """Whether `user` (the owner of a practitioner key) may create keys and use them, per
+    `auth.practitioner_clients.allowed_emails`. Empty setting: everyone."""
+    allowed = practitioner_clients_allowed_emails()
+    return not allowed or (user is not None and (user.email or "").lower() in allowed)
+
+
+def application_allowed(application):
+    """False only for a practitioner key whose owner is not on the allowlist; other OAuth
+    applications (patient apps, the admin UI, the MCP broker) are never affected."""
+    practitioner_client = getattr(application, "practitioner_client", None)
+    if practitioner_client is None:
+        return True
+    return practitioner_client_owner_allowed(practitioner_client.practitioner.jhe_user)
 
 
 class JheOAuth2Validator(OAuth2Validator):
@@ -68,8 +93,18 @@ class JheOAuth2Validator(OAuth2Validator):
        so we only need to supply the actual claim value.
     """
 
+    def authenticate_client(self, request, *args, **kwargs):
+        # A practitioner key whose owner is not on the allowlist cannot obtain a token.
+        authenticated = super().authenticate_client(request, *args, **kwargs)
+        if authenticated and not application_allowed(getattr(request, "client", None)):
+            return False
+        return authenticated
+
     def validate_bearer_token(self, token, scopes, request):
         valid = super().validate_bearer_token(token, scopes, request)
+        # Tokens issued before the allowlist, or to an owner since removed from it, stop working.
+        if valid and not application_allowed(getattr(request, "client", None)):
+            return False
         if valid and request.user is None:
             application = getattr(request, "client", None)
             if application is not None and application.user is not None:

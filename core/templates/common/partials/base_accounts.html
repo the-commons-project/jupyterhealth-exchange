@@ -96,6 +96,10 @@
     <h1 class="h3 mb-3 fw-normal">{% block prompt %}{% endblock %}</h1>
     <div id="clientErrors"></div>
 
+    {% for message in messages %}
+      <div class="alert alert-danger" role="alert">{{ message }}</div>
+    {% endfor %}
+
     {% for key, value in form.errors.items %}
       {{ value }}
     {% endfor %}

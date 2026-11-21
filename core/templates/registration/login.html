@@ -7,6 +7,8 @@
 
 {% block form_fields %}
 
+{% if not SSO_ONLY %}
+
 <div class="form-floating">
   <input name="username" type="email" class="form-control" id="floatingInput" placeholder="name@example.com">
   <label for="floatingInput">Email address</label>
@@ -25,6 +27,8 @@
 <button class="w-100 btn btn-lg btn-primary mt-5" type="submit">Log In</button>
 <!-- https://docs.djangoproject.com/en/5.0/topics/auth/default/#using-the-views -->
 
+{% endif %}
+
 <p class="mt-3">
 {% if SAML2_ENABLED %}
     {# Honor ?next= like the password form above; allauth validates it (is_safe_url) before redirecting. #}
@@ -33,6 +37,8 @@
 </p>
 
 
+{% if not SSO_ONLY %}
 <div class="mt-4"><a href="{% url 'password_reset' %}">Forgot Password</a> | <a href="{% url 'signup' %}">Sign Up</a></div>
+{% endif %}
 
 {% endblock %}

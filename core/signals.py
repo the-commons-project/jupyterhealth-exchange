@@ -5,6 +5,7 @@ import logging
 from allauth.socialaccount.models import SocialApp
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.db.models import Q
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
@@ -41,6 +42,16 @@ def before_superuser_created(sender, instance, **kwargs):
     if instance._state.adding and instance.is_superuser and not instance.user_type:
         logger.debug("pre_save: superuser %s - setting user_type=practitioner", instance.email)
         instance.user_type = "practitioner"
+
+
+@receiver(post_save, sender=Practitioner)
+def label_user_as_practitioner(sender, instance, created, **kwargs):
+    # A practitioner profile made directly (the Django admin) leaves user_type empty, and the
+    # organization member list filters on it. Fill it in when empty; never overwrite a set value.
+    if created:
+        User.objects.filter(pk=instance.jhe_user_id).filter(Q(user_type__isnull=True) | Q(user_type="")).update(
+            user_type="practitioner"
+        )
 
 
 @receiver(post_save, sender=User)

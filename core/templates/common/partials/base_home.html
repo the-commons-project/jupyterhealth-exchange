@@ -49,7 +49,7 @@
       <a href="/clients/jhe-admin" class="btn btn-success">Data Portal</a>
       <a href="{% url 'logout' %}" class="btn btn-primary">Log Out</a>
     {% else %}
-      <a href="{% url 'signup' %}" class="btn btn-outline-success">Sign Up</a>
+      {% if not SSO_ONLY %}<a href="{% url 'signup' %}" class="btn btn-outline-success">Sign Up</a>{% endif %}
       <a href="{% url 'login' %}" class="btn btn-primary">Log In</a>
     {% endif %}
     </div>

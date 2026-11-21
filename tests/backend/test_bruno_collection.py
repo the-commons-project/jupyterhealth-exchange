@@ -1030,6 +1030,7 @@ class TestEdgeCases:
         assert len(data["results"]) == 1
         assert data["count"] == 5
 
+    @pytest.mark.django_db
     def test_unauthenticated_access_denied(self, unauthenticated_client):
         """All API endpoints should reject unauthenticated requests."""
         endpoints = [

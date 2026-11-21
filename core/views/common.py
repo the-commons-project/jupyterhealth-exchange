@@ -10,7 +10,7 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login
 from django.contrib.auth import logout as django_logout
 from django.contrib.auth.views import LoginView as BaseLoginView
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -22,7 +22,9 @@ from oauth2_provider.models import get_access_token_model
 from oauth2_provider.views import TokenView
 from oauthlib.common import Request
 
+from core.adapters import SSO_REQUIRED_MESSAGE, sso_required_for
 from core.auth import IdTokenError, JheOAuth2Validator, account_activation_token, parse_fhir_user, verify_id_token
+from core.context_processors import sso_only_active
 from core.models import Practitioner
 from core.services.jhe_settings import get_setting
 from core.views.patient_facing import patient_facing_config
@@ -63,7 +65,18 @@ class LoginView(BaseLoginView):
         return super().get(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
+        # SSO-only: the password form is not shown and its endpoint is closed. Patients have no
+        # password to type (invitation link or email code), so nobody legitimate is turned away.
+        if sso_only_active():
+            return HttpResponseForbidden(SSO_REQUIRED_MESSAGE)
         return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        # Belt and braces behind post(): a practitioner, staff or superuser is never signed in by password.
+        if sso_required_for(form.get_user()):
+            form.add_error(None, SSO_REQUIRED_MESSAGE)
+            return self.form_invalid(form)
+        return super().form_valid(form)
 
 
 def _patient_access_otp_redirect(request):
@@ -141,6 +154,9 @@ def client_auth_login(request):
 
 
 def signup(request):
+    if sso_only_active():
+        # Accounts are created through SSO (practitioners) or by invitation (patients).
+        return HttpResponseForbidden(SSO_REQUIRED_MESSAGE)
     if request.method == "POST":
         next = request.GET.get("next")
         form = UserRegistrationForm(request.POST)

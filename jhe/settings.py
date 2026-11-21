@@ -84,6 +84,10 @@ CSRF_TRUSTED_ORIGINS = [SITE_URL]
 # https://stackoverflow.com/questions/62047354/build-absolute-uri-with-https-behind-reverse-proxy
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# How many proxies in front of the app append to X-Forwarded-For (an Application Load Balancer is
+# one). The client address used for the /admin/ network allowlist is read that many entries from
+# the right, since anything further left is client-supplied. Use 0 when nothing sits in front.
+TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "1"))
 
 # HTTP Strict Transport Security, sent by SecurityMiddleware on HTTPS responses only. Off (0)
 # unless a deployment sets it; a deployment behind an HTTPS-only load balancer sets
@@ -242,6 +246,10 @@ MIDDLEWARE = [
     # response. Outermost so it sets headers on every /o/ response.
     "core.middleware.OAuthCorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # /admin/ and the settings API only from the networks in auth.admin.allowed_cidrs (empty = anywhere).
+    "core.middleware.AdminIpAllowlistMiddleware",
+    # While SSO-only is on: no sign-up and no password reset.
+    "core.middleware.SsoOnlyClosedPathsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
